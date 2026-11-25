@@ -54,6 +54,9 @@ HTTPS_ATIVO = False
 LIMITE_PARTE = 32 * 1024 * 1024
 TIPOS_AUDIO = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a"}
 PORTA = int(os.environ.get("PORTA", "8090"))
+HOST = os.environ.get("HOST", "0.0.0.0")  # 127.0.0.1 quando há um proxy (Caddy, nginx) na frente
+# Atrás de proxy, o IP real do visitante vem no X-Forwarded-For (usado no bloqueio por tentativas)
+PROXY_CONFIAVEL = os.environ.get("PROXY_CONFIAVEL", "0") == "1"
 PIN_PRESIDENTE = os.environ.get("PIN_PRESIDENTE", "1234")  # PIN inicial; depois da troca vale o salvo (com hash)
 # Período de testes: TROCA_PIN=0 deixa entrar com PIN padrão (0000) sem obrigar a troca. Em produção, deixe ligado.
 TROCA_PIN_OBRIGATORIA = os.environ.get("TROCA_PIN", "1") != "0"
@@ -2194,7 +2197,12 @@ class Manipulador(BaseHTTPRequestHandler):
         return a
 
     def _ip(self) -> str:
-        return self.client_address[0] if self.client_address else "?"
+        ip = self.client_address[0] if self.client_address else "?"
+        if PROXY_CONFIAVEL and ip in ("127.0.0.1", "::1"):
+            encaminhado = (self.headers.get("X-Forwarded-For") or "").split(",")[-1].strip()
+            if encaminhado:
+                return encaminhado[:64]  # o último é o que o nosso proxy acrescentou: não dá para forjar
+        return ip
 
     # ----- GET
     def setup(self):
@@ -2791,7 +2799,7 @@ def main():
         ips = [i for i in tls.ips_locais() if i != "127.0.0.1"]
         print(f"HTTPS: https://localhost:{PORTA_HTTPS}" + "".join(f"  https://{i}:{PORTA_HTTPS}" for i in ips[:3]))
         print(f"Instale o certificado da autoridade nos aparelhos: http://<ip>:{PORTA}/certificado")
-    servidor = ThreadingHTTPServer(("0.0.0.0", PORTA), Manipulador)
+    servidor = ThreadingHTTPServer((HOST, PORTA), Manipulador)
     servidor.daemon_threads = True
     servidor.redireciona = bool(par)
     print(f"Parlatório Legis em http://localhost:{PORTA}  (PIN do presidente: variável PIN_PRESIDENTE)", flush=True)

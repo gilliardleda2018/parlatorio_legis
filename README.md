@@ -36,6 +36,8 @@ Variáveis de ambiente:
 - `TZ`: fuso das atas (o Docker já usa `America/Sao_Paulo`)
 - `PIN_PRESIDENTE`: PIN do painel do presidente (padrão 1234; troque em produção)
 - `TRANSCRICAO`: `auto` (padrão), `local`, `api`, `comando` ou `0` — veja **Transcrição dos discursos**
+- `HOST`: endereço onde o servidor escuta (padrão `0.0.0.0`; use `127.0.0.1` atrás de um proxy)
+- `PROXY_CONFIAVEL=1`: atrás de proxy (Caddy, nginx), usa o IP real do visitante no bloqueio por tentativas
 - `TROCA_PIN=0`: período de testes — deixa entrar com o PIN padrão (0000) sem obrigar a troca. Não use em produção.
 - `PARLATORIO_BANCO`: caminho do banco SQLite (padrão `dados/parlatorio.db`)
 
@@ -212,6 +214,10 @@ Para apresentar o sistema com dados fictícios (16 projetos e 8 sessões arquiva
 python3 scripts/dados_demo.py dados/demo.db
 PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 ```
+
+## Publicar na internet
+
+O roteiro para a AWS (EC2 em São Paulo, HTTPS automático com Caddy no domínio da câmara) está em [deploy/aws/README.md](deploy/aws/README.md), com o instalador `deploy/aws/instalar.sh`, que serve para qualquer servidor Ubuntu.
 
 ## Transmissão ao vivo (rádio)
 
