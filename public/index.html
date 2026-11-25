@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parlatório Legis</title>
+<meta name="description" content="Parlatório Legis: controle do tempo de fala, presença e votação em plenário.">
+<link rel="icon" type="image/png" href="/marca/favicon-32x32.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 48px }
+  .topo { text-align: center; margin-bottom: 32px }
+  .topo img { width: 150px; max-width: 45vw; object-fit: contain }
+  .topo h1 { font-size: 30px; margin: 12px 0 6px }
+  .sub { color: var(--suave); margin: 0 auto; max-width: 560px; line-height: 1.5 }
+  .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px }
+  .grade .cartao { display: flex; flex-direction: column; gap: 10px }
+  .grade h2 { font-size: 21px }
+  .grade .botao { margin-top: auto; align-self: flex-start }
+  .rodape { color: var(--suave); font-size: 13px; text-align: center; margin-top: 36px; line-height: 1.6 }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img src="/marca/logo.svg" alt="">Parlatório Legis</a>
+  <a class="item ativo" href="/presidente">Painel do presidente</a>
+  <a class="item" href="/telao">Telão</a>
+  <a class="item" href="/parlamentar">Parlamentar</a>
+  <span class="esp"></span><span class="conexao"></span>
+</div></nav>
+<main>
+  <div class="topo">
+    <img data-logo src="/marca/logo.svg" alt="">
+    <h1 data-casa>Parlatório Legis</h1>
+    <p class="sub"><span data-sessao></span><br>Tempo de fala, presença, pauta e votação do plenário, ao vivo em todas as telas.</p>
+  </div>
+  <div class="grade">
+    <section class="cartao">
+      <h2>Painel do presidente</h2>
+      <p class="detalhe">Mesa diretora e secretaria: fases, inscrições, cronômetro, apartes, pauta, votação e relatórios. Exige PIN.</p>
+      <a class="botao principal" href="/presidente">Abrir painel</a>
+    </section>
+    <section class="cartao">
+      <h2>Telão do plenário</h2>
+      <p class="detalhe">Para a TV ou o projetor: orador, tempo, próximos inscritos, quórum e placar de votação. Duplo clique para tela cheia.</p>
+      <a class="botao" href="/telao">Abrir telão</a>
+    </section>
+    <section class="cartao">
+      <h2>Parlamentar</h2>
+      <p class="detalhe">No celular: registrar presença, pedir inscrição, aparte, questão de ordem e votar. Exige PIN pessoal.</p>
+      <a class="botao" href="/parlamentar">Entrar</a>
+    </section>
+  </div>
+  <p class="rodape">Parlatório Legis · software livre · Aggilli Intelligence</p>
+</main>
+<script src="/comum.js"></script>
+<script>PL.conectar();</script>
+</body>
+</html>

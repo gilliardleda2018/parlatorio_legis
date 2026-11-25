@@ -1,0 +1,8 @@
+services:
+  parlatorio:
+    build: .
+    ports: ["${PORTA:-8090}:8080"]
+    environment:
+      PIN_PRESIDENTE: ${PIN_PRESIDENTE:-1234}
+    volumes: ["./dados:/dados"]
+    restart: unless-stopped

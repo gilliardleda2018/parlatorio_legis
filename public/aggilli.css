@@ -1,0 +1,136 @@
+/* Parlatório Legis — base visual no padrão Aggilli.
+   Tokens iguais aos do site da Aggilli; a cor de destaque vem da configuração
+   da casa (--destaque) e o tema claro troca só as superfícies. */
+:root {
+  --fundo: #0b1220;
+  --cartao: #111b2e;
+  --cartao2: #1b2a44;
+  --cartao3: #24365a;
+  --fundo-fundo: #0a1426;
+  --linha: #1f2d48;
+  --texto: #e6edf6;
+  --suave: #9fb0c6;
+  --branco: #fff;
+  --destaque: #d66060;
+  --destaque-forte: color-mix(in srgb, var(--destaque) 85%, #000);
+  --destaque-suave: color-mix(in srgb, var(--destaque) 70%, transparent);
+  --azul: #1f8fff;
+  --ciano: #19b6d8;
+  --verde: #4fb83b;
+  --ambar: #f2a53a;
+  --vermelho: #e5484d;
+  --sim: #2fb36b;
+  --nao: #e5484d;
+  --abst: #8a95a8;
+  --raio: 14px;
+  font-family: "Segoe UI", Arial, sans-serif;
+  color-scheme: dark;
+}
+[data-tema="claro"] {
+  --fundo: #eef2f7;
+  --cartao: #ffffff;
+  --cartao2: #e7edf5;
+  --cartao3: #d6e0ec;
+  --fundo-fundo: #f5f8fb;
+  --linha: #d3dce8;
+  --texto: #142033;
+  --suave: #56657c;
+  --branco: #0b1220;
+  color-scheme: light;
+}
+* { box-sizing: border-box }
+html, body { margin: 0 }
+body { min-height: 100vh; background: var(--fundo); color: var(--texto); font-family: inherit; line-height: 1.4 }
+button, input, select, textarea { font: inherit; color: inherit }
+a { color: inherit }
+.tnum { font-variant-numeric: tabular-nums }
+.suave { color: var(--suave) }
+.oculto { display: none !important }
+h1, h2, h3 { margin: 0; text-wrap: balance }
+
+/* ---------- menu (nav) ---------- */
+.nav { position: sticky; top: 0; z-index: 20; background: var(--destaque-suave); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 2px 12px rgba(0,0,0,.25); color: #fff }
+.nav .menu { display: flex; align-items: center; gap: 6px; padding: 10px 18px; flex-wrap: wrap }
+.marca { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 700; font-size: 18px; margin-right: 10px; color: #fff; white-space: nowrap }
+.marca img { width: 34px; height: 34px; background: #fff; border-radius: 8px; padding: 3px; object-fit: contain }
+.marca small { display: block; font-weight: 500; font-size: 12px; opacity: .85 }
+.nav .item { color: #fff; text-decoration: none; font-weight: 600; font-size: 15px; padding: 8px 12px; border-radius: 8px; background: none; border: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 6px }
+.nav .item:hover { background: rgba(255,255,255,.15) }
+.nav .item.ativo { background: rgba(255,255,255,.92); color: var(--destaque-forte) }
+.nav .esp { flex: 1 }
+.nav .relogio { font-size: 20px; font-weight: 700; padding: 0 8px }
+.conexao { width: 10px; height: 10px; border-radius: 50%; background: var(--ambar); display: inline-block }
+.conexao.on { background: #5ee68a; box-shadow: 0 0 8px #5ee68a }
+.conexao.off { background: var(--vermelho) }
+.bolha { min-width: 20px; height: 20px; border-radius: 99px; background: #fff; color: var(--destaque-forte); font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; padding: 0 6px }
+
+/* ---------- cartões ---------- */
+.cartao { background: var(--cartao); border-radius: var(--raio); padding: 18px; border-top: 4px solid var(--destaque-suave) }
+.cartao.neutro { border-top-color: var(--cartao3) }
+.cartao > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--suave); font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px }
+.cartao > h2 .esp { flex: 1 }
+.detalhe { color: var(--suave); font-size: 14px }
+.vazio { color: var(--suave); font-size: 14px; padding: 8px 0 }
+
+/* ---------- botões ---------- */
+.botao { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: var(--cartao2); color: var(--texto); border: 1px solid transparent; text-decoration: none; font-size: 15px; font-weight: 600; padding: 9px 14px; border-radius: 10px; cursor: pointer; transition: background .15s, transform .1s, border-color .15s; white-space: nowrap }
+.botao:hover:not(:disabled) { background: var(--cartao3) }
+.botao:active:not(:disabled) { transform: scale(.97) }
+.botao:focus-visible { outline: 2px solid var(--azul); outline-offset: 2px }
+.botao:disabled { opacity: .4; cursor: not-allowed }
+.botao.principal { background: var(--destaque-suave); color: #fff }
+.botao.principal:hover:not(:disabled) { background: var(--destaque-forte) }
+.botao.ok { background: var(--sim); color: #fff }
+.botao.ok:hover:not(:disabled) { background: color-mix(in srgb, var(--sim) 85%, #000) }
+.botao.perigo { background: var(--vermelho); color: #fff }
+.botao.perigo:hover:not(:disabled) { background: color-mix(in srgb, var(--vermelho) 85%, #000) }
+.botao.azul { background: var(--azul); color: #fff }
+.botao.fantasma { background: transparent; border-color: var(--cartao3) }
+.botao.pq { padding: 5px 9px; font-size: 13px; border-radius: 8px }
+.botao.gr { padding: 14px 22px; font-size: 18px; border-radius: 12px }
+.grupo { display: flex; flex-wrap: wrap; gap: 8px }
+
+/* ---------- campos ---------- */
+.campo { background: var(--fundo-fundo); border: 1px solid var(--linha); border-radius: 8px; padding: 8px 10px; width: 100% }
+.campo:focus { outline: 2px solid var(--azul); outline-offset: -1px }
+label.linha { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 0 }
+label.rot { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--suave) }
+input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--destaque) }
+input[type=color] { width: 44px; height: 32px; padding: 2px; border-radius: 6px; border: 1px solid var(--linha); background: var(--fundo-fundo) }
+
+/* ---------- avatar ---------- */
+.av { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 15px; flex: none; color: #fff; overflow: hidden; background: var(--cartao3); box-shadow: 0 0 0 2px var(--cor-partido, transparent) }
+.av img { width: 100%; height: 100%; object-fit: cover }
+.sigla { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 99px; color: #fff; background: var(--cor-partido, var(--cartao3)); letter-spacing: .03em; white-space: nowrap }
+
+/* ---------- etiquetas de estado ---------- */
+.chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 99px; background: var(--cartao2); text-transform: uppercase; letter-spacing: .05em }
+.chip .ponto { width: 8px; height: 8px; border-radius: 50%; background: var(--suave) }
+.chip.vivo .ponto { background: #5ee68a; box-shadow: 0 0 8px #5ee68a }
+.chip.corte .ponto { background: var(--vermelho) }
+.chip.interr .ponto { background: var(--azul) }
+.chip.sim { background: color-mix(in srgb, var(--sim) 25%, transparent); color: var(--sim) }
+.chip.nao { background: color-mix(in srgb, var(--nao) 25%, transparent); color: var(--nao) }
+.chip.ambar { background: color-mix(in srgb, var(--ambar) 25%, transparent); color: var(--ambar) }
+
+/* ---------- cronômetro ---------- */
+.n-ok { color: var(--sim) }
+.n-alerta { color: var(--ambar) }
+.n-fim { color: var(--vermelho) }
+.pisca { animation: pisca 1s steps(2, start) infinite }
+@keyframes pisca { to { visibility: hidden } }
+.barra { height: 10px; background: var(--fundo-fundo); border-radius: 99px; overflow: hidden }
+.barra i { display: block; height: 100%; background: var(--sim); transition: width .25s linear, background .3s }
+.barra.n-alerta i { background: var(--ambar) }
+.barra.n-fim i { background: var(--vermelho) }
+
+/* ---------- avisos ---------- */
+#avisos { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 100; pointer-events: none }
+.aviso { background: var(--cartao2); color: var(--texto); padding: 10px 16px; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.35); border-left: 4px solid var(--azul); font-size: 14px; animation: entra .2s ease-out }
+.aviso.erro { border-left-color: var(--vermelho) }
+@keyframes entra { from { opacity: 0; transform: translateY(8px) } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important }
+  .pisca { animation: none }
+}
