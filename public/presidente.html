@@ -81,7 +81,7 @@
   table.tab { width: 100%; border-collapse: collapse; font-size: 14px }
   table.tab th { text-align: left; color: var(--suave); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; padding: 8px }
   table.tab td { padding: 8px; border-top: 1px solid var(--linha); vertical-align: middle }
-  table.tab td.num { text-align: right }
+  table.tab td.num, table.tab th.num { text-align: right }
   .barras { display: flex; flex-direction: column; gap: 8px }
   .barras .l { display: grid; grid-template-columns: 120px 1fr 70px; gap: 10px; align-items: center; font-size: 14px }
   .barras .l .b { height: 14px; border-radius: 4px; background: var(--cor-partido) }
@@ -108,6 +108,10 @@
   .rec { display: inline-flex; align-items: center; gap: 6px; color: var(--vermelho); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .05em }
   .rec::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--vermelho); animation: pisca 1s steps(2, start) infinite }
   .cores { display: flex; gap: 6px; flex-wrap: wrap }
+  .numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 14px 0 }
+  .numeros div { background: var(--cartao2); border-radius: 12px; padding: 12px; text-align: center; font-size: 13px; color: var(--suave) }
+  .numeros b { display: block; font-size: 28px; color: var(--texto) }
+  dialog.largo { width: min(860px, 96vw) }
   .cores button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer }
   .cores button.on { border-color: var(--texto) }
   .fases-cfg td { padding: 4px }
@@ -134,6 +138,7 @@
       <button class="item" data-aba="pauta">Pauta e votação</button>
       <button class="item" data-aba="plenario">Plenário <span class="bolha" id="bolhaPresenca"></span></button>
       <button class="item" data-aba="relatorios">Relatórios</button>
+      <button class="item" data-aba="sessoes">Sessões</button>
       <button class="item" data-aba="config">Configurações</button>
       <span class="esp"></span>
       <span class="conexao" title="Conectando…"></span>
@@ -237,6 +242,17 @@
       </div>
     </section>
 
+    <!-- ===== SESSÕES ===== -->
+    <section class="aba" id="aba-sessoes">
+      <div class="coluna">
+        <div class="cartao" id="sessaoAtual"></div>
+        <div class="cartao neutro">
+          <h2>Sessões anteriores<span class="esp"></span><button class="botao pq" onclick="carregarSessoes()">Atualizar</button></h2>
+          <table class="tab" id="tabSessoes"></table>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== CONFIGURAÇÕES ===== -->
     <section class="aba" id="aba-config">
       <div class="grade2">
@@ -255,7 +271,7 @@
                 <div style="display:flex;gap:10px;align-items:center">
                   <img data-logo style="width:56px;height:56px;object-fit:contain;background:#fff;border-radius:10px;padding:4px" alt="">
                   <input type="file" accept="image/png,image/jpeg,image/webp" id="cLogo">
-                  <button class="botao pq" onclick="PL.acao('presidente','imagem',{alvo:'logo'})">Usar logo Aggilli</button>
+                  <button class="botao pq" onclick="logoAggilli()">Usar logo Aggilli</button>
                 </div>
               </div>
             </div>

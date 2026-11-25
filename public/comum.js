@@ -154,7 +154,7 @@ const PL = (() => {
   }
 
   /* reduz uma foto para um quadrado de 320 px em JPEG antes de enviar */
-  function lerImagem(arquivo, lado = 320, quadrado = true) {
+  function lerImagem(arquivo, lado = 320, quadrado = true, formato = quadrado ? 'jpeg' : 'png') {
     return new Promise((ok, falha) => {
       const img = new Image();
       img.onload = () => {
@@ -162,8 +162,10 @@ const PL = (() => {
         let sx = 0, sy = 0, sw = img.width, sh = img.height;
         if (quadrado) { const m = Math.min(sw, sh); sx = (sw - m) / 2; sy = (sh - m) / 2; sw = sh = m; c.width = c.height = lado; }
         else { const k = Math.min(1, lado / Math.max(sw, sh)); c.width = sw * k; c.height = sh * k; }
-        c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
-        ok(c.toDataURL(quadrado ? 'image/jpeg' : 'image/png', .86));
+        const g = c.getContext('2d');
+        if (formato === 'jpeg') { g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); }  // JPEG não tem transparência
+        g.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+        ok(c.toDataURL('image/' + formato, .88));
         URL.revokeObjectURL(img.src);
       };
       img.onerror = () => falha(new Error('Imagem inválida.'));

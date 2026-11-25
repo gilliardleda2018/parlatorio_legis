@@ -52,9 +52,30 @@
       <a class="botao" href="/parlamentar">Entrar</a>
     </section>
   </div>
+  <section class="cartao neutro" style="margin-top:16px" id="seguranca">
+    <h2>Conexão segura (HTTPS)</h2>
+    <p class="detalhe" id="segTexto">Na primeira vez em cada computador, tablet ou celular, instale o certificado da casa legislativa para o navegador confiar no endereço seguro sem avisos.</p>
+    <div class="grupo"><a class="botao" href="/certificado">Baixar certificado da casa</a>
+      <a class="botao fantasma" id="segIr" href="#">Ir para o endereço seguro</a></div>
+    <p class="detalhe" style="margin-bottom:0"><b>Android:</b> Configurações → Segurança → Criptografia e credenciais → Instalar certificado → Certificado de CA.
+      <b>iPhone/iPad:</b> abra o arquivo, instale o perfil em Ajustes e ative em Ajustes → Geral → Sobre → Ajustes de Confiança de Certificados.
+      <b>Windows:</b> abra o arquivo → Instalar certificado → Máquina local → “Autoridades de Certificação Raiz Confiáveis”.</p>
+  </section>
   <p class="rodape">Parlatório Legis · software livre · Aggilli Intelligence</p>
 </main>
 <script src="/comum.js"></script>
-<script>PL.conectar();</script>
+<script>
+PL.conectar();
+const seguro = location.protocol === 'https:';
+PL.aoMudar(S => {
+  document.getElementById('seguranca').classList.toggle('oculto', !S.portaHttps && !seguro);
+  const ir = document.getElementById('segIr');
+  if (ir) ir.href = `https://${location.hostname}:${S.portaHttps}/`;
+});
+if (seguro) {
+  document.getElementById('segTexto').textContent = 'Você já está na conexão segura. Para outros aparelhos, baixe e instale o certificado da casa uma única vez.';
+  document.getElementById('segIr').remove();
+}
+</script>
 </body>
 </html>

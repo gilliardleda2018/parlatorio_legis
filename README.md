@@ -18,7 +18,7 @@ Só precisa de Python 3.10 ou mais novo, sem dependências:
 PIN_PRESIDENTE=1234 python3 server/servidor.py
 ```
 
-Abra `http://localhost:8090`. Em outros computadores e celulares da mesma rede, use o IP da máquina (por exemplo `http://192.168.0.10:8090`).
+Abra `http://localhost:8090`. Em outros computadores e celulares da mesma rede, use o IP da máquina: o servidor redireciona para o endereço seguro `https://192.168.0.10:8443`.
 
 Com Docker:
 
@@ -29,10 +29,32 @@ PIN_PRESIDENTE=4321 docker compose up -d --build
 Variáveis de ambiente:
 
 - `PORTA`: porta HTTP (padrão 8090)
+- `PORTA_HTTPS`: porta HTTPS (padrão 8443; se estiver ocupada, o servidor segue só em HTTP e avisa)
+- `HTTPS`: `auto` (padrão) cria o certificado local se faltar; `0` desliga
+- `TLS_CERT` e `TLS_KEY`: certificado próprio (por exemplo, de um domínio) no lugar do local
+- `TLS_NOMES`: nomes ou IPs extras para o certificado local, separados por vírgula
+- `TZ`: fuso das atas (o Docker já usa `America/Sao_Paulo`)
 - `PIN_PRESIDENTE`: PIN do painel do presidente (padrão 1234; troque em produção)
 - `PARLATORIO_BANCO`: caminho do banco SQLite (padrão `dados/parlatorio.db`)
 
 Os parlamentares de exemplo começam com PIN `0000`. Troque em **Plenário → Editar**.
+
+## HTTPS
+
+Na primeira execução o servidor cria, com `openssl`, uma autoridade certificadora própria da casa (`dados/tls/ca.crt`) e um certificado válido para `localhost`, o nome da máquina e os IPs da rede. Depois:
+
+1. Em cada computador, tablet e celular, abra `http://IP-do-servidor:8090/certificado` e instale o certificado (as instruções para Android, iPhone e Windows estão na página inicial).
+2. Use sempre `https://IP-do-servidor:8443`. Quem abrir pelo endereço `http://` é redirecionado (menos em `localhost`).
+
+Com HTTPS, a gravação das falas funciona de qualquer computador da rede, não só no servidor. Se o IP do servidor mudar, rode `python3 server/servidor.py --renovar-certificado` (a autoridade é mantida, os aparelhos não precisam reinstalar nada).
+
+Em servidor com domínio público, use um proxy com Let's Encrypt (Caddy, por exemplo: `parlatorio.camara.gov.br { reverse_proxy localhost:8090 }`) e rode o Parlatório com `HTTPS=0`.
+
+## Sessões e ata
+
+Ao fim de cada sessão, em **Sessões → Encerrar e arquivar sessão**, o sistema guarda presença, pauta, pronunciamentos, votações (com o voto nominal de cada um), ocorrências e gravações, e abre a próxima sessão em branco (as matérias não votadas podem seguir para ela).
+
+A **ata em PDF** é gerada pelo próprio servidor, sem programas externos: cabeçalho com o brasão, presença e quórum, pauta com a situação final, pronunciamentos com apartes e tempos, votações, ocorrências, gravações e espaço para assinaturas. A prévia da sessão em andamento pode ser aberta a qualquer momento. O brasão enviado em Configurações também vai para a ata.
 
 ## Como funciona
 

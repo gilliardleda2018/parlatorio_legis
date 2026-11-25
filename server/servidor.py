@@ -18,8 +18,10 @@ import math
 import os
 import queue
 import secrets
+import ssl
 import shutil
 import subprocess
+import sys
 import sqlite3
 import threading
 import time
@@ -28,12 +30,18 @@ from pathlib import Path
 import urllib.parse
 from urllib.parse import urlparse
 
+import tls
+from ata import gerar_ata
 from mesa import CFG_PADRAO, PRESETS, Mesa
 
 RAIZ = Path(__file__).resolve().parent.parent
 PUBLICO = RAIZ / "public"
 BANCO = Path(os.environ.get("PARLATORIO_BANCO", RAIZ / "dados" / "parlatorio.db"))
 GRAVACOES = BANCO.parent / "gravacoes"
+TLS_DIR = BANCO.parent / "tls"
+PORTA_HTTPS = int(os.environ.get("PORTA_HTTPS", "8443"))
+HTTPS = os.environ.get("HTTPS", "auto")  # auto: gera certificado local se faltar; 0: só HTTP
+HTTPS_ATIVO = False
 LIMITE_PARTE = 32 * 1024 * 1024
 TIPOS_AUDIO = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a"}
 PORTA = int(os.environ.get("PORTA", "8090"))
@@ -66,12 +74,31 @@ def abrir_banco() -> sqlite3.Connection:
         create table if not exists estado (id integer primary key check (id = 1), json text not null);
         create table if not exists imagens (chave text primary key, mime text not null, dados blob not null);
         create table if not exists eventos (id integer primary key, ts integer, autor text, acao text, args text);
+        create table if not exists sessoes (id text primary key, titulo text, inicio integer, fim integer, resumo text, json text);
+        create table if not exists gravacoes (id text primary key, sessao text, criado integer, json text);
         """
     )
     return db
 
 
 db = abrir_banco()
+
+
+# gravações ficam numa tabela própria: sobrevivem ao arquivamento da sessão
+def grav_salvar(g: dict):
+    db.execute("insert or replace into gravacoes (id, sessao, criado, json) values (?, ?, ?, ?)",
+               (g["id"], g["sessao"], g["criado"], json.dumps(g, ensure_ascii=False)))
+    db.commit()
+
+
+def grav_obter(gid: str) -> dict | None:
+    linha = db.execute("select json from gravacoes where id = ?", (gid,)).fetchone()
+    return json.loads(linha[0]) if linha else None
+
+
+def grav_da_sessao(sid: str) -> list[dict]:
+    return [json.loads(x[0]) for x in db.execute(
+        "select json from gravacoes where sessao = ? order by criado desc", (sid,)).fetchall()]
 
 
 def salvar():
@@ -155,7 +182,7 @@ def NOVOS_CAMPOS() -> dict:
         "micsCortados": [],     # pids com microfone cortado (tumulto, advertência)
         "congelado": None,      # plenário congelado: {inicio, motivo, oradorRodando, interrRodando}
         "ocorrencias": [],      # cortes, congelamentos e tempo esgotado, para a ata
-        "gravacoes": [],        # áudio de cada fala
+        "sessao": {"id": secrets.token_hex(8), "inicio": agora()},  # sessão em andamento
         "mesa": dict(CFG_PADRAO),
     }
 
@@ -171,6 +198,9 @@ def carregar() -> dict:
         estado["mesa"].setdefault(k, v)
     for p in estado["parls"]:
         p.setdefault("canal", 0)
+    for g in estado.pop("gravacoes", []):  # versões anteriores guardavam as gravações no estado
+        g.setdefault("sessao", estado["sessao"]["id"])
+        grav_salvar(g)
     return estado
 
 
@@ -583,13 +613,15 @@ def mesaTestar(ator, canal, aberto):
 
 @acao("presidente")
 def gravacaoRemover(ator, id):
-    g = next((x for x in S["gravacoes"] if x["id"] == id), None)
-    if not g:
-        return
-    arquivo = GRAVACOES / f"{g['id']}.{g['ext']}"
-    if arquivo.exists():
-        arquivo.unlink()
-    S["gravacoes"].remove(g)
+    g = grav_obter(id)
+    if g:
+        _apagar_gravacao(g)
+
+
+def _apagar_gravacao(g: dict):
+    (GRAVACOES / f"{g['id']}.{g['ext']}").unlink(missing_ok=True)
+    db.execute("delete from gravacoes where id = ?", (g["id"],))
+    db.commit()
 
 
 # --- presença e pedidos
@@ -876,7 +908,7 @@ def parlRemover(ator, id):
 @acao("presidente")
 def imagem(ator, alvo, dataUrl=None):
     """alvo = 'logo' ou o id de um parlamentar. dataUrl vazio remove a imagem."""
-    if alvo != "logo":
+    if alvo not in ("logo", "logoAta"):
         p = parl(alvo)
     if not dataUrl:
         db.execute("delete from imagens where chave = ?", (alvo,))
@@ -896,7 +928,7 @@ def imagem(ator, alvo, dataUrl=None):
         v = agora()
     if alvo == "logo":
         S["casa"]["logoV"] = v
-    else:
+    elif alvo != "logoAta":
         p["fotoV"] = v
 
 
@@ -910,6 +942,73 @@ def sessaoZerar(ator, manterPauta=True):
         for m in S["pauta"]:
             m["situacao"] = "pendente"
     S["materiaAtual"] = None
+
+
+# --- sessões: encerrar, arquivar, consultar
+def retrato(fim=None) -> dict:
+    """Tudo o que a ata precisa da sessão em andamento (cópia independente do estado)."""
+    marcos = [*S["presenca"].values(), *(h["inicio"] for h in S["hist"]), *(o["ts"] for o in S["ocorrencias"]),
+              *(v["inicio"] for v in S["votacoes"])]
+    r = {
+        "id": S["sessao"]["id"], "titulo": S["casa"]["titulo"], "casa": S["casa"]["nome"],
+        "inicio": min(marcos) if marcos else S["sessao"]["inicio"], "fim": fim,
+        "parls": [{k: p.get(k) for k in ("id", "nome", "partido", "lider")} for p in S["parls"]],
+        "presenca": S["presenca"], "pauta": S["pauta"], "hist": S["hist"], "votacoes": S["votacoes"],
+        "ocorrencias": S["ocorrencias"], "gravacoes": grav_da_sessao(S["sessao"]["id"]),
+    }
+    return json.loads(json.dumps(r))
+
+
+def resumo(r: dict) -> dict:
+    return {"falas": len(r["hist"]), "votacoes": len(r["votacoes"]), "presentes": len(r["presenca"]),
+            "membros": len(r["parls"]), "gravacoes": len(r["gravacoes"]), "ocorrencias": len(r["ocorrencias"])}
+
+
+@acao("presidente")
+def sessaoEncerrar(ator, proximoTitulo, manterPauta=True):
+    """Fecha a sessão: arquiva tudo (para consulta e ata) e abre a próxima em branco."""
+    if S["votacao"] and S["votacao"]["aberta"]:
+        raise Erro("Encerre a votação aberta antes.")
+    proximoTitulo = str(proximoTitulo or "").strip()
+    if not proximoTitulo:
+        raise Erro("Informe o título da próxima sessão.")
+    _finalizar()
+    fim = agora()
+    r = retrato(fim)
+    db.execute("insert or replace into sessoes (id, titulo, inicio, fim, resumo, json) values (?, ?, ?, ?, ?, ?)",
+               (r["id"], r["titulo"], r["inicio"], fim, json.dumps(resumo(r)), json.dumps(r, ensure_ascii=False)))
+    db.commit()
+    nao_votadas = [dict(m, situacao="pendente") for m in S["pauta"]
+                   if m["situacao"] in ("pendente", "em_discussao", "em_votacao", "adiada")] if manterPauta else []
+    S.update(filas={}, orador=None, interr=None, pedidos=[], hist=[], presenca={}, votacao=None, votacoes=[],
+             micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[], pauta=nao_votadas, materiaAtual=None,
+             sessao={"id": secrets.token_hex(8), "inicio": agora()})
+    S["casa"]["titulo"] = proximoTitulo
+
+
+@acao("presidente")
+def sessaoArquivoRemover(ator, id):
+    for g in grav_da_sessao(id):
+        _apagar_gravacao(g)
+    db.execute("delete from sessoes where id = ?", (id,))
+    db.commit()
+
+
+def sessao_arquivada(sid: str) -> dict | None:
+    linha = db.execute("select json from sessoes where id = ?", (sid,)).fetchone()
+    if not linha:
+        return None
+    r = json.loads(linha[0])
+    r["gravacoes"] = grav_da_sessao(sid)  # estado final dos arquivos (podem ter terminado depois)
+    return r
+
+
+def logo_ata() -> bytes | None:
+    linha = db.execute("select dados from imagens where chave = 'logoAta'").fetchone()
+    if linha:
+        return linha[0]
+    padrao = PUBLICO / "marca" / "logo-ata.jpg"
+    return padrao.read_bytes() if padrao.exists() else None
 
 
 # ---------------------------------------------------------------- regras automáticas
@@ -940,10 +1039,12 @@ def tique():
                 sinal("fim")
                 _encerrar_interr()
                 mudou = True
-            for g in S["gravacoes"]:
-                if not g["fim"] and agora() - g["ultimo"] > 60000:
-                    g["fim"], g["interrompida"] = g["ultimo"], True  # navegador que gravava caiu
-                    mudou = True
+            if int(time.time()) % 5 == 0:
+                for g in grav_da_sessao(S["sessao"]["id"]):
+                    if not g["fim"] and agora() - g["ultimo"] > 60000:
+                        g["fim"], g["interrompida"] = g["ultimo"], True  # navegador que gravava caiu
+                        grav_salvar(g)
+                        mudou = True
             if mudou:
                 confirmar()
 
@@ -1001,6 +1102,8 @@ def pacote() -> str:
     pub["microfones"], pub["tribunaAberta"] = microfones()
     pub["mesaStatus"] = mesa.publico()
     pub["mesaPresets"] = PRESETS
+    pub["gravacoes"] = grav_da_sessao(S["sessao"]["id"])
+    pub["portaHttps"] = PORTA_HTTPS if HTTPS_ATIVO else None
     return json.dumps({"tipo": "estado", "agora": agora(), "estado": pub}, ensure_ascii=False)
 
 
@@ -1034,7 +1137,7 @@ mesa.atualizar(S["mesa"], canais_desejados())
 
 # ---------------------------------------------------------------- gravação
 def _gravacao(gid: str) -> dict:
-    g = next((x for x in S["gravacoes"] if x["id"] == gid), None)
+    g = grav_obter(gid)
     if not g:
         raise Erro("Gravação não encontrada.")
     return g
@@ -1051,8 +1154,10 @@ def gravacao_finalizar_arquivo(g: dict):
         subprocess.run([ffmpeg, "-v", "error", "-y", "-i", str(arquivo), "-c", "copy", str(tmp)], check=True, timeout=300)
         tmp.replace(arquivo)
         with trava:
+            g = grav_obter(g["id"]) or g
             g["bytes"] = arquivo.stat().st_size
             g["duracao"] = True
+            grav_salvar(g)
             confirmar()
     except (subprocess.SubprocessError, OSError):
         tmp.unlink(missing_ok=True)
@@ -1065,11 +1170,11 @@ def gravacao_iniciar(pid: str, inicio: int, mime: str) -> dict:
     o = S["orador"]
     p = parl(pid)
     f = next((x for x in S["fases"] if o and x["id"] == o["fase"]), {"nome": ""})
-    g = {"id": secrets.token_hex(8), "pid": pid, "nome": p["nome"], "partido": p["partido"], "faseNome": f["nome"],
+    g = {"id": secrets.token_hex(8), "sessao": S["sessao"]["id"], "pid": pid, "nome": p["nome"], "partido": p["partido"], "faseNome": f["nome"],
          "materia": S["materiaAtual"], "inicio": int(inicio or agora()), "criado": agora(), "fim": None,
          "ultimo": agora(), "bytes": 0, "mime": mime_base, "ext": TIPOS_AUDIO[mime_base]}
     GRAVACOES.mkdir(parents=True, exist_ok=True)
-    S["gravacoes"].insert(0, g)
+    grav_salvar(g)
     return g
 
 
@@ -1104,8 +1209,35 @@ class Manipulador(BaseHTTPRequestHandler):
         return S["_tokens"].get(token) if token else None
 
     # ----- GET
-    def do_GET(self):
+    def setup(self):
+        if isinstance(self.request, ssl.SSLSocket):  # aperto de mão TLS na thread do pedido, não no laço principal
+            self.request.settimeout(15)
+            self.request.do_handshake()
+            self.request.settimeout(None)
+        super().setup()
+
+    def _redirecionar(self) -> bool:
+        """Com HTTPS ativo, a porta HTTP manda tudo para https:// (menos localhost e o download do certificado)."""
+        if not getattr(self.server, "redireciona", False):
+            return False
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         caminho = urlparse(self.path).path
+        if host in ("localhost", "127.0.0.1", "::1", "") or caminho in ("/certificado", "/certificado.crt"):
+            return False
+        self.send_response(308 if self.command == "POST" else 301)
+        self.send_header("Location", f"https://{host}:{PORTA_HTTPS}{self.path}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return True
+
+    def do_GET(self):
+        if self._redirecionar():
+            return
+        caminho = urlparse(self.path).path
+        if caminho in ("/certificado", "/certificado.crt"):
+            return self._certificado()
+        if caminho.startswith("/api/sessoes") or caminho.startswith("/api/ata/"):
+            return self._sessoes(caminho)
         if caminho == "/eventos":
             return self._eventos()
         if caminho.startswith("/imagem/"):
@@ -1153,7 +1285,7 @@ class Manipulador(BaseHTTPRequestHandler):
     def _audio(self, nome):
         gid = nome.split(".")[0]
         with trava:
-            g = next((x for x in S["gravacoes"] if x["id"] == gid), None)
+            g = grav_obter(gid) if gid.isalnum() else None
         arquivo = GRAVACOES / f"{g['id']}.{g['ext']}" if g else None
         if not arquivo or not arquivo.exists():
             return self._json(404, {"erro": "Gravação não encontrada."})
@@ -1192,6 +1324,53 @@ class Manipulador(BaseHTTPRequestHandler):
                 self.wfile.write(bloco)
                 resta -= len(bloco)
 
+    def _certificado(self):
+        ca = TLS_DIR / "ca.crt"
+        if not ca.exists():
+            return self._json(404, {"erro": "HTTPS local não configurado."})
+        dados = ca.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-x509-ca-cert")
+        self.send_header("Content-Disposition", 'attachment; filename="parlatorio-legis-ca.crt"')
+        self.send_header("Content-Length", str(len(dados)))
+        self.end_headers()
+        self.wfile.write(dados)
+
+    def _sessoes(self, caminho):
+        """GET /api/sessoes, /api/sessoes/<id>, /api/ata/<id|atual>.pdf — só o presidente."""
+        with trava:
+            ator = self._ator()
+        if not ator or ator["papel"] != "presidente":
+            return self._json(401, {"erro": "Entre no painel do presidente."})
+        partes = caminho.strip("/").split("/")
+        if partes == ["api", "sessoes"]:
+            with trava:
+                linhas = db.execute("select id, titulo, inicio, fim, resumo from sessoes order by fim desc").fetchall()
+            return self._json(200, {"sessoes": [{"id": i, "titulo": t, "inicio": a, "fim": f, **json.loads(r)}
+                                                 for i, t, a, f, r in linhas]})
+        if len(partes) == 3 and partes[1] == "sessoes" and partes[2].isalnum():
+            with trava:
+                r = sessao_arquivada(partes[2])
+            return self._json(200, r) if r else self._json(404, {"erro": "Sessão não encontrada."})
+        if len(partes) == 3 and partes[1] == "ata" and partes[2].endswith(".pdf"):
+            sid = partes[2][:-4]
+            with trava:
+                r = retrato() if sid == "atual" else sessao_arquivada(sid) if sid.isalnum() else None
+                logo = logo_ata()
+            if not r:
+                return self._json(404, {"erro": "Sessão não encontrada."})
+            pdf = gerar_ata(r, logo)
+            nome = f"Ata - {r['titulo']} - {time.strftime('%Y-%m-%d', time.localtime(r['inicio'] / 1000))}.pdf"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", str(len(pdf)))
+            self.send_header("Content-Disposition", "inline; filename*=UTF-8''" + urllib.parse.quote(nome))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(pdf)
+            return
+        return self._json(404, {"erro": "Não encontrado."})
+
     def _gravacao_post(self, caminho):
         """/api/gravacao/iniciar, /api/gravacao/<id>/parte (corpo binário), /api/gravacao/<id>/fim"""
         partes = caminho.strip("/").split("/")
@@ -1220,15 +1399,19 @@ class Manipulador(BaseHTTPRequestHandler):
             with open(GRAVACOES / f"{g['id']}.{g['ext']}", "ab") as f:
                 f.write(dados)
             with trava:
+                g = grav_obter(gid)
                 g["bytes"] += len(dados)
                 g["ultimo"] = agora()
+                grav_salvar(g)
                 transmitir(pacote())
             return self._json(200, {"ok": True})
         if passo == "fim":
             self._ler()
             with trava:
+                g = grav_obter(gid)
                 g["fim"] = agora()
                 g["ultimo"] = g["fim"]
+                grav_salvar(g)
                 registrar("presidente", "gravacao", {"id": g["id"], "pid": g["pid"], "bytes": g["bytes"]})
                 confirmar()
             threading.Thread(target=gravacao_finalizar_arquivo, args=(g,), daemon=True).start()
@@ -1263,6 +1446,8 @@ class Manipulador(BaseHTTPRequestHandler):
 
     # ----- POST
     def do_POST(self):
+        if self._redirecionar():
+            return
         caminho = urlparse(self.path).path
         try:
             if caminho.startswith("/api/gravacao/"):
@@ -1325,11 +1510,62 @@ class Manipulador(BaseHTTPRequestHandler):
         return self._json(200, {"ok": True})
 
 
+class ServidorTLS(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, endereco, manipulador, contexto: ssl.SSLContext):
+        super().__init__(endereco, manipulador)
+        self.contexto = contexto
+
+    def get_request(self):
+        sock, endereco = self.socket.accept()
+        return self.contexto.wrap_socket(sock, server_side=True, do_handshake_on_connect=False), endereco
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ssl.SSLError, OSError)):
+            return  # navegador que ainda não confia no certificado, conexão caída etc.
+        super().handle_error(request, client_address)
+
+
+def certificado() -> tuple[Path, Path] | None:
+    crt, key = os.environ.get("TLS_CERT"), os.environ.get("TLS_KEY")
+    if crt and key:
+        return Path(crt), Path(key)
+    if HTTPS == "0":
+        return None
+    try:
+        return tls.gerar(TLS_DIR)
+    except Exception as e:
+        print(f"HTTPS desativado: {e}")
+        return None
+
+
 def main():
+    if "--renovar-certificado" in sys.argv:
+        crt, _ = tls.gerar(TLS_DIR, renovar=True)
+        print(f"Certificado renovado: {crt}\n{tls.nomes_no_certificado(crt)}")
+        return
+    global HTTPS_ATIVO
     threading.Thread(target=tique, daemon=True).start()
+    par = certificado()
+    if par:
+        ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ctx.load_cert_chain(str(par[0]), str(par[1]))
+        try:
+            https = ServidorTLS(("0.0.0.0", PORTA_HTTPS), Manipulador, ctx)
+        except OSError as e:
+            print(f"HTTPS desativado: porta {PORTA_HTTPS} indisponível ({e.strerror}). Use PORTA_HTTPS=outra porta.")
+            par = None
+    if par:
+        HTTPS_ATIVO = True
+        threading.Thread(target=https.serve_forever, daemon=True).start()
+        ips = [i for i in tls.ips_locais() if i != "127.0.0.1"]
+        print(f"HTTPS: https://localhost:{PORTA_HTTPS}" + "".join(f"  https://{i}:{PORTA_HTTPS}" for i in ips[:3]))
+        print(f"Instale o certificado da autoridade nos aparelhos: http://<ip>:{PORTA}/certificado")
     servidor = ThreadingHTTPServer(("0.0.0.0", PORTA), Manipulador)
     servidor.daemon_threads = True
-    print(f"Parlatório Legis em http://localhost:{PORTA}  (PIN do presidente: variável PIN_PRESIDENTE)")
+    servidor.redireciona = bool(par)
+    print(f"Parlatório Legis em http://localhost:{PORTA}  (PIN do presidente: variável PIN_PRESIDENTE)", flush=True)
     servidor.serve_forever()
 
 

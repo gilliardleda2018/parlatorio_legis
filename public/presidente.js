@@ -24,6 +24,7 @@ document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
   document.querySelectorAll('[data-aba]').forEach(x => x.classList.toggle('ativo', x === b));
   document.querySelectorAll('.aba').forEach(s => s.classList.toggle('ativa', s.id === 'aba-' + abaAtual));
   if (abaAtual === 'config') carregarConfig();
+  if (abaAtual === 'sessoes') carregarSessoes();
   desenhar();
 });
 
@@ -38,6 +39,7 @@ function desenhar() {
   if (abaAtual === 'pauta') desenharPauta();
   if (abaAtual === 'plenario') desenharPlenario();
   if (abaAtual === 'relatorios') desenharRelatorios();
+  if (abaAtual === 'sessoes') desenharSessaoAtual();
   relogios();
 }
 $('btSom').onclick = () => { som = !som; localStorage.setItem('parlatorio.som', som ? '1' : '0'); desenhar(); if (som) PL.bipe('alerta'); };
@@ -586,12 +588,114 @@ async function salvarConfig() {
 $('cLogo').onchange = async e => {
   const arq = e.target.files[0]; if (!arq) return;
   await A('imagem', { alvo: 'logo', dataUrl: await PL.lerImagem(arq, 512, false) });
+  await A('imagem', { alvo: 'logoAta', dataUrl: await PL.lerImagem(arq, 400, false, 'jpeg') });  // versão para a ata em PDF
   e.target.value = '';
 };
+async function logoAggilli() { await A('imagem', { alvo: 'logo' }); await A('imagem', { alvo: 'logoAta' }); }
 function zerar() {
   dialogo('Zerar sessão', `<p style="margin:0">Apaga filas, presença, pedidos, histórico de falas e votações. Parlamentares e configurações são mantidos.</p>
     <label class="linha">Manter a pauta (volta para “pendente”)<input type="checkbox" id="dManter" checked></label>`,
     () => A('sessaoZerar', { manterPauta: $('dManter').checked }), 'Zerar sessão');
+}
+
+/* ---------------- sessões e ata ---------------- */
+let sessoesArquivadas = [];
+async function apiGet(caminho) {
+  const r = await fetch(caminho, { headers: { Authorization: 'Bearer ' + PL.token('presidente') } });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).erro || 'Falha ao carregar.');
+  return r;
+}
+function desenharSessaoAtual() {
+  const S = PL.estado;
+  const marcos = [...Object.values(S.presenca), ...S.hist.map(h => h.inicio), ...S.ocorrencias.map(o => o.ts)];
+  const inicio = marcos.length ? Math.min(...marcos) : null;
+  $('sessaoAtual').innerHTML = `<h2>Sessão em andamento</h2>
+    <div style="font-size:22px;font-weight:700">${esc(S.casa.titulo)}</div>
+    <div class="detalhe">${inicio ? 'Primeiro registro às ' + hora(inicio) + ' de ' + new Date(inicio).toLocaleDateString('pt-BR') : 'Nenhum registro ainda'}</div>
+    <div class="numeros">
+      <div><b>${Object.keys(S.presenca).length}/${S.parls.length}</b>presentes</div>
+      <div><b>${S.hist.length}</b>pronunciamentos</div>
+      <div><b>${S.votacoes.length}</b>votações</div>
+      <div><b>${(S.gravacoes || []).length}</b>gravações</div>
+      <div><b>${S.ocorrencias.length}</b>ocorrências</div>
+    </div>
+    <div class="grupo" style="justify-content:flex-end">
+      <button class="botao" onclick="abrirAta('atual')">Prévia da ata (PDF)</button>
+      <button class="botao principal" onclick="encerrarSessao()">Encerrar e arquivar sessão…</button>
+    </div>`;
+}
+async function carregarSessoes() {
+  try { sessoesArquivadas = (await (await apiGet('/api/sessoes')).json()).sessoes; }
+  catch (e) { return PL.avisar(e.message, true); }
+  const dur = s => tempo(s.fim - s.inicio);
+  $('tabSessoes').innerHTML = sessoesArquivadas.length
+    ? '<tr><th>Data</th><th>Sessão</th><th>Duração</th><th class="num">Presentes</th><th class="num">Falas</th><th class="num">Votações</th><th class="num">Gravações</th><th></th></tr>' +
+      sessoesArquivadas.map(s => `<tr><td class="tnum">${new Date(s.inicio).toLocaleDateString('pt-BR')}<br><small class="suave">${hora(s.inicio)}–${hora(s.fim)}</small></td>
+        <td><b>${esc(s.titulo)}</b></td><td class="tnum">${dur(s)}</td><td class="num">${s.presentes}/${s.membros}</td>
+        <td class="num">${s.falas}</td><td class="num">${s.votacoes}</td><td class="num">${s.gravacoes}</td>
+        <td style="text-align:right;white-space:nowrap"><button class="botao pq principal" onclick="abrirAta('${s.id}')">Ata PDF</button>
+          <button class="botao pq" onclick="verSessao('${s.id}')">Detalhes</button>
+          <button class="botao pq fantasma" onclick="excluirSessao('${s.id}')">✕</button></td></tr>`).join('')
+    : '<tr><td class="vazio">Nenhuma sessão arquivada. Use “Encerrar e arquivar sessão” ao fim de cada sessão.</td></tr>';
+}
+async function abrirAta(id) {
+  const janela = window.open('', '_blank');  // abre já no clique, para o navegador não bloquear
+  try {
+    const blob = await (await apiGet(`/api/ata/${id}.pdf`)).blob();
+    const url = URL.createObjectURL(blob);
+    if (janela) janela.location = url;
+    else { const a = document.createElement('a'); a.href = url; a.download = 'ata.pdf'; a.click(); }
+  } catch (e) { janela?.close(); PL.avisar(e.message, true); }
+}
+function proximoTitulo(t) {
+  return t.replace(/(\d+)(ª|º|a|o)?/, (_, n, suf) => (+n + 1) + (suf || ''));
+}
+function encerrarSessao() {
+  const S = PL.estado;
+  const naoVotadas = S.pauta.filter(m => ['pendente', 'em_discussao', 'em_votacao', 'adiada'].includes(m.situacao)).length;
+  dialogo('Encerrar e arquivar sessão', `
+    <p style="margin:0">A sessão <b>${esc(S.casa.titulo)}</b> será arquivada com presença, falas, votações, ocorrências e gravações.
+      A ata em PDF fica disponível em “Sessões anteriores”. Filas, presença e histórico recomeçam em branco.</p>
+    ${S.votacao?.aberta ? '<p class="chip nao" style="margin:0">Há uma votação aberta: encerre-a antes.</p>' : ''}
+    ${S.orador ? '<p class="chip ambar" style="margin:0">O orador na tribuna será encerrado.</p>' : ''}
+    <label class="rot">Título da próxima sessão<input class="campo" id="dProx" value="${esc(proximoTitulo(S.casa.titulo))}"></label>
+    <label class="linha">Levar para a próxima sessão as ${naoVotadas} matéria(s) não votada(s)<input type="checkbox" id="dManterPauta" checked></label>`,
+    async () => {
+      await PL.acao('presidente', 'sessaoEncerrar', { proximoTitulo: $('dProx').value, manterPauta: $('dManterPauta').checked });
+      PL.avisar('Sessão arquivada.');
+      carregarSessoes();
+    }, 'Encerrar e arquivar');
+}
+async function verSessao(id) {
+  let r;
+  try { r = await (await apiGet('/api/sessoes/' + id)).json(); } catch (e) { return PL.avisar(e.message, true); }
+  const nome = pid => r.parls.find(p => p.id === pid)?.nome || '?';
+  dlg.classList.add('largo');
+  dialogo(r.titulo, `
+    <div class="detalhe">${new Date(r.inicio).toLocaleString('pt-BR')} — ${hora(r.fim)} · ${Object.keys(r.presenca).length}/${r.parls.length} presentes</div>
+    <h3 style="font-size:15px;margin:8px 0 0">Votações</h3>
+    ${r.votacoes.length ? '<table class="tab">' + r.votacoes.map(v => `<tr><td><b>${esc(v.numero)}</b> ${esc(v.ementa)}</td><td>${v.tipo}</td>
+      <td class="tnum">${v.contagem ? `${v.contagem.sim} × ${v.contagem.nao} (${v.contagem.abst})` : '—'}</td>
+      <td><span class="chip ${v.resultado === 'aprovada' ? 'sim' : v.resultado === 'rejeitada' ? 'nao' : 'ambar'}">${PL.SITUACOES[v.resultado]}</span></td></tr>`).join('') + '</table>'
+      : '<p class="vazio">Nenhuma.</p>'}
+    <h3 style="font-size:15px;margin:8px 0 0">Pronunciamentos</h3>
+    ${r.hist.length ? '<table class="tab">' + r.hist.map(h => `<tr><td class="tnum">${hora(h.inicio)}</td><td>${esc(h.nome)} ${sigla(h.partido)}</td>
+      <td>${esc(h.faseNome)}</td><td class="tnum">${tempo(h.usado * 1000)}</td></tr>`).join('') + '</table>' : '<p class="vazio">Nenhum.</p>'}
+    <h3 style="font-size:15px;margin:8px 0 0">Gravações</h3>
+    ${r.gravacoes.length ? r.gravacoes.map(g => `<div class="grav-item"><div><b>${esc(g.nome)}</b> <span class="suave">${esc(g.faseNome)} · ${hora(g.inicio)}</span></div>
+      <audio controls preload="none" src="/gravacao/${g.id}.${g.ext}"></audio></div>`).join('') : '<p class="vazio">Nenhuma.</p>'}
+    ${r.ocorrencias.length ? `<h3 style="font-size:15px;margin:8px 0 0">Ocorrências</h3><table class="tab">${r.ocorrencias.map(o => `<tr><td class="tnum">${hora(o.ts)}</td>
+      <td>${PL.OCORRENCIAS[o.tipo] || o.tipo}</td><td>${esc(o.nome || '—')}</td><td class="suave">${esc(o.motivo || '')}</td></tr>`).join('')}</table>` : ''}`,
+    () => abrirAta(id), 'Abrir ata em PDF');
+  dlg.addEventListener('close', () => dlg.classList.remove('largo'), { once: true });
+}
+function excluirSessao(id) {
+  const s = sessoesArquivadas.find(x => x.id === id);
+  dialogo('Excluir sessão arquivada', `<p style="margin:0">Excluir <b>${esc(s.titulo)}</b> de ${new Date(s.inicio).toLocaleDateString('pt-BR')}?
+    O registro e as <b>${s.gravacoes} gravação(ões)</b> de áudio serão apagados <b>definitivamente</b>. Baixe a ata em PDF antes, se precisar.</p>`,
+    async () => { await PL.acao('presidente', 'sessaoArquivoRemover', { id }); carregarSessoes(); }, 'Excluir definitivamente');
+  $('dlgOk').className = 'botao perigo';
+  dlg.addEventListener('close', () => { $('dlgOk').className = 'botao principal'; }, { once: true });
 }
 
 /* ---------------- diálogo genérico ---------------- */

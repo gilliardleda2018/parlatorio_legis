@@ -1,8 +1,11 @@
 services:
   parlatorio:
     build: .
-    ports: ["${PORTA:-8090}:8080"]
+    ports: ["${PORTA:-8090}:8090", "${PORTA_HTTPS:-8443}:8443"]
     environment:
       PIN_PRESIDENTE: ${PIN_PRESIDENTE:-1234}
+      TZ: America/Sao_Paulo
+      # nomes ou IPs extras para o certificado (ex.: IP fixo do servidor visto pela rede)
+      TLS_NOMES: ${TLS_NOMES:-}
     volumes: ["./dados:/dados"]
     restart: unless-stopped
