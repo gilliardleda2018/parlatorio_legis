@@ -95,12 +95,13 @@ function desenhar() {
   let html = `<div class="cartao"><div class="eu">${avatar(p)}<div class="nm"><b>${esc(p.nome)}</b>${sigla(p.partido)}</div>
     <button class="botao pq fantasma" onclick="PL.sair('parlamentar').then(()=>location.reload())">Sair</button></div>
     <div class="status" style="margin-top:12px">
+      <div class="grupo">${PL.micChip(eu.pid)}${S.congelado ? '<span class="chip interr"><span class="ponto"></span>Sessão congelada</span>' : ''}</div>
       ${presente ? '<span class="chip sim">✓ Presença registrada</span>'
         : S.cfg.presencaCelular ? `<button class="botao ok gr" onclick="A('presenca')">Registrar presença</button>` : '<span class="chip ambar">Presença não registrada — procure a secretaria</span>'}
     </div></div>`;
 
   if (falando || apartando) {
-    html += `<div class="cartao eu-fala"><h2 style="justify-content:center">${falando ? 'Você está com a palavra' : PL.TIPOS[i.tipo]}</h2>
+    html += `<div class="cartao eu-fala"><h2 style="justify-content:center">${falando && o.congelado ? '❄ Seu tempo está congelado' : falando ? 'Você está com a palavra' : PL.TIPOS[i.tipo]}</h2>
       <div class="t tnum" id="tEu"></div><div class="barra" id="bEu"><i></i></div></div>`;
   }
 

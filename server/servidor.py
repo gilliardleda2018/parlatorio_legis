@@ -18,16 +18,24 @@ import math
 import os
 import queue
 import secrets
+import shutil
+import subprocess
 import sqlite3
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import urllib.parse
 from urllib.parse import urlparse
+
+from mesa import CFG_PADRAO, PRESETS, Mesa
 
 RAIZ = Path(__file__).resolve().parent.parent
 PUBLICO = RAIZ / "public"
 BANCO = Path(os.environ.get("PARLATORIO_BANCO", RAIZ / "dados" / "parlatorio.db"))
+GRAVACOES = BANCO.parent / "gravacoes"
+LIMITE_PARTE = 32 * 1024 * 1024
+TIPOS_AUDIO = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a"}
 PORTA = int(os.environ.get("PORTA", "8090"))
 PIN_PRESIDENTE = os.environ.get("PIN_PRESIDENTE", "1234")
 LIMITE_CORPO = 4 * 1024 * 1024
@@ -96,7 +104,8 @@ def estado_inicial() -> dict:
         ("Tiago Fontes", "PDT"), ("Vera Lúcia Campos", "PSOL"), ("Wagner Siqueira", "PODE"),
         ("Helena Castro", "REDE"), ("Otávio Brandão", "NOVO"), ("Luana Ferraz", "PCdoB"),
     ]
-    parls = [{"id": uid(), "nome": n, "partido": p, "lider": False, "fotoV": 0} for n, p in nomes]
+    parls = [{"id": uid(), "nome": n, "partido": p, "lider": False, "fotoV": 0, "canal": k + 1}
+             for k, (n, p) in enumerate(nomes)]
     return {
         "rev": 0,
         "casa": {"nome": "Câmara Municipal", "titulo": "45ª Sessão Ordinária", "destaque": "#d66060",
@@ -135,14 +144,34 @@ def estado_inicial() -> dict:
         "sinal": {"n": 0, "tipo": ""},
         "_pins": {p["id"]: "0000" for p in parls},
         "_tokens": {},
+        **NOVOS_CAMPOS(),
+    }
+
+
+def NOVOS_CAMPOS() -> dict:
+    """Campos acrescentados depois da v2; também completam bancos antigos."""
+    return {
+        "micsManuais": {},      # pid -> True: microfone de bancada liberado pelo presidente
+        "micsCortados": [],     # pids com microfone cortado (tumulto, advertência)
+        "congelado": None,      # plenário congelado: {inicio, motivo, oradorRodando, interrRodando}
+        "ocorrencias": [],      # cortes, congelamentos e tempo esgotado, para a ata
+        "gravacoes": [],        # áudio de cada fala
+        "mesa": dict(CFG_PADRAO),
     }
 
 
 def carregar() -> dict:
     linha = db.execute("select json from estado where id = 1").fetchone()
-    if linha:
-        return json.loads(linha[0])
-    return estado_inicial()
+    if not linha:
+        return estado_inicial()
+    estado = json.loads(linha[0])
+    for k, v in NOVOS_CAMPOS().items():
+        estado.setdefault(k, v)
+    for k, v in CFG_PADRAO.items():
+        estado["mesa"].setdefault(k, v)
+    for p in estado["parls"]:
+        p.setdefault("canal", 0)
+    return estado
 
 
 S = carregar()
@@ -299,6 +328,10 @@ def proximo(ator):
 @acao("presidente")
 def iniciar(ator):
     o = S["orador"]
+    if S["congelado"]:
+        raise Erro("Plenário congelado. Retome a sessão antes.")
+    if o and o.get("congelado"):
+        raise Erro("Tempo congelado: use Descongelar.")
     if not o or o["start"] or (S["interr"] and S["interr"]["pausouOrador"]):
         return
     o["start"] = agora()
@@ -338,6 +371,10 @@ def encerrar(ator):
 def _interromper(tipo, pid):
     if tipo not in TIPOS:
         raise Erro("Tipo inválido.")
+    if S["congelado"]:
+        raise Erro("Plenário congelado. Retome a sessão antes.")
+    if pid in S["micsCortados"]:
+        raise Erro("Este parlamentar está com o microfone cortado.")
     if S["interr"]:
         raise Erro("Já existe um aparte ou questão em curso.")
     parl(pid)
@@ -390,6 +427,169 @@ def _encerrar_interr(retomar=True):
 @acao("presidente")
 def encerrarInterr(ator):
     _encerrar_interr()
+
+
+@acao("presidente")
+def addTempoInterr(ator, seg):
+    i = S["interr"]
+    if i:
+        i["total"] = max(1000, i["total"] + int(seg) * 1000)
+
+
+# --- congelar, cortar e liberar microfones
+def _ocorrencia(tipo, pid=None, motivo=""):
+    nome = next((p["nome"] for p in S["parls"] if p["id"] == pid), "") if pid else ""
+    S["ocorrencias"].insert(0, {"id": uid(), "ts": agora(), "tipo": tipo, "pid": pid, "nome": nome,
+                                "motivo": str(motivo or "")[:200], "materia": S["materiaAtual"]})
+
+
+def _pausar_relogio(t) -> bool:
+    if t and t.get("start"):
+        t["acc"] += agora() - t["start"]
+        t["start"] = None
+        return True
+    return False
+
+
+@acao("presidente")
+def congelar(ator, motivo=""):
+    """Congela o orador: para o tempo e corta o microfone até o presidente descongelar."""
+    o = S["orador"]
+    if not o:
+        raise Erro("Não há orador na tribuna.")
+    if o.get("congelado"):
+        return
+    _pausar_relogio(o)
+    o["mic"] = False
+    o["congelado"] = True
+    _ocorrencia("congelar", o["pid"], motivo)
+
+
+@acao("presidente")
+def descongelar(ator):
+    o = S["orador"]
+    if not o or not o.get("congelado"):
+        return
+    if S["congelado"]:
+        raise Erro("Plenário congelado. Retome a sessão antes.")
+    o["congelado"] = False
+    if o["pid"] in S["micsCortados"]:
+        S["micsCortados"].remove(o["pid"])
+    _ocorrencia("descongelar", o["pid"])
+    if restante(o) <= 0 and S["cfg"]["corte"]:
+        return  # sem tempo: segue parado até o presidente conceder mais
+    o["start"] = agora()
+    o["mic"] = True
+    o["inicio"] = o["inicio"] or o["start"]
+
+
+@acao("presidente")
+def congelarPlenario(ator, motivo=""):
+    """Tumulto: para todos os cronômetros e fecha todos os microfones."""
+    if S["congelado"]:
+        return
+    o, i = S["orador"], S["interr"]
+    S["congelado"] = {"inicio": agora(), "motivo": str(motivo or "")[:200],
+                      "oradorRodando": _pausar_relogio(o), "interrRodando": _pausar_relogio(i)}
+    if o:
+        o["mic"] = False
+    _ocorrencia("plenario_congelado", None, motivo)
+
+
+@acao("presidente")
+def descongelarPlenario(ator):
+    c = S["congelado"]
+    if not c:
+        return
+    o, i = S["orador"], S["interr"]
+    S["congelado"] = None
+    if i and c["interrRodando"]:
+        i["start"] = agora()
+    if o and c["oradorRodando"] and not o.get("congelado"):
+        o["start"] = agora()
+        o["mic"] = not i  # durante aparte ou questão o microfone é de quem interrompe
+    _ocorrencia("plenario_retomado", None, f"congelado por {round((agora() - c['inicio']) / 1000)} s")
+
+
+@acao("presidente")
+def cortarMic(ator, pid, cortar=True, motivo=""):
+    parl(pid)
+    if cortar:
+        if S["orador"] and S["orador"]["pid"] == pid:
+            congelar(ator, motivo)
+        if S["interr"] and S["interr"]["pid"] == pid:
+            _encerrar_interr()
+        if pid not in S["micsCortados"]:
+            S["micsCortados"].append(pid)
+        S["micsManuais"].pop(pid, None)
+        _ocorrencia("corte", pid, motivo)
+    elif pid in S["micsCortados"]:
+        S["micsCortados"].remove(pid)
+        _ocorrencia("liberacao", pid, motivo)
+
+
+@acao("presidente")
+def micManual(ator, pid, aberto):
+    """Abre ou fecha o microfone de bancada fora da tribuna (debate, encaminhamento)."""
+    parl(pid)
+    if aberto:
+        if pid in S["micsCortados"]:
+            raise Erro("Microfone cortado. Libere o corte antes.")
+        if S["congelado"]:
+            raise Erro("Plenário congelado.")
+        S["micsManuais"][pid] = True
+    else:
+        S["micsManuais"].pop(pid, None)
+
+
+@acao("presidente")
+def fecharTodos(ator):
+    S["micsManuais"] = {}
+
+
+# --- mesa de som
+@acao("presidente")
+def mesaSalvar(ator, cfg):
+    novo = dict(S["mesa"])
+    for k, padrao in CFG_PADRAO.items():
+        if k not in cfg:
+            continue
+        v = cfg[k]
+        if isinstance(padrao, bool):
+            novo[k] = bool(v)
+        elif k in ("porta", "canalTribuna"):
+            novo[k] = int(v or 0)
+        elif k in ("valorAberto", "valorFechado"):
+            novo[k] = v
+        else:
+            novo[k] = str(v).strip()
+    for k in ("valorAberto", "valorFechado"):
+        novo[k] = float(novo[k]) if novo.get("tipoValor") == "f" else int(float(novo[k]))
+    if novo["driver"] not in ("simulado", "osc", "http"):
+        raise Erro("Driver inválido.")
+    if novo["driver"] == "osc" and "{canal" not in novo["endereco"]:
+        raise Erro("O endereço OSC precisa conter {canal}, por exemplo /ch/{canal:02d}/mix/on.")
+    try:
+        novo["endereco"].format(canal=1)
+    except (KeyError, ValueError, IndexError):
+        raise Erro("Endereço OSC inválido.")
+    S["mesa"] = novo
+
+
+@acao("presidente")
+def mesaTestar(ator, canal, aberto):
+    mesa.testar(S["mesa"], int(canal), bool(aberto))
+
+
+@acao("presidente")
+def gravacaoRemover(ator, id):
+    g = next((x for x in S["gravacoes"] if x["id"] == id), None)
+    if not g:
+        return
+    arquivo = GRAVACOES / f"{g['id']}.{g['ext']}"
+    if arquivo.exists():
+        arquivo.unlink()
+    S["gravacoes"].remove(g)
 
 
 # --- presença e pedidos
@@ -636,16 +836,20 @@ def configSalvar(ator, casa, cfg, fases, partidos):
 
 
 @acao("presidente")
-def parlSalvar(ator, nome, partido, lider=False, pin=None, id=None):
+def parlSalvar(ator, nome, partido, lider=False, pin=None, id=None, canal=0):
     if not nome.strip():
         raise Erro("Informe o nome.")
     if pin is not None and pin != "" and not (str(pin).isdigit() and 4 <= len(str(pin)) <= 8):
         raise Erro("O PIN deve ter de 4 a 8 dígitos.")
+    canal = int(canal or 0)
+    if not 0 <= canal <= 256:
+        raise Erro("Canal da mesa inválido.")
     if id:
         p = parl(id)
-        p.update(nome=nome.strip(), partido=partido.strip().upper(), lider=bool(lider))
+        p.update(nome=nome.strip(), partido=partido.strip().upper(), lider=bool(lider), canal=canal)
     else:
-        p = {"id": uid(), "nome": nome.strip(), "partido": partido.strip().upper(), "lider": bool(lider), "fotoV": 0}
+        p = {"id": uid(), "nome": nome.strip(), "partido": partido.strip().upper(), "lider": bool(lider), "fotoV": 0,
+             "canal": canal}
         S["parls"].append(p)
         S["_pins"][p["id"]] = "0000"
     if pin:
@@ -663,6 +867,8 @@ def parlRemover(ator, id):
         S["filas"][k] = [e for e in S["filas"][k] if e["pid"] != id]
     S["presenca"].pop(id, None)
     S["pedidos"] = [x for x in S["pedidos"] if x["pid"] != id]
+    S["micsManuais"].pop(id, None)
+    S["micsCortados"] = [x for x in S["micsCortados"] if x != id]
     S["_pins"].pop(id, None)
     S["_tokens"] = {t: a for t, a in S["_tokens"].items() if a.get("pid") != id}
 
@@ -696,7 +902,8 @@ def imagem(ator, alvo, dataUrl=None):
 
 @acao("presidente")
 def sessaoZerar(ator, manterPauta=True):
-    S.update(filas={}, orador=None, interr=None, pedidos=[], hist=[], presenca={}, votacao=None, votacoes=[])
+    S.update(filas={}, orador=None, interr=None, pedidos=[], hist=[], presenca={}, votacao=None, votacoes=[],
+             micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[])
     if not manterPauta:
         S["pauta"] = []
     else:
@@ -725,6 +932,7 @@ def tique():
                     mudou = True
                     if S["cfg"]["corte"]:
                         o["acc"], o["start"], o["mic"] = o["total"], None, False
+                        _ocorrencia("tempo_esgotado", o["pid"], "microfone cortado automaticamente")
                         if i and not i["pausouOrador"]:
                             _encerrar_interr(retomar=False)
             i = S["interr"]
@@ -732,6 +940,10 @@ def tique():
                 sinal("fim")
                 _encerrar_interr()
                 mudou = True
+            for g in S["gravacoes"]:
+                if not g["fim"] and agora() - g["ultimo"] > 60000:
+                    g["fim"], g["interrompida"] = g["ultimo"], True  # navegador que gravava caiu
+                    mudou = True
             if mudou:
                 confirmar()
 
@@ -748,9 +960,47 @@ def publico_votacao(v):
     return v
 
 
+def microfones() -> tuple[dict, bool]:
+    """Estado de cada microfone: aberto, fechado, cortado ou tribuna (orador falando pelo canal da tribuna)."""
+    o, i = S["orador"], S["interr"]
+    tribuna_canal = int(S["mesa"].get("canalTribuna") or 0)
+    estados = {}
+    for p in S["parls"]:
+        pid = p["id"]
+        if pid in S["micsCortados"]:
+            estados[pid] = "cortado"
+            continue
+        aberto = bool(S["micsManuais"].get(pid)) or bool(i and i["start"] and i["pid"] == pid)
+        if o and o["mic"] and o["pid"] == pid:
+            estados[pid] = "tribuna" if tribuna_canal else "aberto"
+            continue
+        estados[pid] = "aberto" if aberto else "fechado"
+    tribuna = bool(tribuna_canal and o and o["mic"] and o["pid"] not in S["micsCortados"])
+    if S["congelado"]:
+        estados = {k: "cortado" if v == "cortado" else "fechado" for k, v in estados.items()}
+        tribuna = False
+    return estados, tribuna
+
+
+def canais_desejados() -> dict[int, bool]:
+    estados, tribuna = microfones()
+    canais: dict[int, bool] = {}
+    for p in S["parls"]:
+        c = int(p.get("canal") or 0)
+        if c:
+            canais[c] = canais.get(c, False) or estados[p["id"]] == "aberto"
+    t = int(S["mesa"].get("canalTribuna") or 0)
+    if t:
+        canais[t] = canais.get(t, False) or tribuna
+    return canais
+
+
 def pacote() -> str:
     pub = {k: v for k, v in S.items() if not k.startswith("_")}
     pub["votacao"] = publico_votacao(S["votacao"])
+    pub["microfones"], pub["tribunaAberta"] = microfones()
+    pub["mesaStatus"] = mesa.publico()
+    pub["mesaPresets"] = PRESETS
     return json.dumps({"tipo": "estado", "agora": agora(), "estado": pub}, ensure_ascii=False)
 
 
@@ -770,6 +1020,57 @@ def confirmar():
     S["rev"] += 1
     salvar()
     transmitir(pacote())
+    mesa.atualizar(S["mesa"], canais_desejados())
+
+
+def _aviso_mesa():
+    with trava:
+        transmitir(pacote())
+
+
+mesa = Mesa(_aviso_mesa)
+mesa.atualizar(S["mesa"], canais_desejados())
+
+
+# ---------------------------------------------------------------- gravação
+def _gravacao(gid: str) -> dict:
+    g = next((x for x in S["gravacoes"] if x["id"] == gid), None)
+    if not g:
+        raise Erro("Gravação não encontrada.")
+    return g
+
+
+def gravacao_finalizar_arquivo(g: dict):
+    """O WebM do navegador sai sem duração no cabeçalho; se houver ffmpeg, regrava (sem recodificar)."""
+    ffmpeg = shutil.which("ffmpeg")
+    arquivo = GRAVACOES / f"{g['id']}.{g['ext']}"
+    if not ffmpeg or not arquivo.exists() or g["ext"] != "webm":
+        return
+    tmp = arquivo.with_suffix(".tmp.webm")
+    try:
+        subprocess.run([ffmpeg, "-v", "error", "-y", "-i", str(arquivo), "-c", "copy", str(tmp)], check=True, timeout=300)
+        tmp.replace(arquivo)
+        with trava:
+            g["bytes"] = arquivo.stat().st_size
+            g["duracao"] = True
+            confirmar()
+    except (subprocess.SubprocessError, OSError):
+        tmp.unlink(missing_ok=True)
+
+
+def gravacao_iniciar(pid: str, inicio: int, mime: str) -> dict:
+    mime_base = (mime or "").split(";")[0].strip()
+    if mime_base not in TIPOS_AUDIO:
+        raise Erro("Formato de áudio não suportado.")
+    o = S["orador"]
+    p = parl(pid)
+    f = next((x for x in S["fases"] if o and x["id"] == o["fase"]), {"nome": ""})
+    g = {"id": secrets.token_hex(8), "pid": pid, "nome": p["nome"], "partido": p["partido"], "faseNome": f["nome"],
+         "materia": S["materiaAtual"], "inicio": int(inicio or agora()), "criado": agora(), "fim": None,
+         "ultimo": agora(), "bytes": 0, "mime": mime_base, "ext": TIPOS_AUDIO[mime_base]}
+    GRAVACOES.mkdir(parents=True, exist_ok=True)
+    S["gravacoes"].insert(0, g)
+    return g
 
 
 # ---------------------------------------------------------------- HTTP
@@ -809,6 +1110,8 @@ class Manipulador(BaseHTTPRequestHandler):
             return self._eventos()
         if caminho.startswith("/imagem/"):
             return self._imagem(caminho.rsplit("/", 1)[1])
+        if caminho.startswith("/gravacao/"):
+            return self._audio(caminho.rsplit("/", 1)[1])
         if caminho == "/api/eu":
             with trava:
                 a = self._ator()
@@ -847,6 +1150,91 @@ class Manipulador(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(linha[1])
 
+    def _audio(self, nome):
+        gid = nome.split(".")[0]
+        with trava:
+            g = next((x for x in S["gravacoes"] if x["id"] == gid), None)
+        arquivo = GRAVACOES / f"{g['id']}.{g['ext']}" if g else None
+        if not arquivo or not arquivo.exists():
+            return self._json(404, {"erro": "Gravação não encontrada."})
+        tamanho = arquivo.stat().st_size
+        ini, fim = 0, tamanho - 1
+        faixa = self.headers.get("Range", "")
+        if faixa.startswith("bytes="):
+            a, _, b = faixa[6:].split(",")[0].partition("-")
+            try:
+                ini = int(a) if a else max(0, tamanho - int(b))
+                fim = min(int(b), tamanho - 1) if a and b else fim
+            except ValueError:
+                ini, fim = 0, tamanho - 1
+        if tamanho == 0 or ini > fim:
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{tamanho}")
+            self.end_headers()
+            return
+        self.send_response(206 if faixa else 200)
+        self.send_header("Content-Type", g["mime"])
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(fim - ini + 1))
+        if faixa:
+            self.send_header("Content-Range", f"bytes {ini}-{fim}/{tamanho}")
+        if "baixar" in (urlparse(self.path).query or ""):
+            nome_arq = f"{time.strftime('%Y%m%d-%H%M', time.localtime(g['inicio'] / 1000))}-{g['nome']}.{g['ext']}"
+            self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(nome_arq))
+        self.end_headers()
+        with open(arquivo, "rb") as f:
+            f.seek(ini)
+            resta = fim - ini + 1
+            while resta > 0:
+                bloco = f.read(min(65536, resta))
+                if not bloco:
+                    break
+                self.wfile.write(bloco)
+                resta -= len(bloco)
+
+    def _gravacao_post(self, caminho):
+        """/api/gravacao/iniciar, /api/gravacao/<id>/parte (corpo binário), /api/gravacao/<id>/fim"""
+        partes = caminho.strip("/").split("/")
+        if len(partes) < 3:
+            return self._json(404, {"erro": "Não encontrado."})
+        with trava:
+            ator = self._ator()
+        if not ator or ator["papel"] != "presidente":
+            return self._json(401, {"erro": "Só o painel do presidente grava."})
+        if partes[2] == "iniciar":
+            corpo = self._ler()
+            with trava:
+                g = gravacao_iniciar(corpo.get("pid"), corpo.get("inicio"), corpo.get("mime"))
+                confirmar()
+            return self._json(200, {"id": g["id"]})
+        if len(partes) != 4 or not partes[2].isalnum():
+            return self._json(404, {"erro": "Não encontrado."})
+        gid, passo = partes[2], partes[3]
+        with trava:
+            g = _gravacao(gid)
+        if passo == "parte":
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > LIMITE_PARTE:
+                raise Erro("Parte grande demais.")
+            dados = self.rfile.read(n)
+            with open(GRAVACOES / f"{g['id']}.{g['ext']}", "ab") as f:
+                f.write(dados)
+            with trava:
+                g["bytes"] += len(dados)
+                g["ultimo"] = agora()
+                transmitir(pacote())
+            return self._json(200, {"ok": True})
+        if passo == "fim":
+            self._ler()
+            with trava:
+                g["fim"] = agora()
+                g["ultimo"] = g["fim"]
+                registrar("presidente", "gravacao", {"id": g["id"], "pid": g["pid"], "bytes": g["bytes"]})
+                confirmar()
+            threading.Thread(target=gravacao_finalizar_arquivo, args=(g,), daemon=True).start()
+            return self._json(200, {"ok": True})
+        return self._json(404, {"erro": "Não encontrado."})
+
     def _eventos(self):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -877,6 +1265,8 @@ class Manipulador(BaseHTTPRequestHandler):
     def do_POST(self):
         caminho = urlparse(self.path).path
         try:
+            if caminho.startswith("/api/gravacao/"):
+                return self._gravacao_post(caminho)
             corpo = self._ler()
             if caminho == "/api/entrar":
                 return self._entrar(corpo)

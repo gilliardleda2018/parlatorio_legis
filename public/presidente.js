@@ -71,14 +71,25 @@ function desenharSessao() {
       </span></li>`;
   }).join('') : '<li class="vazio" style="background:none">Ninguém inscrito nesta fase.</li>';
 
+  $('faixaCongelado').innerHTML = S.congelado
+    ? `<div class="congelado-faixa"><span style="font-size:28px">❄</span><div><b>Plenário congelado</b><br>
+        <span class="suave">${S.congelado.motivo ? esc(S.congelado.motivo) + ' · ' : ''}desde ${hora(S.congelado.inicio)} · todos os microfones fechados e cronômetros parados</span></div>
+        <span class="esp"></span><button class="botao ok gr" onclick="A('descongelarPlenario')">▶ Retomar a sessão</button></div>`
+    : `<div class="controle-plenario">
+        <button class="botao pq fantasma" onclick="A('fecharTodos')" title="Fecha os microfones de bancada liberados">Fechar microfones de bancada</button>
+        <button class="botao pq azul" onclick="congelarPlenario()" title="Tumulto: para todos os tempos e fecha todos os microfones">❄ Congelar plenário</button></div>`;
+
   desenharTribuna();
   desenharPedidos();
   $('quorum').innerHTML = quorumHtml();
   desenharParlsRapido();
+  desenharMesaEGravacao();
 }
 
 function chipEstado(o) {
   const S = PL.estado;
+  if (S.congelado) return `<span class="chip interr"><span class="ponto"></span>Plenário congelado · microfone fechado</span>`;
+  if (o.congelado) return `<span class="chip interr"><span class="ponto"></span>❄ Tempo congelado · microfone cortado</span>`;
   if (!o.inicio) return `<span class="chip"><span class="ponto"></span>Aguardando início</span>`;
   if (o.esgotou && !o.start) return `<span class="chip corte"><span class="ponto"></span>Tempo esgotado · microfone cortado</span>`;
   if (S.interr) return `<span class="chip interr"><span class="ponto"></span>${PL.TIPOS[S.interr.tipo]} em curso</span>`;
@@ -95,7 +106,9 @@ function desenharTribuna() {
   const opcoes = S.parls.filter(p => p.id !== o?.pid).map(p => `<option value="${p.id}" ${p.id === selInterr ? 'selected' : ''}>${esc(p.nome)} (${esc(p.partido)})${S.presenca[p.id] ? '' : ' — ausente'}</option>`).join('');
   const blocoInterr = i ? `<div class="interrupcao"><span class="chip interr"><span class="ponto"></span>${PL.TIPOS[i.tipo]}</span>
       ${avatar(parl(i.pid))}<b>${esc(parl(i.pid).nome)}</b><span class="t tnum" id="tInterr"></span>
-      <button class="botao pq" onclick="A('encerrarInterr')">Encerrar ${PL.TIPOS[i.tipo].toLowerCase()}</button></div>`
+      <button class="botao pq" onclick="A('addTempoInterr',{seg:30})">+30 s</button>
+      <button class="botao pq" onclick="A('encerrarInterr')">Encerrar ${PL.TIPOS[i.tipo].toLowerCase()}</button>
+      <button class="botao pq perigo" onclick="cortar('${i.pid}')" title="Encerra e corta o microfone">Cortar microfone</button></div>`
     : `<div class="pedir"><select class="campo" id="selInterr" onchange="selInterr=this.value"><option value="">Parlamentar solicitante…</option>${opcoes}</select>
       <button class="botao" onclick="interromper('aparte')" ${o?.start ? '' : 'disabled'} title="Exige orador com a palavra">Aparte</button>
       <button class="botao" onclick="interromper('ordem')">Questão de ordem</button>
@@ -116,17 +129,71 @@ function desenharTribuna() {
     <div class="grande tnum" id="tOrador"></div>
     <div class="barra" id="bOrador"><i></i></div>
     <div class="grupo">
-      <button class="botao ${o.start ? '' : 'ok'} gr" onclick="alternar()" ${i?.pausouOrador ? 'disabled' : ''}>${o.start ? '⏸ Pausar' : o.inicio ? '▶ Retomar' : '▶ Iniciar'}</button>
-      <button class="botao gr" onclick="A('addTempo',{seg:60})">+1 min</button>
-      <button class="botao gr" onclick="A('addTempo',{seg:30})">+30 s</button>
-      <button class="botao gr" onclick="A('addTempo',{seg:-30})">−30 s</button>
+      ${o.congelado
+        ? `<button class="botao azul gr" onclick="A('descongelar')" ${S.congelado ? 'disabled' : ''}>▶ Descongelar</button>`
+        : `<button class="botao ${o.start ? '' : 'ok'} gr" onclick="alternar()" ${i?.pausouOrador || S.congelado ? 'disabled' : ''}>${o.start ? '⏸ Pausar' : o.inicio ? '▶ Retomar' : '▶ Iniciar'}</button>
+           <button class="botao azul gr" onclick="congelarOrador()" title="Para o tempo e corta o microfone (tumulto, excesso)">❄ Congelar</button>`}
       <button class="botao perigo gr" onclick="A('encerrar')">■ Encerrar</button>
       <button class="botao principal gr" onclick="A('proximo')">Próximo ⏭</button>
     </div>
+    <div class="grupo" style="margin-top:8px">
+      <span class="detalhe" style="align-self:center">Adicionar tempo:</span>
+      <button class="botao" onclick="A('addTempo',{seg:30})">+30 s</button>
+      <button class="botao" onclick="A('addTempo',{seg:60})">+1 min</button>
+      <button class="botao" onclick="A('addTempo',{seg:120})">+2 min</button>
+      <button class="botao" onclick="A('addTempo',{seg:300})">+5 min</button>
+      <button class="botao fantasma" onclick="tempoPersonalizado()">Outro…</button>
+    </div>
     ${blocoInterr}
-    <div class="atalhos"><kbd>Espaço</kbd> iniciar/pausar · <kbd>N</kbd> próximo · <kbd>E</kbd> encerrar · <kbd>+</kbd> 1 minuto</div>`;
+    <div class="atalhos"><kbd>Espaço</kbd> iniciar/pausar · <kbd>C</kbd> congelar · <kbd>N</kbd> próximo · <kbd>E</kbd> encerrar · <kbd>+</kbd> 1 minuto · <kbd>T</kbd> tempo</div>`;
 }
-function alternar() { const o = PL.estado.orador; if (o) A(o.start ? 'pausar' : 'iniciar'); }
+function alternar() { const o = PL.estado.orador; if (o && !o.congelado) A(o.start ? 'pausar' : 'iniciar'); }
+
+/* congelar, cortar, liberar */
+function pedirMotivo(titulo, texto, rotulo, aoConfirmar) {
+  dialogo(titulo, `<p style="margin:0">${texto}</p>
+    <label class="rot">Motivo (vai para a ata)<input class="campo" id="dMotivo" list="dlMotivos" placeholder="Opcional"></label>
+    <datalist id="dlMotivos"><option value="Tumulto no plenário"><option value="Excedeu o tempo regimental"><option value="Linguagem ofensiva"><option value="Fala fora do tema em debate"><option value="Desrespeito à presidência"></datalist>`,
+    () => aoConfirmar($('dMotivo').value), rotulo);
+  setTimeout(() => $('dMotivo').focus(), 50);
+}
+function congelarOrador() {
+  const o = PL.estado.orador; if (!o) return;
+  pedirMotivo('Congelar orador', `O tempo de <b>${esc(parl(o.pid).nome)}</b> para e o microfone é cortado até você descongelar.`, '❄ Congelar',
+    motivo => A('congelar', { motivo }));
+}
+function congelarPlenario() {
+  pedirMotivo('Congelar plenário', 'Todos os cronômetros param e <b>todos os microfones</b> são fechados até você retomar a sessão.', '❄ Congelar plenário',
+    motivo => A('congelarPlenario', { motivo }));
+}
+function cortar(pid) {
+  pedirMotivo('Cortar microfone', `O microfone de <b>${esc(parl(pid).nome)}</b> fica bloqueado: não abre nem na tribuna, nem em aparte, até você liberar.`, 'Cortar microfone',
+    motivo => A('cortarMic', { pid, cortar: true, motivo }));
+}
+const liberar = pid => A('cortarMic', { pid, cortar: false });
+function micBotoes(pid) {
+  const m = PL.mic(pid);
+  if (m === 'cortado') return `<button class="botao pq mic-bt cortado" title="Microfone cortado — clique para liberar" onclick="liberar('${pid}')">🔇</button>`;
+  return `<button class="botao pq mic-bt ${m === 'aberto' || m === 'tribuna' ? 'aberto' : ''}" title="${m === 'aberto' ? 'Fechar microfone de bancada' : 'Abrir microfone de bancada'}"
+      onclick="A('micManual',{pid:'${pid}',aberto:${m !== 'aberto'}})">🎙</button>
+    <button class="botao pq mic-bt" title="Cortar microfone (bloquear)" onclick="cortar('${pid}')">✂</button>`;
+}
+function tempoPersonalizado() {
+  const alvo = PL.estado.interr ? 'interr' : 'orador';
+  dialogo('Adicionar tempo', `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <label class="rot">Minutos<input class="campo" type="number" id="dMin" value="3" min="0"></label>
+      <label class="rot">Segundos<input class="campo" type="number" id="dSeg" value="0" min="0" max="59"></label>
+    </div>
+    <label class="rot">Para<select class="campo" id="dAlvo"><option value="orador">Orador na tribuna</option>${PL.estado.interr ? `<option value="interr" selected>${PL.TIPOS[PL.estado.interr.tipo]} em curso</option>` : ''}</select></label>
+    <label class="linha">Retirar tempo em vez de adicionar<input type="checkbox" id="dTirar"></label>`,
+    () => {
+      const seg = ((+$('dMin').value || 0) * 60 + (+$('dSeg').value || 0)) * ($('dTirar').checked ? -1 : 1);
+      if (!seg) return;
+      return A($('dAlvo').value === 'interr' ? 'addTempoInterr' : 'addTempo', { seg });
+    }, 'Aplicar');
+  setTimeout(() => $('dMin').select(), 50);
+}
 function interromper(tipo) {
   if (!selInterr) { $('selInterr').focus(); PL.avisar('Escolha o parlamentar solicitante.', true); return; }
   A('interromper', { tipo, pid: selInterr }).then(() => { selInterr = ''; });
@@ -159,7 +226,8 @@ function desenharParlsRapido() {
       <span class="acoes">${tribuna ? '<span class="chip vivo"><span class="ponto"></span>Tribuna</span>'
         : inscrito ? `<button class="botao pq fantasma" onclick="A('desinscrever',{pid:'${p.id}'})">Inscrito ✓</button>`
         : `<button class="botao pq" onclick="A('inscrever',{pid:'${p.id}'})">+ Inscrever</button>`}
-      ${tribuna ? '' : `<button class="botao pq" title="Conceder a palavra agora" onclick="A('chamar',{pid:'${p.id}'})">🎤</button>`}</span></li>`;
+      ${tribuna ? '' : `<button class="botao pq" title="Conceder a palavra agora (chamar à tribuna)" onclick="A('chamar',{pid:'${p.id}'})">Tribuna</button>`}
+      ${micBotoes(p.id)}</span></li>`;
   }).join('');
 }
 
@@ -251,6 +319,7 @@ function desenharPlenario() {
   $('tabParls').innerHTML = S.parls.map(p => {
     const pres = S.presenca[p.id];
     return `<tr><td style="width:52px">${avatar(p)}</td><td><b>${esc(p.nome)}</b>${p.lider ? ' <span class="chip" style="font-size:10px">Líder</span>' : ''}</td><td>${sigla(p.partido)}</td>
+      <td class="tnum">${p.canal || '—'}</td><td><span class="grupo" style="gap:4px;flex-wrap:nowrap;align-items:center">${PL.micChip(p.id)}${micBotoes(p.id)}</span></td>
       <td><label class="linha" style="justify-content:flex-start"><input type="checkbox" ${pres ? 'checked' : ''} onchange="A('presenca',{pid:'${p.id}',presente:this.checked})"> ${pres ? 'Presente' : 'Ausente'}</label></td>
       <td class="suave tnum">${pres ? hora(pres) : '—'}</td>
       <td style="text-align:right"><button class="botao pq" onclick="editarParl('${p.id}')">Editar</button>
@@ -261,7 +330,7 @@ async function todosPresentes(v) {
   for (const p of PL.estado.parls) if (!!PL.estado.presenca[p.id] !== v) await A('presenca', { pid: p.id, presente: v });
 }
 function editarParl(id) {
-  const p = id ? parl(id) : { nome: '', partido: '', lider: false };
+  const p = id ? parl(id) : { nome: '', partido: '', lider: false, canal: 0 };
   dialogo(id ? 'Editar parlamentar' : 'Novo parlamentar', `
     ${id ? `<div style="display:flex;gap:12px;align-items:center">${avatar(p, '', 'width:72px;height:72px;font-size:24px')}
       <label class="rot">Foto<input type="file" accept="image/*" id="dFoto"></label>
@@ -270,9 +339,10 @@ function editarParl(id) {
     <label class="rot">Partido<input class="campo" id="dPartido" value="${esc(p.partido)}" list="dlPartidos"></label>
     <datalist id="dlPartidos">${Object.keys(PL.estado.partidos).map(s => `<option value="${esc(s)}">`).join('')}</datalist>
     <label class="linha">Líder de bancada<input type="checkbox" id="dLider" ${p.lider ? 'checked' : ''}></label>
+    <label class="linha">Canal do microfone na mesa de som (0 = sem canal)<input class="campo" type="number" min="0" max="256" id="dCanal" value="${p.canal || 0}" style="width:100px"></label>
     <label class="rot">PIN de acesso pelo celular (4 a 8 dígitos)<input class="campo" id="dPin" inputmode="numeric" placeholder="${id ? 'deixe em branco para manter' : 'padrão: 0000'}"></label>`,
     async () => {
-      await A('parlSalvar', { id, nome: $('dNome').value, partido: $('dPartido').value, lider: $('dLider').checked, pin: $('dPin').value });
+      await PL.acao('presidente', 'parlSalvar', { id, nome: $('dNome').value, partido: $('dPartido').value, lider: $('dLider').checked, pin: $('dPin').value, canal: +$('dCanal').value });
       const arq = $('dFoto')?.files[0];
       if (arq) A('imagem', { alvo: id, dataUrl: await PL.lerImagem(arq) });
     });
@@ -300,6 +370,33 @@ function desenharRelatorios() {
       <td class="tnum ${h.usado > disp ? 'n-fim' : ''}">${tempo(h.usado * 1000)} / ${tempo(disp * 1000)}</td>
       <td class="suave" style="font-size:13px">${[...h.apartes.map(a => `${PL.TIPOS[a.tipo]}: ${esc(a.nome)} (${tempo(a.usado * 1000)})`), ...h.cedentes.map(c => 'Tempo cedido por ' + esc(c))].join('<br>') || '—'}</td></tr>`;
   }).join('') : '<tr><td class="vazio">Nenhum pronunciamento registrado.</td></tr>';
+
+  const grav = S.gravacoes || [];
+  $('gravacoes').innerHTML = grav.length ? grav.map(g => `<div class="grav-item">
+      <div style="display:flex;gap:8px;align-items:center"><b>${esc(g.nome)}</b>${sigla(g.partido)}<span class="suave" style="font-size:13px">${esc(g.faseNome)} · ${new Date(g.inicio).toLocaleString('pt-BR')}</span>
+        <span style="flex:1"></span>${g.fim ? `<span class="suave tnum" style="font-size:12px">${(g.bytes / 1048576).toFixed(1)} MB</span>` : '<span class="rec">gravando</span>'}</div>
+      ${g.fim ? `<audio controls preload="none" src="/gravacao/${g.id}.${g.ext}"></audio>
+      <div class="grupo"><a class="botao pq" href="/gravacao/${g.id}.${g.ext}?baixar=1">Baixar</a>
+        <button class="botao pq fantasma" onclick="if(confirm('Apagar esta gravação? Não pode ser desfeito.'))A('gravacaoRemover',{id:'${g.id}'})">Apagar</button></div>` : ''}
+    </div>`).join('') : '<p class="vazio">Nenhuma gravação. Ative “Gravar falas” na aba Sessão.</p>';
+
+  // WebM gravado sem ffmpeg no servidor não traz a duração: força o navegador a calcular
+  document.querySelectorAll('#gravacoes audio').forEach(au => {
+    au.onloadedmetadata = () => {
+      if (au.duration !== Infinity) return;
+      au.currentTime = 1e101;
+      au.ontimeupdate = () => { au.ontimeupdate = null; au.currentTime = 0; };
+    };
+  });
+
+  const oc = S.ocorrencias || [];
+  $('ocorrencias').innerHTML = oc.length ? '<tr><th>Hora</th><th>Ocorrência</th><th>Parlamentar</th><th>Motivo</th></tr>' + oc.map(o =>
+    `<tr><td class="tnum">${hora(o.ts)}</td><td><span class="chip ${['corte', 'tempo_esgotado'].includes(o.tipo) ? 'nao' : ['congelar', 'plenario_congelado'].includes(o.tipo) ? 'interr' : 'sim'}">${PL.OCORRENCIAS[o.tipo] || o.tipo}</span></td>
+      <td>${esc(o.nome || '—')}</td><td class="suave">${esc(o.motivo || '—')}</td></tr>`).join('') : '<tr><td class="vazio">Nenhuma ocorrência.</td></tr>';
+}
+function csvOcorrencias() {
+  baixarCsv('ocorrencias', [['Data e hora', 'Ocorrência', 'Parlamentar', 'Motivo'],
+    ...[...(PL.estado.ocorrencias || [])].reverse().map(o => [new Date(o.ts).toLocaleString('pt-BR'), PL.OCORRENCIAS[o.tipo] || o.tipo, o.nome, o.motivo])]);
 }
 function baixarCsv(nome, linhas) {
   const csv = '﻿' + linhas.map(l => l.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n');
@@ -333,6 +430,130 @@ function carregarConfig() {
   $('cAuto').checked = c.autoInscricao; $('cExige').checked = c.exigePresenca; $('cPresCel').checked = c.presencaCelular;
   cfgFases = S.fases.map(f => ({ ...f })); desenharFases();
   cfgPartidos = Object.entries(S.partidos); desenharPartidos();
+  const m = S.mesa;
+  $('mDriver').value = m.driver; $('mHost').value = m.host; $('mPorta').value = m.porta; $('mEndereco').value = m.endereco;
+  $('mAberto').value = m.valorAberto; $('mFechado').value = m.valorFechado; $('mTipo').value = m.tipoValor;
+  $('mUrl').value = m.url; $('mTribuna').value = m.canalTribuna; $('mReenviar').checked = m.reenviar;
+  mesaCampos();
+}
+function mesaCampos() {
+  $('mOsc').classList.toggle('oculto', $('mDriver').value !== 'osc');
+  $('mHttp').classList.toggle('oculto', $('mDriver').value !== 'http');
+}
+function mesaPreset(nome) {
+  const p = PL.estado.mesaPresets[nome];
+  $('mDriver').value = 'osc'; $('mPorta').value = p.porta; $('mEndereco').value = p.endereco;
+  $('mAberto').value = p.valorAberto; $('mFechado').value = p.valorFechado; $('mTipo').value = p.tipoValor;
+  mesaCampos();
+}
+async function salvarMesa() {
+  await PL.acao('presidente', 'mesaSalvar', { cfg: {
+    driver: $('mDriver').value, host: $('mHost').value, porta: +$('mPorta').value, endereco: $('mEndereco').value,
+    valorAberto: $('mAberto').value, valorFechado: $('mFechado').value, tipoValor: $('mTipo').value,
+    url: $('mUrl').value, canalTribuna: +$('mTribuna').value, reenviar: $('mReenviar').checked } }).catch(() => {});
+  PL.avisar('Mesa de som salva.');
+}
+
+/* ---------------- mesa de som (status) e gravação ---------------- */
+function desenharMesaEGravacao() {
+  const S = PL.estado, st = S.mesaStatus || {}, nomes = { simulado: 'simulada', osc: 'OSC', http: 'HTTP' };
+  $('mesaEstado').innerHTML = `<span class="chip ${st.ok ? 'sim' : 'nao'}">${nomes[S.mesa.driver]} · ${st.ok ? 'ok' : 'erro'}</span>`;
+  $('mesaLog').innerHTML = (st.erro ? `<div class="n-fim">${esc(st.erro)}</div>` : '') + ((st.log || []).slice(0, 5).map(esc).join('<br>') || 'Nenhum comando enviado ainda.');
+  const outro = PL.gravando() && !Grav.ligado;
+  $('gravEstado').innerHTML = Grav.ligado ? (Grav.gid ? '<span class="rec">gravando</span>' : '<span class="chip">aguardando orador</span>')
+    : outro ? '<span class="rec">em outro computador</span>' : '';
+  $('gravBotao').textContent = Grav.ligado ? '■ Parar de gravar' : '● Gravar falas neste computador';
+  $('gravBotao').className = 'botao ' + (Grav.ligado ? 'perigo' : '');
+  if (!window.isSecureContext) {
+    $('gravBotao').disabled = true;
+    $('gravAjuda').innerHTML = 'Para gravar, abra este painel em <b>http://localhost:8090</b> no computador do servidor ou por HTTPS (o navegador só libera o microfone em conexão segura).';
+  }
+}
+
+/* Gravação: este navegador grava a entrada de áudio (saída da mesa) e envia
+   em partes de 5 s ao servidor. Cada fala (orador + início) vira um arquivo. */
+const Grav = { ligado: false, stream: null, rec: null, gid: null, alvo: null, envio: Promise.resolve(), cadeia: Promise.resolve(), analisador: null, nivel: null };
+const MIME = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find(t => window.MediaRecorder?.isTypeSupported(t));
+async function api(caminho, corpo, tipo = 'application/json') {
+  const r = await fetch(caminho, { method: 'POST', headers: { 'Content-Type': tipo, Authorization: 'Bearer ' + PL.token('presidente') },
+    body: tipo === 'application/json' ? JSON.stringify(corpo || {}) : corpo });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.erro || 'Falha no envio da gravação.');
+  return j;
+}
+async function listarEntradas() {
+  const atual = localStorage.getItem('parlatorio.entrada') || '';
+  const lista = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+  $('gravDispositivo').innerHTML = '<option value="">Entrada padrão do sistema</option>' +
+    lista.map((d, k) => `<option value="${esc(d.deviceId)}">${esc(d.label || 'Entrada ' + (k + 1))}</option>`).join('');
+  $('gravDispositivo').value = lista.some(d => d.deviceId === atual) ? atual : '';
+}
+$('gravDispositivo').onchange = async () => {
+  localStorage.setItem('parlatorio.entrada', $('gravDispositivo').value);
+  if (Grav.ligado) { await gravDesligar(); await gravLigar(); }
+};
+async function gravAlternar() { Grav.ligado ? gravDesligar() : gravLigar(); }
+async function gravLigar() {
+  if (!MIME) return PL.avisar('Este navegador não grava áudio. Use Chrome, Edge ou Firefox.', true);
+  try {
+    const id = $('gravDispositivo').value;
+    Grav.stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: id ? { exact: id } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) { return PL.avisar('Sem acesso à entrada de áudio: ' + e.message, true); }
+  const ctx = new AudioContext(), fonte = ctx.createMediaStreamSource(Grav.stream);
+  Grav.analisador = ctx.createAnalyser(); Grav.analisador.fftSize = 512; fonte.connect(Grav.analisador);
+  Grav.nivel = new Uint8Array(Grav.analisador.fftSize); Grav.ctx = ctx;
+  Grav.ligado = true;
+  listarEntradas();
+  gravSincronizar(); desenhar();
+}
+async function gravDesligar() {
+  Grav.ligado = false; Grav.alvo = null;
+  Grav.cadeia = Grav.cadeia.then(gravPararAtual);
+  await Grav.cadeia;
+  Grav.stream?.getTracks().forEach(t => t.stop()); Grav.stream = null;
+  Grav.ctx?.close(); Grav.analisador = null;
+  desenhar();
+}
+function gravSincronizar() {
+  if (!Grav.ligado) return;
+  const o = PL.estado.orador;
+  const alvo = o && o.inicio ? o.pid + ':' + o.inicio : null;
+  if (alvo === Grav.alvo) return;
+  Grav.alvo = alvo;
+  Grav.cadeia = Grav.cadeia.then(async () => {
+    await gravPararAtual();
+    if (alvo && Grav.ligado) await gravIniciar(o.pid, o.inicio);
+    desenhar();
+  }).catch(e => PL.avisar(e.message, true));
+}
+async function gravIniciar(pid, inicio) {
+  const { id } = await api('/api/gravacao/iniciar', { pid, inicio, mime: MIME });
+  Grav.gid = id; Grav.envio = Promise.resolve();
+  const rec = new MediaRecorder(Grav.stream, { mimeType: MIME, audioBitsPerSecond: 96000 });
+  rec.ondataavailable = e => {
+    if (!e.data.size) return;
+    Grav.envio = Grav.envio.then(() => api(`/api/gravacao/${id}/parte`, e.data, MIME.split(';')[0])).catch(err => PL.avisar(err.message, true));
+  };
+  rec.start(5000);
+  Grav.rec = rec;
+}
+async function gravPararAtual() {
+  const rec = Grav.rec, id = Grav.gid;
+  if (!rec) return;
+  await new Promise(ok => { rec.onstop = ok; rec.stop(); });
+  await Grav.envio;
+  await api(`/api/gravacao/${id}/fim`).catch(() => {});
+  Grav.rec = null; Grav.gid = null;
+}
+PL.aoMudar(() => gravSincronizar());
+addEventListener('beforeunload', e => { if (Grav.rec) { e.preventDefault(); e.returnValue = ''; } });
+function pintarNivel() {
+  if (!Grav.analisador) { $('gravNivel').firstElementChild.style.width = '0%'; return; }
+  Grav.analisador.getByteTimeDomainData(Grav.nivel);
+  let pico = 0; for (const v of Grav.nivel) pico = Math.max(pico, Math.abs(v - 128));
+  const pct = Math.min(100, pico / 128 * 140);
+  $('gravNivel').className = 'barra ' + (pct > 95 ? 'n-fim' : pct > 75 ? 'n-alerta' : '');
+  $('gravNivel').firstElementChild.style.width = pct + '%';
 }
 function desenharCores() {
   $('cCores').innerHTML = CORES.map(c => `<button type="button" style="background:${c}" class="${$('cDestaque').value === c ? 'on' : ''}" title="${c}" onclick="$('cDestaque').value='${c}';previaCor()"></button>`).join('');
@@ -384,6 +605,7 @@ function dialogo(titulo, html, aoConfirmar, rotulo = 'Salvar') {
 function relogios() {
   const S = PL.estado; if (!S) return;
   $('relogio').textContent = PL.relogio();
+  if (abaAtual === 'sessao') pintarNivel();
   if (S.orador) PL.pintar(S.orador, $('tOrador'), $('bOrador'));
   if (S.interr) PL.pintar(S.interr, $('tInterr'));
   if (abaAtual === 'sessao' && S.orador?.start) {
@@ -403,6 +625,9 @@ addEventListener('keydown', e => {
   else if (e.key === 'n' || e.key === 'N') A('proximo');
   else if (e.key === 'e' || e.key === 'E') A('encerrar');
   else if (e.key === '+') A('addTempo', { seg: 60 });
+  else if (e.key === 't' || e.key === 'T') { e.preventDefault(); if (PL.estado.orador) tempoPersonalizado(); }
+  else if (e.key === 'c' || e.key === 'C') { const o = PL.estado.orador; if (o) o.congelado ? A('descongelar') : congelarOrador(); }
 });
+if (navigator.mediaDevices?.enumerateDevices) listarEntradas();
 
 iniciar();

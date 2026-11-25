@@ -101,6 +101,16 @@ const PL = (() => {
   const SITUACOES = { pendente: 'Pendente', em_discussao: 'Em discussão', em_votacao: 'Em votação', aprovada: 'Aprovada', rejeitada: 'Rejeitada', adiada: 'Adiada', retirada: 'Retirada', sem_quorum: 'Sem quórum' };
   const QUORUNS = { simples: 'Maioria simples', absoluta: 'Maioria absoluta', dois_tercos: 'Dois terços' };
   const VOTOS = { sim: 'Sim', nao: 'Não', abst: 'Abstenção' };
+  const MICS = { aberto: 'Microfone aberto', fechado: 'Microfone fechado', cortado: 'Microfone cortado', tribuna: 'Na tribuna' };
+  const OCORRENCIAS = { congelar: 'Tempo congelado', descongelar: 'Tempo descongelado', corte: 'Microfone cortado', liberacao: 'Microfone liberado',
+    tempo_esgotado: 'Tempo esgotado', plenario_congelado: 'Plenário congelado', plenario_retomado: 'Sessão retomada' };
+  const mic = pid => estado.microfones?.[pid] || 'fechado';
+  function micChip(pid) {
+    const m = mic(pid);
+    const cls = { aberto: 'vivo', tribuna: 'vivo', cortado: 'corte', fechado: '' }[m];
+    return `<span class="chip ${cls}" title="${MICS[m]}"><span class="ponto"></span>${m === 'cortado' ? 'Cortado' : m === 'fechado' ? 'Mic fechado' : 'Mic aberto'}</span>`;
+  }
+  const gravando = () => (estado.gravacoes || []).some(g => !g.fim && agora() - g.ultimo < 20000);
   function quorum() {
     const n = estado.parls.length, presentes = Object.keys(estado.presenca).length, minimo = Math.floor(n / 2) + 1;
     return { n, presentes, minimo, ok: presentes >= minimo };
@@ -164,6 +174,7 @@ const PL = (() => {
   return {
     conectar, agora, entrar, quemSou, sair, acao, esc, tempo, hora, relogio, decorrido, restante, nivel, pintar,
     parl, fase, corPartido, avatar, sigla, TIPOS, SITUACOES, QUORUNS, VOTOS, quorum, usadoNaFase, bipe, avisar, lerImagem,
+    MICS, OCORRENCIAS, mic, micChip, gravando, token: papel => localStorage.getItem(tokenChave(papel)),
     get estado() { return estado; },
     aoMudar: f => ouvintes.push(f),
     aoSinal: null

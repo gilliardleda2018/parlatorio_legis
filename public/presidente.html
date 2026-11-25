@@ -96,6 +96,17 @@
   dialog .cab { padding: 16px 18px 0; display: flex; justify-content: space-between; align-items: center }
   dialog .corpo { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; max-height: 70vh; overflow: auto }
   dialog .rodape { padding: 0 18px 16px; display: flex; gap: 8px; justify-content: flex-end }
+  .congelado-faixa { display: flex; align-items: center; gap: 14px; padding: 14px 18px; margin-bottom: 16px; border-radius: var(--raio); background: color-mix(in srgb, var(--azul) 18%, var(--cartao)); border: 2px solid var(--azul); font-size: 18px }
+  .congelado-faixa b { font-size: 20px }
+  .congelado-faixa .esp { flex: 1 }
+  .controle-plenario { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px }
+  .mic-bt { width: 34px; height: 30px; padding: 0; border-radius: 8px; font-size: 15px }
+  .mic-bt.aberto { background: var(--sim); color: #fff }
+  .mic-bt.cortado { background: var(--vermelho); color: #fff }
+  .grav-item { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: var(--cartao2); border-radius: 10px; margin-bottom: 8px }
+  .grav-item audio { width: 100%; height: 36px }
+  .rec { display: inline-flex; align-items: center; gap: 6px; color: var(--vermelho); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .05em }
+  .rec::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--vermelho); animation: pisca 1s steps(2, start) infinite }
   .cores { display: flex; gap: 6px; flex-wrap: wrap }
   .cores button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer }
   .cores button.on { border-color: var(--texto) }
@@ -136,6 +147,7 @@
   <main>
     <!-- ===== SESSÃO ===== -->
     <section class="aba ativa" id="aba-sessao">
+      <div id="faixaCongelado"></div>
       <div class="grade3">
         <div class="coluna">
           <div class="cartao neutro"><h2>Fases da sessão</h2><div id="fases"></div></div>
@@ -156,6 +168,19 @@
           <div class="cartao neutro">
             <h2>Quórum</h2>
             <div id="quorum"></div>
+          </div>
+          <div class="cartao neutro" id="cartaoGravacao">
+            <h2>Gravação das falas<span class="esp"></span><span id="gravEstado"></span></h2>
+            <div class="coluna" style="gap:10px">
+              <select class="campo" id="gravDispositivo" aria-label="Entrada de áudio"><option value="">Entrada padrão do sistema</option></select>
+              <div class="barra" id="gravNivel" title="Nível do áudio"><i style="width:0%"></i></div>
+              <button class="botao" id="gravBotao" onclick="gravAlternar()">● Gravar falas neste computador</button>
+              <small class="suave" id="gravAjuda">Ligue a saída da mesa de som na entrada de áudio deste computador. Cada fala vira um arquivo nos Relatórios.</small>
+            </div>
+          </div>
+          <div class="cartao neutro">
+            <h2>Mesa de som<span class="esp"></span><span id="mesaEstado"></span></h2>
+            <div id="mesaLog" class="suave tnum" style="font-size:12px;line-height:1.6"></div>
           </div>
           <div class="cartao neutro">
             <h2>Parlamentares</h2>
@@ -189,7 +214,7 @@
             <button class="botao pq" onclick="todosPresentes(true)">Marcar todos presentes</button>
             <button class="botao pq" onclick="todosPresentes(false)">Limpar presença</button>
             <button class="botao pq principal" onclick="editarParl()">+ Parlamentar</button></h2>
-          <table class="tab"><thead><tr><th></th><th>Nome</th><th>Partido</th><th>Presença</th><th>Chegada</th><th></th></tr></thead><tbody id="tabParls"></tbody></table>
+          <table class="tab"><thead><tr><th></th><th>Nome</th><th>Partido</th><th>Canal</th><th>Microfone</th><th>Presença</th><th>Chegada</th><th></th></tr></thead><tbody id="tabParls"></tbody></table>
         </div>
       </div>
     </section>
@@ -206,6 +231,10 @@
         <div class="cartao neutro"><h2>Tempo de fala por parlamentar</h2><table class="tab" id="porParl"></table></div>
       </div>
       <div class="cartao neutro" style="margin-top:16px"><h2>Pronunciamentos</h2><table class="tab" id="pronunciamentos"></table></div>
+      <div class="grade2" style="margin-top:16px">
+        <div class="cartao neutro"><h2>Gravações das falas</h2><div id="gravacoes"></div></div>
+        <div class="cartao neutro"><h2>Ocorrências (cortes e congelamentos)<span class="esp"></span><button class="botao pq" onclick="csvOcorrencias()">CSV</button></h2><table class="tab" id="ocorrencias"></table></div>
+      </div>
     </section>
 
     <!-- ===== CONFIGURAÇÕES ===== -->
@@ -252,6 +281,43 @@
           <div class="cartao neutro">
             <h2>Cores dos partidos<span class="esp"></span><button class="botao pq" onclick="cfgPartidos.push(['NOVO PARTIDO','#5b6b86']);desenharPartidos()">+ Partido</button></h2>
             <div id="cPartidos" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px"></div>
+          </div>
+          <div class="cartao">
+            <h2>Mesa de som</h2>
+            <div class="coluna" style="gap:10px">
+              <label class="linha">Integração
+                <select class="campo" id="mDriver" style="width:auto" onchange="mesaCampos()">
+                  <option value="simulado">Simulada (sem equipamento)</option>
+                  <option value="osc">Mesa digital por rede (OSC)</option>
+                  <option value="http">Ponte HTTP (webhook)</option>
+                </select></label>
+              <div id="mOsc" class="coluna" style="gap:10px">
+                <div class="grupo"><span class="detalhe">Modelos:</span>
+                  <button class="botao pq" onclick="mesaPreset('x32')">Behringer X32 / Midas M32</button>
+                  <button class="botao pq" onclick="mesaPreset('xair')">Behringer X Air (XR)</button></div>
+                <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
+                  <label class="rot">IP da mesa<input class="campo" id="mHost" placeholder="192.168.0.50"></label>
+                  <label class="rot">Porta UDP<input class="campo" type="number" id="mPorta"></label>
+                </div>
+                <label class="rot">Endereço OSC do canal ({canal:02d} = número com 2 dígitos)<input class="campo" id="mEndereco"></label>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+                  <label class="rot">Valor aberto<input class="campo" id="mAberto"></label>
+                  <label class="rot">Valor fechado<input class="campo" id="mFechado"></label>
+                  <label class="rot">Tipo<select class="campo" id="mTipo"><option value="i">Inteiro</option><option value="f">Decimal</option></select></label>
+                </div>
+              </div>
+              <label class="rot" id="mHttp">URL da ponte (recebe POST JSON {canais:[{canal, aberto}]})<input class="campo" id="mUrl" placeholder="http://192.168.0.20:1880/microfones"></label>
+              <label class="linha">Canal do microfone da tribuna (0 = orador fala da bancada)<input class="campo" type="number" min="0" id="mTribuna" style="width:100px"></label>
+              <label class="linha">Reenviar o estado a cada 5 s (corrige mexidas manuais na mesa)<input type="checkbox" id="mReenviar"></label>
+              <div class="grupo" style="align-items:center">
+                <span class="detalhe">Testar canal</span><input class="campo" type="number" min="1" id="mTesteCanal" value="1" style="width:80px">
+                <button class="botao pq ok" onclick="A('mesaTestar',{canal:+$('mTesteCanal').value,aberto:true})">Abrir</button>
+                <button class="botao pq" onclick="A('mesaTestar',{canal:+$('mTesteCanal').value,aberto:false})">Fechar</button>
+                <span class="esp" style="flex:1"></span>
+                <button class="botao principal" onclick="salvarMesa()">Salvar mesa de som</button>
+              </div>
+              <small class="suave">Cada parlamentar tem um canal (Plenário → Editar). O servidor abre o canal de quem está com a palavra e fecha ao pausar, congelar, cortar ou esgotar o tempo.</small>
+            </div>
           </div>
           <div class="grupo" style="justify-content:space-between">
             <button class="botao perigo" onclick="zerar()">Zerar sessão…</button>

@@ -68,6 +68,14 @@
   .vot .p.abst { border-left-color: var(--abst) } .vot .p.abst .v { color: var(--abst) }
   .vot .p.aus { opacity: .35 }
   #ativarSom { position: fixed; left: 2vw; bottom: 12vh; opacity: .8 }
+  .rec { display: none; align-items: center; gap: 1vh; font-weight: 800; font-size: 2.2vh; letter-spacing: .08em; background: rgba(0,0,0,.25); padding: .6vh 1.4vh; border-radius: 99px }
+  .rec.on { display: inline-flex }
+  .rec::before { content: ''; width: 1.5vh; height: 1.5vh; border-radius: 50%; background: #ff4b4b; animation: pisca 1s steps(2, start) infinite }
+  .congelado { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: color-mix(in srgb, #06101f 82%, transparent); backdrop-filter: blur(6px) }
+  .congelado > div { text-align: center; padding: 5vh 6vw; border-radius: 3vh; background: var(--cartao); border-top: 1vh solid var(--azul); box-shadow: 0 2vh 6vh rgba(0,0,0,.5) }
+  .congelado .ic { font-size: 14vh; line-height: 1 }
+  .congelado .t1 { font-size: 8vh; font-weight: 900; letter-spacing: .04em; margin: 2vh 0 1vh }
+  .congelado .t2 { font-size: 3.2vh; color: var(--suave) }
 </style>
 </head>
 <body>
@@ -75,6 +83,7 @@
     <img data-logo src="/marca/logo.svg" alt="">
     <div><div class="casa" data-casa></div><div class="sessao" data-sessao></div></div>
     <span class="esp"></span>
+    <span class="rec" id="rec">REC</span>
     <div class="pres" id="presenca"></div>
     <span class="conexao"></span>
     <div class="hora tnum" id="hora"></div>
@@ -83,6 +92,7 @@
   <div class="cartao-interr oculto" id="interr"></div>
   <div class="proximos" id="proximos"></div>
   <button class="botao pq fantasma" id="ativarSom">🔈 Ativar som</button>
+  <div class="congelado oculto" id="congelado"></div>
 
 <script src="/comum.js"></script>
 <script>
@@ -94,6 +104,9 @@ addEventListener('dblclick', () => document.documentElement.requestFullscreen?.(
 
 function chip(o) {
   const S = PL.estado;
+  if (S.congelado) return `<span class="chip interr"><span class="ponto"></span>Sessão congelada</span>`;
+  if (o.congelado) return `<span class="chip interr"><span class="ponto"></span>❄ Tempo congelado · microfone cortado</span>`;
+  if (PL.mic(o.pid) === 'cortado') return `<span class="chip corte"><span class="ponto"></span>Microfone cortado</span>`;
   if (!o.inicio) return `<span class="chip"><span class="ponto"></span>Aguardando início</span>`;
   if (o.esgotou && !o.start) return `<span class="chip corte"><span class="ponto"></span>Tempo esgotado</span>`;
   if (S.interr) return `<span class="chip interr"><span class="ponto"></span>${PL.TIPOS[S.interr.tipo]}</span>`;
@@ -103,6 +116,9 @@ function chip(o) {
 
 function desenhar() {
   const S = PL.estado, o = S.orador, i = S.interr, v = S.votacao, q = PL.quorum();
+  $('congelado').classList.toggle('oculto', !S.congelado);
+  if (S.congelado) $('congelado').innerHTML = `<div><div class="ic">❄</div><div class="t1">SESSÃO CONGELADA</div>
+    <div class="t2">${S.congelado.motivo ? esc(S.congelado.motivo) + '<br>' : ''}Microfones fechados · aguarde a presidência</div></div>`;
   $('presenca').innerHTML = `Presentes <b class="tnum">${q.presentes}/${q.n}</b><br>${q.ok ? 'Quórum atingido' : 'Sem quórum'}`;
   const m = S.pauta.find(x => x.id === S.materiaAtual);
   const faixaMateria = m ? `<div class="materia"><b>${esc(m.numero)}</b> — ${esc(m.ementa)}</div>` : '';
@@ -147,6 +163,7 @@ function desenhar() {
 function relogios() {
   const S = PL.estado; if (!S) return;
   $('hora').textContent = PL.relogio();
+  $('rec').classList.toggle('on', PL.gravando());
   if (S.votacao) return;
   if (S.orador) PL.pintar(S.orador, $('tPrincipal'), $('bPrincipal'));
   else if (S.interr) PL.pintar(S.interr, $('tPrincipal'), $('bPrincipal'));
