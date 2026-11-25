@@ -456,6 +456,7 @@ function carregarConfig() {
   cfgPartidos = Object.entries(S.partidos); desenharPartidos();
   $('sUrl').value = S.sapl.url || ''; $('sAnos').value = new Date().getFullYear();
   carregarRodape();
+  carregarTransmissao();
   desenharBackup();
   desenharSapl();
   const m = S.mesa;
@@ -550,6 +551,89 @@ function desenharMesaEGravacao() {
     $('gravBotao').disabled = true;
     $('gravAjuda').innerHTML = 'Para gravar, abra este painel em <b>http://localhost:8090</b> no computador do servidor ou por HTTPS (o navegador só libera o microfone em conexão segura).';
   }
+}
+
+/* Transmissão ao vivo: este navegador capta a entrada de áudio (a mesma da gravação) e manda
+   partes de 1 s ao servidor, que converte para MP3 e publica no Icecast/AzuraCast. */
+const Tr = { stream: null, rec: null, envio: Promise.resolve(), querendo: false, falhas: 0, bytes: 0 };
+setInterval(() => { if (PL.estado?.transmissaoStatus?.ativa) desenharTransmissao(); }, 5000);
+async function trAlternar() {
+  const st = PL.estado.transmissaoStatus || {};
+  if (Tr.querendo || st.ativa || st.conectando) return trParar();
+  if (!MIME) return PL.avisar('Este navegador não capta áudio. Use Chrome, Edge ou Firefox.', true);
+  if (!PL.estado.transmissao?.configurada) { document.querySelector('[data-aba="config"]').click(); $('cartaoTransmissaoCfg').scrollIntoView({ behavior: 'smooth' }); return PL.avisar('Configure o servidor de rádio primeiro.', true); }
+  try {
+    const id = $('gravDispositivo').value;
+    Tr.stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: id ? { exact: id } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) { return PL.avisar('Sem acesso à entrada de áudio: ' + e.message, true); }
+  Tr.querendo = true; Tr.falhas = 0;
+  await PL.acao('presidente', 'transmissaoLigar').catch(() => { trParar(); });
+  desenharTransmissao();
+}
+function trSincronizar() {
+  const st = PL.estado.transmissaoStatus || {};
+  if (Tr.querendo && st.ativa && !Tr.rec) trComecarEnvio();
+  if (Tr.querendo && !st.ativa && !st.conectando && st.erro) { PL.avisar(st.erro, true); trParar(false); }
+  desenharTransmissao();
+}
+function trComecarEnvio() {
+  const rec = new MediaRecorder(Tr.stream, { mimeType: MIME, audioBitsPerSecond: 128000 });
+  Tr.envio = Promise.resolve();
+  rec.ondataavailable = e => {
+    if (!e.data.size || Tr.rec !== rec) return;
+    Tr.envio = Tr.envio.then(() => api('/api/transmissao/parte', e.data, MIME.split(';')[0]))
+      .then(r => { Tr.falhas = 0; Tr.bytes = r.bytes; })
+      .catch(err => { if (++Tr.falhas >= 3 && Tr.rec === rec) { PL.avisar(err.message, true); trParar(); } });
+  };
+  rec.start(1000);
+  Tr.rec = rec;
+}
+async function trParar(avisarServidor = true) {
+  Tr.querendo = false;
+  const rec = Tr.rec; Tr.rec = null;
+  if (rec && rec.state !== 'inactive') rec.stop();
+  Tr.stream?.getTracks().forEach(t => t.stop()); Tr.stream = null;
+  if (avisarServidor) await PL.acao('presidente', 'transmissaoDesligar').catch(() => {});
+  desenharTransmissao();
+}
+function desenharTransmissao() {
+  const S = PL.estado; if (!S) return;
+  const st = S.transmissaoStatus || {}, aqui = Tr.querendo;
+  const min = st.desde ? Math.floor((Date.now() - st.desde) / 60000) : 0;
+  $('trEstado').innerHTML = st.ativa ? `<span class="rec">no ar${aqui ? '' : ' (outro computador)'}</span>`
+    : st.conectando ? '<span class="chip ambar">conectando…</span>' : st.erro ? '<span class="chip nao">parada</span>' : '';
+  $('trBotao').textContent = st.ativa || st.conectando || aqui ? '■ Encerrar transmissão' : '📡 Transmitir a sessão ao vivo';
+  $('trBotao').className = 'botao ' + (st.ativa || aqui ? 'perigo' : '');
+  $('trBotao').disabled = !window.isSecureContext;
+  $('trAjuda').innerHTML = !window.isSecureContext ? 'Para transmitir, abra este painel por HTTPS ou em localhost (o navegador só libera o áudio em conexão segura).'
+    : st.ativa ? `No ar há ${min} min · ${(Math.max(st.bytes, aqui ? Tr.bytes : 0) / 1048576).toFixed(1)} MB enviados${S.transmissao.publico ? ` · <a href="${esc(S.transmissao.publico)}" target="_blank" rel="noopener">ouvir</a>` : ''}`
+    : st.erro ? `<span class="n-fim">${esc(st.erro)}</span>`
+    : S.transmissao?.configurada ? 'Usa a mesma entrada de áudio da gravação e envia para o servidor de rádio configurado.'
+    : 'Configure o servidor de rádio em Configurações → Transmissão ao vivo.';
+  $('trCfgEstado').innerHTML = S.transmissao?.configurada ? '<span class="chip sim">configurada</span>' : '<span class="chip">não configurada</span>';
+}
+PL.aoMudar(() => trSincronizar());
+addEventListener('beforeunload', e => { if (Tr.rec) { e.preventDefault(); e.returnValue = ''; } });
+
+let trPresets = {};
+async function carregarTransmissao() {
+  let c;
+  try { c = await (await apiGet('/api/transmissao')).json(); } catch { return; }
+  trPresets = c.presets;
+  $('trBitrate').innerHTML = c.bitrates.map(b => `<option value="${b}">${b} kbps${b === 128 ? ' (recomendado)' : ''}</option>`).join('');
+  $('trPreset').value = c.preset; $('trHost').value = c.host; $('trPorta').value = c.porta; $('trMount').value = c.mount;
+  $('trUsuario').value = c.usuario; $('trSenha').value = ''; $('trSenha').placeholder = c.temSenha ? '•••••• (mantida; digite para trocar)' : '';
+  $('trBitrate').value = c.bitrate; $('trPublico').value = c.publico; $('trNome').value = c.nome; $('trTls').checked = c.tls;
+  if (!c.ffmpeg) $('trCfgEstado').innerHTML = '<span class="chip nao">servidor sem ffmpeg</span>';
+}
+function trPreset() {
+  const p = trPresets[$('trPreset').value]; if (!p) return;
+  $('trPorta').value = p.porta; $('trMount').value = p.mount; if (p.usuario) $('trUsuario').value = p.usuario;
+}
+async function trSalvar() {
+  await PL.acao('presidente', 'transmissaoConfigurar', { preset: $('trPreset').value, host: $('trHost').value, porta: +$('trPorta').value,
+    mount: $('trMount').value, usuario: $('trUsuario').value, senha: $('trSenha').value, tls: $('trTls').checked, bitrate: +$('trBitrate').value,
+    publico: $('trPublico').value, nome: $('trNome').value }).then(() => { PL.avisar('Transmissão salva.'); carregarTransmissao(); }).catch(() => {});
 }
 
 /* Gravação: este navegador grava a entrada de áudio (saída da mesa) e envia

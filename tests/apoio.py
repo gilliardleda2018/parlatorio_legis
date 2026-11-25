@@ -56,6 +56,14 @@ class Servidor:
         with urllib.request.urlopen(r, timeout=30) as x:
             return json.loads(x.read())
 
+    def enviar_bytes_erro(self, caminho, dados: bytes, token) -> int:
+        try:
+            self.enviar_bytes(caminho, dados, token)
+            return 200
+        except urllib.error.HTTPError as e:
+            e.close()
+            return e.code
+
     # ---- HTTP
     def req(self, caminho, corpo=None, token=None, bruto=False, metodo=None):
         dados = json.dumps(corpo).encode() if corpo is not None else None
@@ -92,7 +100,7 @@ class Servidor:
             self.pins[chave] = novo
         return r["token"]
 
-    def acao(self, token, nome, **args):
+    def acao(self, token, nome, /, **args):
         return self.req("/api/acao", {"nome": nome, "args": args}, token)
 
 

@@ -39,6 +39,7 @@ import sapl as sapl_cli
 import seguranca
 import backup as backup_mod
 import transcricao
+import transmissao
 from texto import _sem_acento
 from mesa import CFG_PADRAO, PRESETS, Mesa
 
@@ -249,6 +250,10 @@ def NOVOS_CAMPOS() -> dict:
         "_pinPresidente": None,   # hash do PIN do painel depois da primeira troca
         "backup": {"ultimo": None, "arquivo": None, "tamanho": 0, "nextcloud": None, "erro": None, "emAndamento": False},
         "mesa": dict(CFG_PADRAO),
+        # transmissão ao vivo para Icecast/AzuraCast: o público vê só o endereço para ouvir
+        "transmissao": {"configurada": False, "publico": "", "nome": ""},
+        "_transmissao": {"preset": "azuracast", "host": "", "porta": 8005, "mount": "/", "usuario": "", "senha": "",
+                         "tls": False, "bitrate": 128},
     }
 
 
@@ -1855,6 +1860,7 @@ def pacote() -> str:
     pub["mesaPresets"] = PRESETS
     pub["gravacoes"] = [grav_publica(g) for g in grav_da_sessao(S["sessao"]["id"])]
     pub["transcricaoMotor"] = transcritor.descricao()
+    pub["transmissaoStatus"] = transmissor.status()
     pub["portaHttps"] = PORTA_HTTPS if HTTPS_ATIVO else None
     pub["virtuais"] = [{**v, "status": _status_virtual(v)} for v in S["virtuais"][:20]]
     return json.dumps({"tipo": "estado", "agora": agora(), "estado": pub}, ensure_ascii=False)
@@ -2074,6 +2080,80 @@ def discursos_publicos(q: str = "", pid: str = "", limite: int = 30) -> dict:
          "trecho": _trecho(t["texto"], termos)} for n, g, t in achados[:max(1, min(limite, 100))]]}
 
 
+# ---------------------------------------------------------------- transmissão ao vivo
+def _transmissao_mudou():
+    with trava:
+        confirmar()
+
+
+transmissor = transmissao.Transmissor(_transmissao_mudou)
+
+
+@acao("presidente")
+def transmissaoConfigurar(ator, preset="azuracast", host="", porta=8005, mount="/", usuario="", senha=None, tls=False,
+                          bitrate=128, publico="", nome=""):
+    host = str(host or "").strip().lower()
+    for prefixo in ("https://", "http://", "icecast://"):
+        host = host.removeprefix(prefixo)
+    host = host.split("/")[0]
+    if host and not re.fullmatch(r"[a-z0-9.-]{1,253}|\[[0-9a-f:]+\]", host):
+        raise Erro("Endereço do servidor de rádio inválido (use só o nome ou IP, sem http://).")
+    try:
+        porta = int(porta)
+    except (TypeError, ValueError):
+        raise Erro("Porta inválida.")
+    if not 1 <= porta <= 65535:
+        raise Erro("Porta inválida.")
+    mount = "/" + str(mount or "").strip().lstrip("/")
+    if not re.fullmatch(r"/[A-Za-z0-9._/-]{0,100}", mount):
+        raise Erro("Ponto de montagem inválido (ex.: / ou /sessao).")
+    usuario = str(usuario or "").strip()
+    if len(usuario) > 100 or any(c in usuario for c in "\r\n"):
+        raise Erro("Usuário inválido.")
+    if int(bitrate) not in transmissao.BITRATES:
+        raise Erro("Qualidade inválida.")
+    publico = str(publico or "").strip()
+    if publico and not re.fullmatch(r"https?://[^\s<>\"']{3,300}", publico):
+        raise Erro("O endereço para ouvir deve começar com https:// (ou http://).")
+    cfg = S["_transmissao"]
+    cfg.update(preset=preset if preset in transmissao.PRESETS else "icecast", host=host, porta=porta, mount=mount,
+               usuario=usuario, tls=bool(tls), bitrate=int(bitrate))
+    if senha is not None and str(senha) != "":
+        cfg["senha"] = str(senha)[:200]
+    S["transmissao"].update(configurada=bool(cfg["host"] and cfg["senha"]), publico=publico, nome=str(nome or "").strip()[:120])
+    registrar("presidente", "transmissaoConfigurar", {"host": host, "porta": porta, "mount": mount})
+
+
+@acao("presidente")
+def transmissaoLigar(ator):
+    if not shutil.which("ffmpeg"):
+        raise Erro("O servidor precisa do ffmpeg para transmitir (apt install ffmpeg).")
+    if not S["transmissao"]["configurada"]:
+        raise Erro("Configure o servidor de rádio (endereço e senha) antes de transmitir.")
+    try:
+        transmissor.ligar_em_segundo_plano(S["_transmissao"], f"{S['casa']['nome']} · {S['casa']['titulo']}")
+    except RuntimeError as e:
+        raise Erro(str(e))
+    registrar("presidente", "transmissaoLigar", {})
+
+
+@acao("presidente")
+def transmissaoDesligar(ator):
+    transmissor.desligar(avisar=False)
+    registrar("presidente", "transmissaoDesligar", {})
+
+
+def ao_vivo() -> dict:
+    o = S.get("orador")
+    falando = None
+    if o and o.get("pid"):
+        p = next((x for x in S["parls"] if x["id"] == o["pid"]), None)
+        falando = p and {"nome": p["nome"], "partido": p["partido"]}
+    return {"ativa": transmissor.ativa and bool(S["transmissao"]["publico"]), "publico": S["transmissao"]["publico"],
+            "nome": S["transmissao"]["nome"], "casa": S["casa"]["nome"], "titulo": S["casa"]["titulo"], "falando": falando,
+            "desde": transmissor.desde if transmissor.ativa else None}
+
+
 # ---------------------------------------------------------------- HTTP
 class Manipulador(BaseHTTPRequestHandler):
     server_version = "ParlatorioLegis/2"
@@ -2160,6 +2240,18 @@ class Manipulador(BaseHTTPRequestHandler):
                                         "moderador": ator["papel"] == "presidente"})
         if caminho.startswith("/api/perfil/"):
             return self._perfil(caminho.rsplit("/", 1)[1])
+        if caminho == "/api/aovivo":
+            with trava:
+                return self._json(200, ao_vivo())
+        if caminho == "/api/transmissao":
+            with trava:
+                ator = self._ator()
+                if not ator or ator["papel"] != "presidente":
+                    return self._json(403, {"erro": "Só o painel do presidente."})
+                cfg = {k: v for k, v in S["_transmissao"].items() if k != "senha"}
+                return self._json(200, {**cfg, "temSenha": bool(S["_transmissao"]["senha"]), "publico": S["transmissao"]["publico"],
+                                        "nome": S["transmissao"]["nome"], "presets": transmissao.PRESETS,
+                                        "bitrates": transmissao.BITRATES, "ffmpeg": bool(shutil.which("ffmpeg"))})
         if caminho == "/api/discursos":
             return self._discursos()
         if caminho.startswith("/api/transcricao/"):
@@ -2354,6 +2446,22 @@ class Manipulador(BaseHTTPRequestHandler):
                                 "abrangenciaNomes": {k: v[0] for k, v in estatisticas.ABRANGENCIA.items()},
                                 "vulneraveisNomes": estatisticas.VULNERAVEIS})
 
+    def _transmissao_parte(self):
+        """POST /api/transmissao/parte (corpo binário, ~1 s de áudio): segue para o ffmpeg da transmissão."""
+        with trava:
+            ator = self._ator()
+        if not ator or ator["papel"] != "presidente":
+            return self._json(401, {"erro": "Entre no painel do presidente."})
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > 4 * 1024 * 1024:
+            return self._json(413, {"erro": "Parte grande demais."})
+        dados = self.rfile.read(n)
+        try:
+            transmissor.enviar(dados)
+        except RuntimeError as e:
+            return self._json(409, {"erro": str(e)})
+        return self._json(200, {"ok": True, "bytes": transmissor.bytes})
+
     def _discursos(self):
         """GET /api/discursos?q=saude&pid=…: busca pública nos discursos com transcrição publicada."""
         qs = urllib.parse.parse_qs(urlparse(self.path).query)
@@ -2507,6 +2615,8 @@ class Manipulador(BaseHTTPRequestHandler):
         try:
             if caminho.startswith("/api/gravacao/"):
                 return self._gravacao_post(caminho)
+            if caminho == "/api/transmissao/parte":
+                return self._transmissao_parte()
             corpo = self._ler()
             if caminho == "/api/entrar":
                 return self._entrar(corpo)

@@ -213,6 +213,16 @@ python3 scripts/dados_demo.py dados/demo.db
 PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 ```
 
+## Transmissão ao vivo (rádio)
+
+O painel transmite o áudio da sessão para um servidor de rádio **Icecast** ou **AzuraCast** (como o do projeto [streaming_radio](https://github.com/gilliardleda2018/streaming_radio)). O computador da mesa capta a saída da mesa de som (a mesma entrada da gravação) e manda o áudio ao Parlatório, que converte para MP3 com o ffmpeg e publica no servidor de rádio pelo protocolo *source* do Icecast.
+
+1. No AzuraCast: na estação, ative **Streamers/DJs**, crie uma conta para a câmara e anote usuário e senha. A conexão é na porta 8005, montagem `/`.
+2. No painel: **Configurações → Transmissão ao vivo**, preencha o endereço do servidor, usuário, senha e o endereço público para ouvir (o link da estação, por exemplo `https://radio.exemplo.br/listen/camara/radio.mp3`).
+3. Na aba **Sessão**, clique em **Transmitir a sessão ao vivo**.
+
+Enquanto estiver no ar, a tela inicial e a transparência mostram a faixa **Ao vivo** com o player e o nome de quem está na tribuna. A senha do servidor de rádio fica só no servidor (nunca vai para as telas). Precisa do `ffmpeg` no servidor (o Docker já traz).
+
 ## Transcrição dos discursos
 
 Cada fala gravada é transcrita automaticamente depois que termina. O texto aparece no painel (Relatórios → Gravações das falas), onde a presidência lê, corrige e decide se publica. Só os discursos publicados entram na busca pública (**Transparência → O que foi dito na tribuna**) e na página de cada parlamentar. A ata em PDF traz a íntegra e marca o que ainda é transcrição automática não revisada.
