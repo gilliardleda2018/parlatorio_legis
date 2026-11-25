@@ -56,6 +56,47 @@ Ao fim de cada sessão, em **Sessões → Encerrar e arquivar sessão**, o siste
 
 A **ata em PDF** é gerada pelo próprio servidor, sem programas externos: cabeçalho com o brasão, presença e quórum, pauta com a situação final, pronunciamentos com apartes e tempos, votações, ocorrências, gravações e espaço para assinaturas. A prévia da sessão em andamento pode ser aberta a qualquer momento. O brasão enviado em Configurações também vai para a ata.
 
+## Banco de projetos e relevância social
+
+Cada projeto tem uma **ficha social**: áreas, pessoas beneficiadas (estimativa com fonte), abrangência territorial, grupos vulneráveis atendidos e urgência. O sistema calcula uma **nota de relevância de 0 a 100** com pesos que a casa ajusta (aba Projetos), mostrando quanto cada critério contribuiu. A nota serve para comparar e priorizar; ela não substitui a análise de mérito.
+
+A pauta de cada sessão escolhe projetos do banco (ordenados por relevância), e votações e sessões ficam no histórico de cada projeto.
+
+## Transparência e estatísticas
+
+`/transparencia` é uma página pública com números das sessões encerradas:
+
+- projetos por relevância social;
+- pessoas beneficiadas por área;
+- votações por mês;
+- presença, falas, tempo de fala e votos de cada parlamentar;
+- tempo de fala por partido;
+- últimas votações, com o voto nominal de cada um;
+- sessões realizadas.
+
+O presidente abre a versão interna (`/transparencia?interno=1`), que mostra também as propostas ainda não protocoladas, o alinhamento de cada parlamentar com o resultado das votações e as ocorrências.
+
+## Ideias de projetos (recomendações)
+
+Na área privada do app do parlamentar, a aba **Ideias de projetos** recomenda boas práticas do Brasil e do mundo (catálogo em `server/boas_praticas.json`, com resultados relatados, força da evidência, custo, fontes e o **instrumento adequado** para propor na Câmara, considerando os limites de iniciativa do Legislativo). A nota combina:
+
+- as áreas de interesse do parlamentar e as de seus projetos;
+- a força da evidência;
+- as lacunas da cidade (áreas com poucos projetos ativos).
+
+Ao clicar em **Propor este projeto**, o parlamentar adapta a ementa e envia uma proposta (`PROP n/ano`). Ela fica visível só para o presidente, que revisa, numera e protocola na aba Projetos.
+
+O catálogo foi pesquisado em novembro de 2026. Revise as fontes e atualize-o periodicamente.
+
+## Demonstração
+
+Para apresentar o sistema com dados fictícios (16 projetos e 8 sessões arquivadas):
+
+```bash
+python3 scripts/dados_demo.py dados/demo.db
+PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
+```
+
 ## Como funciona
 
 - `server/servidor.py`: servidor HTTP da biblioteca padrão do Python. É a única fonte da verdade: aplica as regras (corte de microfone, fim de aparte, apuração de votos) e guarda estado, imagens e registro de auditoria no SQLite.

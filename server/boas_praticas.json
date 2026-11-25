@@ -1,0 +1,245 @@
+{
+  "_sobre": "Catálogo de políticas públicas com resultados relatados, para inspirar proposições municipais. Pesquisado em 25/11/2026. Os números são os informados pelas fontes listadas; 'evidencia' resume a qualidade dessas fontes. Revise e atualize periodicamente.",
+  "praticas": [
+    {
+      "id": "tarifa-zero-marica", "titulo": "Tarifa Zero no transporte coletivo", "local": "Maricá (RJ)", "escopo": "Brasil",
+      "areas": ["transporte", "assistencia"], "vulneraveis": ["baixa_renda", "idosos"],
+      "resumo": "Ônibus municipais gratuitos para toda a população, operados por uma autarquia municipal e financiados pelo orçamento da cidade.",
+      "resultados": "A prefeitura relata mais de 3,5 milhões de viagens por mês. Reportagem de 2023 estima economia de cerca de 20% da renda das famílias usuárias. Estudo encomendado por empresas de ônibus (2024) encontrou aumento de 33% a 371% de passageiros em cidades que adotaram a tarifa zero.",
+      "evidencia": "limitada", "notaEvidencia": "Números principais vêm da prefeitura e de imprensa; Maricá conta com royalties de petróleo, o que limita a comparação com outras cidades.",
+      "custo": "alto", "instrumento": "Indicação ao Executivo e requerimento de estudo de viabilidade e fonte de custeio",
+      "ementaSugerida": "Indica ao Poder Executivo estudo de viabilidade para implantação gradual de tarifa zero no transporte coletivo municipal, começando por linhas e horários de maior demanda social.",
+      "fontes": [
+        {"titulo": "Diário do Transporte: tarifa zero aumentou passageiros, diz estudo de empresas (2024)", "url": "https://diariodotransporte.com.br/2024/04/20/tarifa-zero-foi-capaz-de-aumentar-numero-de-passageiros-diz-estudo-de-empresas-de-onibus-que-antes-criticavam-a-medida/"},
+        {"titulo": "Brasil de Fato: em Maricá, tarifa zero poupa 20% da renda das famílias (2023)", "url": "https://www.brasildefato.com.br/2023/06/05/em-marica-onibus-vermelhinhos-com-tarifa-zero-poupam-20-da-renda-das-familias"},
+        {"titulo": "Diário do Transporte: especial sobre 143 cidades com tarifa zero (2026)", "url": "https://diariodotransporte.com.br/2026/11/11/especial-tarifa-zero-nao-e-transporte-de-graca-a-conta-bilionaria-dos-onibus-trens-e-metros-as-experiencias-de-143-cidades-brasileiras-e-o-que-o-mundo-ensina-sobre-quem-paga-pelo-direito/"}
+      ]
+    },
+    {
+      "id": "alfabetizacao-sobral", "titulo": "Alfabetização na idade certa", "local": "Sobral (CE)", "escopo": "Brasil",
+      "areas": ["educacao"], "vulneraveis": ["criancas", "baixa_renda"],
+      "resumo": "Política sistêmica de alfabetização até o 2º ano, com metas por escola, avaliações externas frequentes, formação de professores e material estruturado, mantida por sucessivos governos desde 2001.",
+      "resultados": "Sobral está entre os melhores resultados do Ideb do país. O modelo deu origem ao PAIC do Ceará (2007) e a um programa nacional (2012–2018). O Banco Mundial documentou o caso como referência no combate ao analfabetismo infantil.",
+      "evidencia": "moderada", "notaEvidencia": "Estudo de caso do Banco Mundial e documentos institucionais; não há avaliação que isole o efeito de cada componente.",
+      "custo": "medio", "instrumento": "Projeto de lei de diretrizes da política municipal de alfabetização (com metas e avaliação) e indicação ao Executivo",
+      "ementaSugerida": "Institui diretrizes da Política Municipal de Alfabetização na Idade Certa, com metas de alfabetização até o 2º ano do ensino fundamental, avaliação periódica e publicação dos resultados por escola.",
+      "fontes": [
+        {"titulo": "Banco Mundial: From Bad to Best (Ceará e Sobral)", "url": "https://documents1.worldbank.org/curated/en/416541593599290439/pdf/From-Bad-to-Best-How-One-State-and-One-Municipality-in-Brazil-are-Eradicating-Illiteracy-and-Innumeracy.pdf"},
+        {"titulo": "Instituto Ayrton Senna: a experiência de Sobral em alfabetização", "url": "https://institutoayrtonsenna.org.br/app/uploads/2022/11/Políticas-públicas-que-geram-impacto-a-experiência-de-Sobral-em-alfabetização.pdf"}
+      ]
+    },
+    {
+      "id": "seguranca-alimentar-bh", "titulo": "Política municipal de segurança alimentar", "local": "Belo Horizonte (MG)", "escopo": "Brasil",
+      "areas": ["assistencia", "saude"], "vulneraveis": ["baixa_renda", "criancas"],
+      "resumo": "Lei municipal de 1993 que trata a alimentação adequada como direito, integrando restaurantes populares, banco de alimentos, alimentação escolar, feiras e apoio a pequenos produtores.",
+      "resultados": "Recebeu o primeiro Future Policy Award (World Future Council, 2009). Apresentação de 2013 relata cerca de 33 mil beneficiários por mês só no banco de alimentos.",
+      "evidencia": "moderada", "notaEvidencia": "Política longeva, premiada e estudada por universidades; parte dos números vem de apresentações institucionais.",
+      "custo": "medio", "instrumento": "Projeto de lei instituindo a política e o conselho municipal de segurança alimentar (diretrizes), com indicações para cada equipamento",
+      "ementaSugerida": "Institui a Política Municipal de Segurança Alimentar e Nutricional e cria o Conselho Municipal de Segurança Alimentar, com diretrizes para banco de alimentos, restaurante popular e compras da agricultura familiar.",
+      "fontes": [
+        {"titulo": "World Future Council: Future Policy Award 2009 para Belo Horizonte", "url": "https://www.worldfuturecouncil.org/future-policy-award-2009-celebrating-the-belo-horizonte-food-security-programme/"},
+        {"titulo": "FAO: apresentação sobre a experiência de Belo Horizonte", "url": "https://www.fao.org/fileadmin/templates/FCIT/Meetings/Africites/presentations/WorldFutureCouncil_experience-Belo-Horizonte.pdf"},
+        {"titulo": "Toronto Metropolitan University: Municipal Food Policy, Belo Horizonte", "url": "https://torontomu.ca/foodsecurity/projects/activity_municipal_food_policy_brazil"}
+      ]
+    },
+    {
+      "id": "housing-first-finlandia", "titulo": "Moradia Primeiro (Housing First)", "local": "Finlândia", "escopo": "Mundo",
+      "areas": ["habitacao", "assistencia"], "vulneraveis": ["pop_rua"],
+      "resumo": "Pessoas em situação de rua recebem primeiro uma moradia estável e permanente, sem pré-condições, e depois o acompanhamento social e de saúde.",
+      "resultados": "A Finlândia registrou queda contínua do número de pessoas em situação de rua por mais de uma década; em Helsinque os leitos de albergue caíram de 2.121 (1985) para 52 (2016). A Y-Foundation administra cerca de 18.500 moradias em 57 municípios.",
+      "evidencia": "moderada", "notaEvidencia": "Tendência nacional consistente; parte dos números vem da Y-Foundation, defensora do modelo. Cortes recentes de benefícios interromperam a queda.",
+      "custo": "alto", "instrumento": "Indicação ao Executivo para projeto piloto e projeto de lei de diretrizes",
+      "ementaSugerida": "Institui diretrizes para o programa municipal Moradia Primeiro, destinado a pessoas em situação de rua, com acesso a moradia sem pré-condições e acompanhamento intersetorial.",
+      "fontes": [
+        {"titulo": "HUD User: Housing First in Finland", "url": "https://huduser.gov/portal/node/10405"},
+        {"titulo": "Christian Science Monitor: crise de pessoas sem moradia quase resolvida na Finlândia", "url": "https://csmonitor.com/World/Europe/2018/0321/Finland-s-homeless-crisis-nearly-solved.-How-By-giving-homes-to-all-who-need"},
+        {"titulo": "Comitê Econômico e Social Europeu (2025)", "url": "https://www.eesc.europa.eu/bg/news-media/eesc-info/eesc-info-december-2025/articles/133449"}
+      ]
+    },
+    {
+      "id": "seguranca-viaria-fortaleza", "titulo": "Readequação de velocidades e segurança viária", "local": "Fortaleza (CE)", "escopo": "Brasil",
+      "areas": ["transporte", "seguranca", "saude"], "vulneraveis": ["idosos", "criancas"],
+      "resumo": "Redução dos limites de velocidade (60 para 50 km/h em dezenas de avenidas), engenharia de tráfego, ciclovias e fiscalização, tratando o trânsito como questão de saúde pública.",
+      "resultados": "A prefeitura informa queda de cerca de 50% nas mortes no trânsito, atingindo a meta da ONU (2020). Estudo da AMC: −68,1% na média de acidentes com mortes nas avenidas com velocidade reduzida. Atenção: mortes de motociclistas cresceram.",
+      "evidencia": "moderada", "notaEvidencia": "Série histórica longa e consistente, mas medida pelo próprio órgão municipal.",
+      "custo": "baixo", "instrumento": "Projeto de lei do Plano Municipal de Segurança no Trânsito e indicação de readequação de velocidades",
+      "ementaSugerida": "Institui o Plano Municipal de Segurança no Trânsito, com meta de redução de mortes, diretrizes de velocidade segura e publicação anual de indicadores.",
+      "fontes": [
+        {"titulo": "O Povo: Fortaleza reduz em 50,3% mortes no trânsito e alcança meta da ONU", "url": "https://www.opovo.com.br/noticias/fortaleza/2020/01/16/fortaleza-reduz-em-50-3--mortes-no-transito-e-alcanca-meta-da-onu.html"},
+        {"titulo": "Unifor: Fortaleza, referência global em segurança no trânsito", "url": "https://unifor.br/web/osv/fortaleza-referencia-global-em-seguranca-no-transito"},
+        {"titulo": "Diário do Nordeste: mortes de motociclistas crescem em Fortaleza", "url": "https://diariodonordeste.verdesmares.com.br/ceara/mortes-de-motoqueiros-e-garupeiros-no-transito-crescem-e-atingem-indice-inedito-em-fortaleza-1.3517490"}
+      ]
+    },
+    {
+      "id": "mae-coruja-pe", "titulo": "Acompanhamento de gestantes e bebês (Mãe Coruja)", "local": "Pernambuco", "escopo": "Brasil",
+      "areas": ["saude", "assistencia"], "vulneraveis": ["mulheres", "criancas", "baixa_renda"],
+      "resumo": "Cadastro e acompanhamento de gestantes e crianças até os primeiros anos, articulando pré-natal, assistência social e educação, com espaços de atendimento nos municípios.",
+      "resultados": "Estudo da UFPE com diferenças-em-diferenças encontrou efeito positivo sobre a mortalidade infantil e as consultas de pré-natal; outro estudo não viu mudança na tendência da mortalidade neonatal.",
+      "evidencia": "moderada", "notaEvidencia": "Avaliações acadêmicas com resultados mistos.",
+      "custo": "medio", "instrumento": "Indicação ao Executivo e projeto de lei de diretrizes para a primeira infância",
+      "ementaSugerida": "Institui diretrizes para o programa municipal de acompanhamento integral da gestante e da criança na primeira infância, com busca ativa e cadastro único de acompanhamento.",
+      "fontes": [
+        {"titulo": "UFPE: avaliação de impacto do Programa Mãe Coruja (dissertação)", "url": "https://repositorio.ufpe.br/jspui/bitstream/123456789/24461/1/DISSERTA%c3%87%c3%83O%20Alessandra%20Lucas%20Nunes%20Cabral.pdf"},
+        {"titulo": "Revista Brasileira de Enfermagem: tendência da mortalidade neonatal em Pernambuco", "url": "https://www.scielo.br/j/reben/a/LgFqcSW4dY7bvT76M3jLkXx/?lang=en"}
+      ]
+    },
+    {
+      "id": "orcamento-participativo-poa", "titulo": "Orçamento participativo", "local": "Porto Alegre (RS)", "escopo": "Brasil",
+      "areas": ["administracao", "direitos"], "vulneraveis": ["baixa_renda"],
+      "resumo": "Assembleias regionais e temáticas em que a população define prioridades de investimento do orçamento municipal, com acompanhamento das obras.",
+      "resultados": "Referência internacional desde 1989, replicada em centenas de cidades. Avaliação citada pelo BID (Harvard) concluiu que é eficaz para promover autonomia e equidade social.",
+      "evidencia": "moderada", "notaEvidencia": "Ampla literatura acadêmica; efeitos variam com o compromisso de cada gestão.",
+      "custo": "baixo", "instrumento": "Projeto de lei instituindo o orçamento participativo e emenda à LDO destinando percentual dos investimentos",
+      "ementaSugerida": "Institui o Orçamento Participativo no município, com assembleias regionais, conselho de delegados e destinação de percentual dos investimentos às prioridades eleitas pela população.",
+      "fontes": [
+        {"titulo": "BID: orçamento participativo na gestão municipal", "url": "https://www.iadb.org/pt-br/noticias/orcamento-participativo-na-gestao-municipal"},
+        {"titulo": "Observatório das Metrópoles: livro sobre o OP de Porto Alegre", "url": "https://observatoriodasmetropoles.net.br/arquivos/biblioteca/abook_file/livro_op_digital.pdf"}
+      ]
+    },
+    {
+      "id": "budget-participatif-paris", "titulo": "Orçamento participativo digital", "local": "Paris (França)", "escopo": "Mundo",
+      "areas": ["administracao", "meio_ambiente", "infraestrutura"], "vulneraveis": [],
+      "resumo": "Moradores propõem e votam pela internet projetos para a cidade e para cada distrito, com orçamento anual reservado.",
+      "resultados": "Envelope de até 100 milhões de euros por ano desde 2014. Em 2025, 162 mil votantes e 104 projetos escolhidos; em 2023, 114 projetos e mais de 83 milhões de euros. Os temas mais votados foram infância e arborização.",
+      "evidencia": "limitada", "notaEvidencia": "Dados de participação oficiais; pouca avaliação dos efeitos das obras.",
+      "custo": "medio", "instrumento": "Projeto de lei instituindo votação digital de propostas e emenda à LDO",
+      "ementaSugerida": "Institui o Orçamento Participativo Digital, permitindo que moradores proponham e votem pela internet projetos de bairro, com relatório anual de execução.",
+      "fontes": [
+        {"titulo": "Ville de Paris: lauréats du Budget Participatif 2025", "url": "https://www.paris.fr/pages/budget-participatif-2025-decouvrez-les-104-projets-laureats-de-la-11e-edition-32684"},
+        {"titulo": "Ville de Paris: Budget Participatif 2023, 114 lauréats", "url": "https://www.paris.fr/pages/budget-participatif-2023-114-laureats-devoiles-25161"}
+      ]
+    },
+    {
+      "id": "ciclovia-bogota", "titulo": "Ruas de lazer aos domingos (Ciclovía)", "local": "Bogotá (Colômbia)", "escopo": "Mundo",
+      "areas": ["cultura", "saude", "transporte"], "vulneraveis": ["criancas", "idosos"],
+      "resumo": "Fechamento de avenidas para carros aos domingos e feriados, abrindo-as para caminhada, bicicleta e atividades físicas gratuitas.",
+      "resultados": "Cerca de 120 km de vias abertas e 600 mil a 1,4 milhão de participantes por evento. Estudos de custo-benefício (Journal of Urban Health) indicam benefícios de saúde maiores que os custos.",
+      "evidencia": "moderada", "notaEvidencia": "Estudos revisados por pares sobre custo-benefício; números de participação do instituto gestor.",
+      "custo": "baixo", "instrumento": "Projeto de lei instituindo as ruas de lazer e indicação do circuito ao Executivo",
+      "ementaSugerida": "Institui o programa Ruas de Lazer, com fechamento de vias ao tráfego de veículos aos domingos e feriados para atividades de lazer, esporte e convivência.",
+      "fontes": [
+        {"titulo": "Journal of Urban Health: custo-benefício das ciclovías recreativas", "url": "https://link.springer.com/doi/10.1007/s11524-011-9628-8"},
+        {"titulo": "PMC: benefícios econômicos da Ciclovía de Bogotá", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3284592"},
+        {"titulo": "OPAS: ficha técnica das Ciclovías Recreativas", "url": "https://paho.org/sites/default/files/FactSheet-CicloviasRecreativas-SPA-12.05.13.pdf"}
+      ]
+    },
+    {
+      "id": "pontevedra-pedestre", "titulo": "Centro com prioridade ao pedestre", "local": "Pontevedra (Espanha)", "escopo": "Mundo",
+      "areas": ["transporte", "meio_ambiente", "infraestrutura"], "vulneraveis": ["idosos", "criancas", "pcd"],
+      "resumo": "Pedestrianização do centro, limite de 30 km/h no resto da cidade, estacionamentos periféricos e calçadas acessíveis.",
+      "resultados": "Segundo a prefeitura: tráfego motorizado 97% menor no centro histórico desde 1999, nenhuma morte de trânsito na cidade entre 2011 e 2020 e dois de cada três deslocamentos a pé.",
+      "evidencia": "limitada", "notaEvidencia": "Dados da própria prefeitura, sem auditoria independente encontrada.",
+      "custo": "medio", "instrumento": "Indicação de projeto piloto em uma área central e projeto de lei de diretrizes de mobilidade a pé",
+      "ementaSugerida": "Institui diretrizes para Zonas de Prioridade ao Pedestre, com velocidade máxima de 30 km/h, calçadas acessíveis e ampliação de áreas de convivência.",
+      "fontes": [
+        {"titulo": "Concello de Pontevedra: road safety, zero deaths", "url": "https://ok.pontevedra.gal/en/road-safety-zero-deaths/"},
+        {"titulo": "Santé publique France: entrevista sobre Pontevedra", "url": "https://www.santepubliquefrance.fr/en/node/32178"},
+        {"titulo": "ClimateXChange: estudo de caso de Pontevedra", "url": "https://climatexchange.org.uk/case-study-pedestrianisation-and-walkability-in-pontevedra-in-spain-pdf"}
+      ]
+    },
+    {
+      "id": "patrulha-maria-da-penha", "titulo": "Patrulha Maria da Penha na Guarda Municipal", "local": "Porto Alegre e municípios do RS", "escopo": "Brasil",
+      "areas": ["seguranca", "direitos"], "vulneraveis": ["mulheres"],
+      "resumo": "Equipe que visita e acompanha mulheres com medidas protetivas de urgência, fiscalizando seu cumprimento e acionando a rede de proteção.",
+      "resultados": "Em Porto Alegre, 5.772 vítimas acompanhadas e 9.162 visitas em 2015–2016. Segundo o Banco Mundial, no RS (2012–2013) houve 109 prisões por descumprimento de medidas e aumento de 53% nos pedidos de medidas protetivas.",
+      "evidencia": "limitada", "notaEvidencia": "Dados de atividade, sem medição pública atualizada de reincidência.",
+      "custo": "medio", "instrumento": "Projeto de lei instituindo a Patrulha Maria da Penha na Guarda Municipal (verificar existência de guarda e convênios)",
+      "ementaSugerida": "Institui a Patrulha Maria da Penha no âmbito da Guarda Municipal, para acompanhamento de mulheres com medidas protetivas de urgência, em articulação com o Judiciário e a rede de proteção.",
+      "fontes": [
+        {"titulo": "Banco Mundial: patrulha Maria da Penha contra a violência doméstica", "url": "https://www.worldbank.org/pt/news/feature/2013/12/04/Brazil-Maria-Penha-police-squad-against-domestic-violence"},
+        {"titulo": "Fórum Brasileiro de Segurança Pública: Patrulha Maria da Penha no RS", "url": "https://forumseguranca.org.br/wp-content/uploads/2024/04/rs-patrulha-maria-da-penha.pdf"}
+      ]
+    },
+    {
+      "id": "moeda-social-niteroi", "titulo": "Renda básica em moeda social", "local": "Niterói (RJ)", "escopo": "Brasil",
+      "areas": ["assistencia", "economia"], "vulneraveis": ["baixa_renda"],
+      "resumo": "Transferência mensal de renda a famílias do CadÚnico em moeda social digital, aceita apenas no comércio local, operada por banco comunitário.",
+      "resultados": "Atende dezenas de milhares de famílias (30 a 50 mil, conforme a fonte e o ano). Estudo da FGV indica fomento ao comércio local durante a pandemia.",
+      "evidencia": "limitada", "notaEvidencia": "Estudos descritivos; não há avaliação de impacto publicada sobre as famílias de Niterói.",
+      "custo": "alto", "instrumento": "Indicação ao Executivo (cria despesa) e requerimento de estudo de fonte de custeio",
+      "ementaSugerida": "Indica ao Poder Executivo a criação de programa municipal de transferência de renda em moeda social, operado por banco comunitário, para famílias em situação de vulnerabilidade.",
+      "fontes": [
+        {"titulo": "FGV EAESP: transferência de renda por banco comunitário beneficia o comércio local", "url": "https://eaesp.fgv.br/administracao-publica/politicas-publicas/estudo-de-niteroi-mostra-que-transferencia-de-renda-por-banco-comunitario-da-prefeitura-beneficia-comercio-local"},
+        {"titulo": "Revista Econômica (UFF): Moeda social Arariboia", "url": "https://www.periodicos.uff.br/revistaeconomica/article/view/62635"}
+      ]
+    },
+    {
+      "id": "iptu-verde-salvador", "titulo": "IPTU Verde", "local": "Salvador (BA)", "escopo": "Brasil",
+      "areas": ["meio_ambiente", "habitacao"], "vulneraveis": [],
+      "resumo": "Desconto no IPTU para imóveis que adotam medidas sustentáveis (energia solar, reúso de água, áreas permeáveis), por sistema de pontuação.",
+      "resultados": "Desconto de até 10% (Lei 8.474/2013). A prefeitura informa crescimento de 1.378% no número de beneficiados entre 2022 e 2025, após adesão inicial muito baixa.",
+      "evidencia": "limitada", "notaEvidencia": "Sem avaliação de impacto ambiental publicada; estudo acadêmico aponta que o benefício alcança sobretudo imóveis de alto padrão.",
+      "custo": "baixo", "instrumento": "Projeto de lei (matéria tributária admite iniciativa parlamentar), com estimativa de impacto da renúncia exigida pela LRF",
+      "ementaSugerida": "Institui o Programa IPTU Verde, concedendo desconto no IPTU a imóveis que adotem medidas de sustentabilidade, priorizando habitações de interesse social.",
+      "fontes": [
+        {"titulo": "Bahia Notícias: beneficiados pelo IPTU Verde cresceram 1.378% (2025)", "url": "https://www.bahianoticias.com.br/noticia/301570-numero-de-beneficiados-pelo-iptu-verde-cresceu-1378-entre-2022-e-2025-diz-prefeitura-de-salvador"},
+        {"titulo": "UERJ: análise crítica do IPTU Verde de Salvador", "url": "https://www.e-publicacoes.uerj.br/rdc/article/download/46762/36015/194742"}
+      ]
+    },
+    {
+      "id": "consultorio-na-rua", "titulo": "Consultório na Rua", "local": "Municípios brasileiros (programa do SUS)", "escopo": "Brasil",
+      "areas": ["saude", "assistencia"], "vulneraveis": ["pop_rua"],
+      "resumo": "Equipes de atenção básica que atendem a população em situação de rua onde ela está, cofinanciadas pelo Ministério da Saúde.",
+      "resultados": "As equipes cresceram de 142 para 259 entre 2015 e 2022, em 145 municípios. Estudos apontam ampliação do acesso à rede de saúde e redução de iniquidades.",
+      "evidencia": "moderada", "notaEvidencia": "Programa federal estruturado; avaliações locais, sem consolidação nacional de resultados de saúde.",
+      "custo": "medio", "instrumento": "Indicação ao Executivo para habilitar equipes junto ao Ministério da Saúde (cofinanciamento federal)",
+      "ementaSugerida": "Indica ao Poder Executivo a habilitação de equipes de Consultório na Rua junto ao Ministério da Saúde, para atenção à saúde da população em situação de rua.",
+      "fontes": [
+        {"titulo": "Ministério da Saúde: Consultório na Rua", "url": "https://www.gov.br/saude/pt-br/composicao/saps/esf/consultorio-na-rua"},
+        {"titulo": "MDHC: relatório sobre a população em situação de rua", "url": "https://www.gov.br/mdh/pt-br/navegue-por-temas/populacao-em-situacao-de-rua/publicacoes/relat_pop_rua_digital.pdf"}
+      ]
+    },
+    {
+      "id": "agricultura-urbana-rosario", "titulo": "Agricultura urbana agroecológica", "local": "Rosario (Argentina)", "escopo": "Mundo",
+      "areas": ["meio_ambiente", "economia", "assistencia"], "vulneraveis": ["baixa_renda", "mulheres"],
+      "resumo": "Terrenos ociosos transformados em hortas e parques-horta comunitários, com formação técnica e feiras permanentes para venda da produção.",
+      "resultados": "Cerca de 75 hectares de hortas na cidade, mais de 2.400 famílias com hortas e sete feiras permanentes; os parques-horta produzem cerca de 650 toneladas de hortaliças por ano. Prêmio WRI Ross Center Prize for Cities.",
+      "evidencia": "moderada", "notaEvidencia": "Política de mais de 20 anos, reconhecida pela FAO e pelo WRI; números municipais e de imprensa.",
+      "custo": "baixo", "instrumento": "Projeto de lei instituindo o programa de agricultura urbana e a cessão de terrenos públicos ociosos",
+      "ementaSugerida": "Institui o Programa Municipal de Agricultura Urbana, autorizando a cessão de terrenos públicos ociosos para hortas comunitárias agroecológicas e a criação de feiras de comercialização.",
+      "fontes": [
+        {"titulo": "WRI: Rosario recebe prêmio de cidades por resiliência e equidade", "url": "https://www.wri.org/news/comunicado-recibe-rosario-argentina-premio-las-ciudades-por-mejorar-resiliencia-y-equidad"},
+        {"titulo": "FUHEM: agroecologia urbana em Rosario", "url": "https://www.fuhem.es/media/cdv/file/biblioteca/revista_papeles/124/Agroecologia_urbana_en_la_ciudad_de_Rosario_M_Sanchez.pdf"}
+      ]
+    },
+    {
+      "id": "superquadras-barcelona", "titulo": "Superquadras (superilles)", "local": "Barcelona (Espanha)", "escopo": "Mundo",
+      "areas": ["meio_ambiente", "saude", "infraestrutura"], "vulneraveis": ["criancas", "idosos"],
+      "resumo": "Conjuntos de quarteirões onde o tráfego de passagem é desviado para o perímetro e as ruas internas viram espaços verdes e de convivência.",
+      "resultados": "Estudo do ISGlobal (2019) estimou que o plano completo poderia evitar cerca de 667 mortes prematuras por ano, principalmente pela redução da poluição do ar, do ruído e do calor.",
+      "evidencia": "moderada", "notaEvidencia": "Estimativa por modelagem revisada por pares, não resultado medido após a implantação.",
+      "custo": "medio", "instrumento": "Indicação de projeto piloto em um bairro e requerimento de estudo de tráfego",
+      "ementaSugerida": "Indica ao Poder Executivo a implantação de projeto piloto de Superquadra, reorganizando o tráfego de um conjunto de quarteirões para criar ruas de convivência e áreas verdes.",
+      "fontes": [
+        {"titulo": "ISGlobal: superquadras poderiam evitar cerca de 700 mortes prematuras por ano", "url": "https://www.isglobal.org/en/-/el-proyecto-original-de-las-supermanzanas-podria-evitar-cerca-de-700-muertes-prematuras-anuales-en-barcelona"}
+      ]
+    },
+    {
+      "id": "escola-integral-pe", "titulo": "Escola em tempo integral", "local": "Pernambuco", "escopo": "Brasil",
+      "areas": ["educacao"], "vulneraveis": ["criancas", "baixa_renda"],
+      "resumo": "Jornada ampliada com projeto pedagógico próprio, professores com dedicação integral e atividades de projeto de vida.",
+      "resultados": "Estudos citados pelo BID indicam que o modelo pode até dobrar o ganho de proficiência ao longo de três anos e aumentar a conclusão do ensino médio; efeito no ENEM foi modesto em outra avaliação.",
+      "evidencia": "moderada", "notaEvidencia": "Avaliações quase-experimentais com resultados positivos, mas heterogêneos.",
+      "custo": "alto", "instrumento": "Indicação ao Executivo e projeto de lei de diretrizes para ampliação gradual da jornada no ensino fundamental municipal",
+      "ementaSugerida": "Institui diretrizes para a ampliação gradual da educação em tempo integral na rede municipal de ensino fundamental, priorizando escolas em territórios vulneráveis.",
+      "fontes": [
+        {"titulo": "BID: escolas integrais em Pernambuco (evidências)", "url": "https://publications.iadb.org/publications/portuguese/document/Incentivando-alunos-vulneraveis-a-cursarem-escolas-integrais-evidencias-sobre-o-uso-de-nudge-em-Pernambuco.pdf"},
+        {"titulo": "UFPB: avaliação do programa de escolas integrais (dissertação)", "url": "https://repositorio.ufpb.br/jspui/bitstream/123456789/27090/1/RonyRamosCavalcantiDaSilva_Dissert.pdf"}
+      ]
+    },
+    {
+      "id": "urbanismo-social-medellin", "titulo": "Urbanismo social em bairros vulneráveis", "local": "Medellín (Colômbia)", "escopo": "Mundo",
+      "areas": ["infraestrutura", "seguranca", "transporte", "cultura"], "vulneraveis": ["baixa_renda", "criancas"],
+      "resumo": "Investimento concentrado nos bairros mais pobres: transporte (Metrocable), bibliotecas-parque, escolas e espaços públicos de qualidade, com participação comunitária.",
+      "resultados": "Estudos encontram associação entre as intervenções e queda de homicídios e aumento da confiança social nos bairros atendidos (um estudo cita queda de 10% em uma das zonas mais violentas).",
+      "evidencia": "moderada", "notaEvidencia": "Estudos correlacionais e quase-experimentais; difícil separar o efeito das obras de outras políticas de segurança do período.",
+      "custo": "alto", "instrumento": "Indicação de Projeto Urbano Integral para um território prioritário e emendas ao orçamento",
+      "ementaSugerida": "Indica ao Poder Executivo a elaboração de Projeto Urbano Integral para território de alta vulnerabilidade, articulando mobilidade, equipamentos culturais e espaços públicos.",
+      "fontes": [
+        {"titulo": "WRI: Metrocable de Medellín conecta pessoas de muitas formas", "url": "https://www.wri.org/insights/urban-transformations-medellin-metrocable-connects-people-more-ways-one"},
+        {"titulo": "CEDLAS: efeitos do Metrocable (Canavire-Duque e Urrego)", "url": "https://www.cedlas.econo.unlp.edu.ar/wp/wp-content/uploads/canavire_duque_urrego.pdf"},
+        {"titulo": "Urban Transformations (2020): Medellín", "url": "https://urbantransformations.biomedcentral.com/articles/10.1186/s42854-020-00008-8"}
+      ]
+    }
+  ]
+}

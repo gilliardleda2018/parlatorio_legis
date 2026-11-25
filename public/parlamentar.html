@@ -33,6 +33,24 @@
   .login img { width: 90px; margin: 10px auto 0 }
   .pin { font-size: 28px; letter-spacing: .4em; text-align: center }
   .status { font-size: 15px; display: flex; flex-direction: column; gap: 4px }
+  .segmento { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; background: var(--cartao); padding: 4px; border-radius: 12px; position: sticky; top: 62px; z-index: 5 }
+  .segmento button { border: 0; background: none; padding: 10px 4px; border-radius: 9px; font-weight: 600; font-size: 14px; cursor: pointer; color: var(--suave) }
+  .segmento button.ativo { background: var(--destaque-suave); color: #fff }
+  .coluna { display: flex; flex-direction: column; gap: 14px }
+  .opcoes { display: flex; flex-wrap: wrap; gap: 6px }
+  .opcoes button { border: 0; padding: 7px 11px; border-radius: 99px; background: var(--cartao2); font-size: 13px; cursor: pointer }
+  .opcoes button.on { background: var(--destaque-suave); color: #fff }
+  .ideia h3 { font-size: 17px; margin: 0 }
+  .ideia .local { color: var(--suave); font-size: 13px; margin: 2px 0 10px }
+  .ideia p { margin: 8px 0; font-size: 14px; line-height: 1.45 }
+  .ideia .rotulo { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--suave); font-weight: 700; margin-top: 10px }
+  .ideia ul { margin: 6px 0; padding-left: 18px; font-size: 13px }
+  .ideia .fontes a { display: block; font-size: 13px; color: var(--azul); margin: 3px 0; overflow-wrap: anywhere }
+  .afinidade { display: flex; align-items: center; gap: 10px; margin: 6px 0 }
+  .afinidade .barra { flex: 1; height: 8px }
+  .afinidade b { font-size: 20px; font-variant-numeric: tabular-nums }
+  dialog { background: var(--cartao); color: var(--texto); border: 0; border-top: 4px solid var(--destaque-suave); border-radius: var(--raio); padding: 16px; width: min(500px, 94vw) }
+  dialog::backdrop { background: rgba(0,0,0,.6) }
 </style>
 </head>
 <body>
@@ -51,7 +69,15 @@
   </form>
 </main>
 
-<main id="app" class="oculto"></main>
+<main id="app" class="oculto">
+  <div class="segmento" role="tablist">
+    <button class="ativo" data-aba="plenario" role="tab">Plenário</button>
+    <button data-aba="ideias" role="tab">Ideias de projetos</button>
+    <button data-aba="minhas" role="tab">Minhas propostas</button>
+  </div>
+  <div id="conteudoApp" class="coluna"></div>
+</main>
+<dialog id="dlgPropor"><form method="dialog" class="coluna" style="gap:12px" onsubmit="return false" id="formPropor"></form></dialog>
 
 <script src="/comum.js"></script>
 <script>
@@ -140,9 +166,88 @@ function desenhar() {
       <button class="botao pq fantasma" onclick="A('cancelarPedido',{id:'${x.id}'})">Cancelar</button></div>`).join('')}</div>` : ''}
   </div>`;
 
-  $('app').innerHTML = html;
+  if (aba !== 'plenario') return;
+  $('conteudoApp').innerHTML = html;
   relogios();
 }
+/* ---------------- ideias de projetos (recomendações) ---------------- */
+let aba = 'plenario', R = null, revCarregada = null, escopo = '';
+document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
+  aba = b.dataset.aba;
+  document.querySelectorAll('[data-aba]').forEach(x => x.classList.toggle('ativo', x === b));
+  if (aba === 'plenario') desenhar(); else carregarIdeias();
+  scrollTo(0, 0);
+});
+PL.aoMudar(S => { if (eu && aba !== 'plenario' && S.projetosRev !== revCarregada) carregarIdeias(); });
+async function carregarIdeias() {
+  revCarregada = PL.estado?.projetosRev;
+  const r = await fetch('/api/recomendacoes', { headers: { Authorization: 'Bearer ' + PL.token('parlamentar') } });
+  if (r.status === 401) { localStorage.removeItem('parlatorio.token.parlamentar'); return location.reload(); }
+  R = await r.json();
+  aba === 'ideias' ? desenharIdeias() : desenharMinhas();
+}
+const EVID = { forte: 'sim', moderada: 'ambar', limitada: '' };
+const CUSTO = { baixo: 'Custo baixo', medio: 'Custo médio', alto: 'Custo alto' };
+function desenharIdeias() {
+  const lista = R.itens.filter(i => !escopo || i.escopo === escopo);
+  $('conteudoApp').innerHTML = `
+    <div class="cartao"><h2>Suas áreas de interesse</h2>
+      <p class="detalhe" style="margin-top:0">As sugestões combinam suas áreas, os projetos que você já apresentou e as áreas com poucos projetos na cidade.</p>
+      <div class="opcoes">${Object.entries(R.areas).filter(([k]) => k !== 'outros').map(([k, v]) => `<button class="${R.interesses.includes(k) ? 'on' : ''}" onclick="alternarInteresse('${k}')" aria-pressed="${R.interesses.includes(k)}">${esc(v)}</button>`).join('')}</div></div>
+    <div class="opcoes" role="group" aria-label="Origem">${[['', 'Todas'], ['Brasil', 'No Brasil'], ['Mundo', 'No mundo']].map(([k, v]) => `<button class="${escopo === k ? 'on' : ''}" onclick="escopo='${k}';desenharIdeias()">${v}</button>`).join('')}</div>
+    ${lista.map(i => `<article class="cartao ideia ${i.situacao ? 'neutro' : ''}">
+      <h3>${esc(i.titulo)}</h3><div class="local">${esc(i.local)} · ${i.escopo === 'Mundo' ? 'experiência internacional' : 'experiência brasileira'}</div>
+      <div class="afinidade" title="Nota de recomendação para você"><span class="barra"><i style="width:${i.nota}%"></i></span><b>${i.nota}</b></div>
+      <ul>${i.motivos.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
+      <p>${esc(i.resumo)}</p>
+      <div class="rotulo">Resultados relatados</div><p>${esc(i.resultados)}</p>
+      <div class="grupo"><span class="chip ${EVID[i.evidencia]}">Evidência ${i.evidencia}</span><span class="chip">${CUSTO[i.custo]}</span></div>
+      <p class="detalhe">${esc(i.notaEvidencia)}</p>
+      <div class="rotulo">Como propor na Câmara</div><p>${esc(i.instrumento)}</p>
+      <details class="fontes"><summary class="rotulo" style="cursor:pointer">Fontes (${i.fontes.length})</summary>${i.fontes.map(f => `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.titulo)}</a>`).join('')}</details>
+      <div style="margin-top:12px">${i.situacao === 'proposto_por_voce' ? '<span class="chip sim">✓ Você já propôs</span>'
+        : `<button class="botao principal" style="width:100%" onclick="abrirProposta('${i.id}')">Propor este projeto</button>${i.situacao === 'proposto_por_outro' ? '<p class="detalhe">Outro parlamentar já apresentou proposta inspirada nesta prática.</p>' : ''}`}</div>
+    </article>`).join('')}
+    <p class="detalhe" style="text-align:center">Catálogo de boas práticas pesquisado em novembro de 2026. Confira as fontes antes de citar números.</p>`;
+}
+async function alternarInteresse(area) {
+  const novo = R.interesses.includes(area) ? R.interesses.filter(a => a !== area) : [...R.interesses, area];
+  await A('perfilInteresses', { areas: novo });
+  await carregarIdeias();
+}
+function abrirProposta(id) {
+  const i = R.itens.find(x => x.id === id);
+  $('formPropor').innerHTML = `<h2 style="font-size:18px">Propor: ${esc(i.titulo)}</h2>
+    <p class="detalhe" style="margin:0">Inspirado em ${esc(i.local)}. A secretaria recebe a proposta, revisa e protocola com número oficial.</p>
+    <label class="rot">Ementa (adapte à realidade da cidade)<textarea class="campo" id="pEmenta" rows="4">${esc(i.ementaSugerida)}</textarea></label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <label class="rot">Pessoas que podem ser beneficiadas<input class="campo" type="number" min="0" id="pBenef" placeholder="estimativa"></label>
+      <label class="rot">Abrangência<select class="campo" id="pAbr"><option value="">—</option>${Object.entries(R.abrangenciaNomes).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select></label>
+    </div>
+    <label class="rot">Justificativa (opcional)<textarea class="campo" id="pJust" rows="4" placeholder="Por que a cidade precisa disso? Dados locais, bairros, público…"></textarea></label>
+    <p class="detalhe" style="margin:0">Instrumento sugerido: ${esc(i.instrumento)}</p>
+    <div class="grupo" style="justify-content:flex-end"><button class="botao fantasma" onclick="dlgPropor.close()">Cancelar</button>
+      <button class="botao principal" onclick="enviarProposta('${id}')">Enviar proposta</button></div>`;
+  dlgPropor.showModal();
+}
+async function enviarProposta(id) {
+  try {
+    await PL.acao('parlamentar', 'propor', { praticaId: id, ementa: $('pEmenta').value, beneficiados: +$('pBenef').value || 0, abrangencia: $('pAbr').value, justificativa: $('pJust').value });
+    dlgPropor.close(); PL.avisar('Proposta enviada à secretaria.'); carregarIdeias();
+  } catch {}
+}
+const SIT_PROJ = { proposta: 'Aguardando protocolo', em_tramitacao: 'Em tramitação', em_pauta: 'Em pauta', aprovada: 'Aprovado', rejeitada: 'Rejeitado', retirada: 'Retirado', arquivado: 'Arquivado' };
+function desenharMinhas() {
+  const titulo = id => R.itens.find(i => i.id === id)?.titulo;
+  $('conteudoApp').innerHTML = R.minhas.length ? R.minhas.map(p => `<div class="cartao ${p.situacao === 'proposta' ? '' : 'neutro'}">
+      <div class="grupo" style="justify-content:space-between;align-items:center"><b>${esc(p.numero)}</b>
+        <span class="chip ${p.situacao === 'aprovada' ? 'sim' : p.situacao === 'rejeitada' ? 'nao' : p.situacao === 'proposta' ? 'ambar' : ''}">${SIT_PROJ[p.situacao] || p.situacao}</span></div>
+      <p style="margin:8px 0">${esc(p.ementa)}</p>
+      ${p.origem ? `<p class="detalhe" style="margin:0">Inspirado em: ${esc(titulo(p.origem) || p.origem)}</p>` : ''}
+      ${p.situacao === 'proposta' ? `<button class="botao pq fantasma" style="margin-top:10px" onclick="if(confirm('Retirar esta proposta?'))A('retirarProposta',{id:'${p.id}'}).then(carregarIdeias)">Retirar proposta</button>` : ''}
+    </div>`).join('') : '<div class="cartao neutro"><p class="vazio" style="margin:0">Você ainda não tem projetos ou propostas. Veja a aba “Ideias de projetos”.</p></div>';
+}
+
 function votar(x) {
   const v = PL.estado.votacao;
   if (v.tipo === 'secreta' && !confirm(`Confirmar voto “${PL.VOTOS[x]}”? Na votação secreta não é possível alterar.`)) return;

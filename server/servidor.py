@@ -32,6 +32,8 @@ from urllib.parse import urlparse
 
 import tls
 from ata import gerar_ata
+import estatisticas
+import recomendacao
 from mesa import CFG_PADRAO, PRESETS, Mesa
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -76,6 +78,7 @@ def abrir_banco() -> sqlite3.Connection:
         create table if not exists eventos (id integer primary key, ts integer, autor text, acao text, args text);
         create table if not exists sessoes (id text primary key, titulo text, inicio integer, fim integer, resumo text, json text);
         create table if not exists gravacoes (id text primary key, sessao text, criado integer, json text);
+        create table if not exists projetos (id text primary key, atualizado integer, json text);
         """
     )
     return db
@@ -94,6 +97,30 @@ def grav_salvar(g: dict):
 def grav_obter(gid: str) -> dict | None:
     linha = db.execute("select json from gravacoes where id = ?", (gid,)).fetchone()
     return json.loads(linha[0]) if linha else None
+
+
+# banco de projetos: cada matéria tem ficha social e histórico, para além da pauta de uma sessão
+def proj_salvar(p: dict):
+    p["atualizado"] = agora()
+    db.execute("insert or replace into projetos (id, atualizado, json) values (?, ?, ?)",
+               (p["id"], p["atualizado"], json.dumps(p, ensure_ascii=False)))
+    db.commit()
+
+
+def proj_obter(pid: str) -> dict | None:
+    linha = db.execute("select json from projetos where id = ?", (pid,)).fetchone()
+    return json.loads(linha[0]) if linha else None
+
+
+def proj_todos() -> list[dict]:
+    return [json.loads(x[0]) for x in db.execute("select json from projetos order by atualizado desc").fetchall()]
+
+
+def proj_novo(**campos) -> dict:
+    p = {"id": uid(), "numero": "", "ementa": "", "autor": "", "areas": [], "beneficiados": 0, "abrangencia": "",
+         "vulneraveis": [], "urgencia": "", "fonte": "", "situacao": "em_tramitacao", "criado": agora(), "historico": []}
+    p.update(campos)
+    return p
 
 
 def grav_da_sessao(sid: str) -> list[dict]:
@@ -183,6 +210,9 @@ def NOVOS_CAMPOS() -> dict:
         "congelado": None,      # plenário congelado: {inicio, motivo, oradorRodando, interrRodando}
         "ocorrencias": [],      # cortes, congelamentos e tempo esgotado, para a ata
         "sessao": {"id": secrets.token_hex(8), "inicio": agora()},  # sessão em andamento
+        "relevancia": {"populacao": 100000, "pesos": dict(estatisticas.PESOS_PADRAO)},
+        "projetosRev": 0,       # muda quando o banco de projetos muda (as telas recarregam a lista)
+        "_perfis": {},          # pid -> áreas de interesse declaradas (área privada do parlamentar)
         "mesa": dict(CFG_PADRAO),
     }
 
@@ -205,6 +235,34 @@ def carregar() -> dict:
 
 
 S = carregar()
+
+
+def migrar_projetos():
+    """Primeira execução com o banco de projetos: cria as fichas a partir das sessões arquivadas e da pauta."""
+    if db.execute("select count(*) from projetos").fetchone()[0]:
+        return
+    projetos: dict[str, dict] = {}
+    for (texto,) in db.execute("select json from sessoes order by fim").fetchall():
+        r = json.loads(texto)
+        for m in r["pauta"]:
+            p = projetos.setdefault(m["id"], proj_novo(id=m["id"], numero=m["numero"], ementa=m["ementa"],
+                                                      autor=m.get("autor", ""), criado=r["inicio"]))
+            p["situacao"] = m["situacao"] if m["situacao"] in ("aprovada", "rejeitada", "retirada") else "em_tramitacao"
+            p["historico"].append({"ts": r["fim"], "sessao": r["titulo"], "evento": "pauta", "situacao": m["situacao"]})
+        for v in reversed(r["votacoes"]):
+            p = projetos.get(v["materia"])
+            if p:
+                p["historico"].append({"ts": v.get("fim") or r["fim"], "sessao": r["titulo"], "evento": "votacao",
+                                       "resultado": v["resultado"], "contagem": v.get("contagem"), "tipo": v["tipo"]})
+    for m in S["pauta"]:
+        p = projetos.setdefault(m["id"], proj_novo(id=m["id"], numero=m["numero"], ementa=m["ementa"], autor=m.get("autor", "")))
+        p["situacao"] = m["situacao"] if m["situacao"] in ("aprovada", "rejeitada") else "em_pauta"
+    for p in projetos.values():
+        p["historico"].sort(key=lambda h: h["ts"])
+        proj_salvar(p)
+
+
+migrar_projetos()
 
 
 # ---------------------------------------------------------------- utilidades de regra
@@ -691,14 +749,133 @@ def atenderPedido(ator, id, aprovar):
 # --- pauta
 @acao("presidente")
 def materiaSalvar(ator, numero, ementa, autor="", id=None):
+    """Matéria criada pela pauta: vira também projeto no banco (sem ficha social ainda)."""
     if not numero.strip():
         raise Erro("Informe o número da matéria.")
     if id:
         m = materia(id)
         m.update(numero=numero.strip(), ementa=ementa.strip(), autor=autor.strip())
+        p = proj_obter(id) or proj_novo(id=id)
     else:
-        S["pauta"].append({"id": uid(), "numero": numero.strip(), "ementa": ementa.strip(),
+        p = proj_novo(situacao="em_pauta")
+        S["pauta"].append({"id": p["id"], "numero": numero.strip(), "ementa": ementa.strip(),
                            "autor": autor.strip(), "situacao": "pendente"})
+    p.update(numero=numero.strip(), ementa=ementa.strip(), autor=autor.strip())
+    proj_salvar(p)
+    S["projetosRev"] += 1
+
+
+def _limpar_lista(valores, permitidos) -> list:
+    return [v for v in (valores or []) if v in permitidos]
+
+
+@acao("presidente")
+def projetoSalvar(ator, numero, ementa, autor="", id=None, areas=None, beneficiados=0, abrangencia="",
+                  vulneraveis=None, urgencia="", fonte="", situacao=None):
+    if not str(numero).strip() or not str(ementa).strip():
+        raise Erro("Informe número e ementa.")
+    try:
+        beneficiados = max(0, int(beneficiados or 0))
+    except (TypeError, ValueError):
+        raise Erro("Número de beneficiados inválido.")
+    if abrangencia and abrangencia not in estatisticas.ABRANGENCIA:
+        raise Erro("Abrangência inválida.")
+    if urgencia and urgencia not in estatisticas.URGENCIA:
+        raise Erro("Urgência inválida.")
+    if situacao and situacao not in ("proposta", "em_tramitacao", "aprovada", "rejeitada", "retirada", "arquivado"):
+        raise Erro("Situação inválida.")
+    p = proj_obter(id) if id else proj_novo()
+    if not p:
+        raise Erro("Projeto não encontrado.")
+    p.update(numero=str(numero).strip(), ementa=str(ementa).strip(), autor=str(autor or "").strip(),
+             areas=_limpar_lista(areas, estatisticas.AREAS), beneficiados=beneficiados, abrangencia=abrangencia,
+             vulneraveis=_limpar_lista(vulneraveis, estatisticas.VULNERAVEIS), urgencia=urgencia,
+             fonte=str(fonte or "").strip()[:300])
+    na_pauta = next((m for m in S["pauta"] if m["id"] == p["id"]), None)
+    if situacao and not na_pauta:
+        p["situacao"] = situacao
+    if na_pauta:
+        na_pauta.update(numero=p["numero"], ementa=p["ementa"], autor=p["autor"])
+    proj_salvar(p)
+    S["projetosRev"] += 1
+
+
+@acao("presidente")
+def projetoRemover(ator, id):
+    if any(m["id"] == id for m in S["pauta"]):
+        raise Erro("Retire o projeto da pauta antes.")
+    db.execute("delete from projetos where id = ?", (id,))
+    db.commit()
+    S["projetosRev"] += 1
+
+
+@acao("presidente")
+def pautaIncluir(ator, id):
+    p = proj_obter(id)
+    if not p:
+        raise Erro("Projeto não encontrado.")
+    if any(m["id"] == id for m in S["pauta"]):
+        raise Erro("Já está na pauta.")
+    if p["situacao"] in ("aprovada", "rejeitada"):
+        raise Erro("Projeto já votado.")
+    S["pauta"].append({"id": id, "numero": p["numero"], "ementa": p["ementa"], "autor": p["autor"], "situacao": "pendente"})
+    p["situacao"] = "em_pauta"
+    proj_salvar(p)
+    S["projetosRev"] += 1
+
+
+@acao("parlamentar")
+def perfilInteresses(ator, areas):
+    S["_perfis"][ator["pid"]] = _limpar_lista(areas, estatisticas.AREAS)
+
+
+@acao("parlamentar")
+def propor(ator, praticaId, ementa, beneficiados=0, abrangencia="", justificativa=""):
+    """O parlamentar transforma uma boa prática em proposta; a secretaria protocola e numera depois."""
+    pratica = next((x for x in recomendacao.catalogo() if x["id"] == praticaId), None)
+    if not pratica:
+        raise Erro("Prática não encontrada.")
+    ementa = str(ementa or "").strip()
+    if len(ementa) < 15:
+        raise Erro("Escreva a ementa da proposta.")
+    if abrangencia and abrangencia not in estatisticas.ABRANGENCIA:
+        raise Erro("Abrangência inválida.")
+    autor = parl(ator["pid"])["nome"]
+    if any(p.get("origem") == praticaId and p["autor"] == autor and p["situacao"] == "proposta" for p in proj_todos()):
+        raise Erro("Você já tem uma proposta pendente inspirada nesta prática.")
+    ano = time.localtime().tm_year
+    n = 1 + sum(1 for p in proj_todos() if str(p["numero"]).startswith("PROP ") and str(p["numero"]).endswith(f"/{ano}"))
+    p = proj_novo(numero=f"PROP {n}/{ano}", ementa=ementa, autor=autor, areas=list(pratica["areas"]),
+                  vulneraveis=list(pratica["vulneraveis"]), beneficiados=max(0, int(beneficiados or 0)),
+                  abrangencia=abrangencia, situacao="proposta", origem=praticaId,
+                  fonte=f"Inspirado em: {pratica['titulo']} ({pratica['local']})",
+                  justificativa=str(justificativa or "").strip()[:2000], instrumento=pratica["instrumento"])
+    p["historico"].append({"ts": agora(), "sessao": "—", "evento": "proposta", "situacao": "proposta"})
+    proj_salvar(p)
+    S["projetosRev"] += 1
+
+
+@acao("parlamentar")
+def retirarProposta(ator, id):
+    p = proj_obter(id)
+    if not p or p["situacao"] != "proposta" or p["autor"] != parl(ator["pid"])["nome"]:
+        raise Erro("Só é possível retirar propostas suas ainda não protocoladas.")
+    db.execute("delete from projetos where id = ?", (id,))
+    db.commit()
+    S["projetosRev"] += 1
+
+
+@acao("presidente")
+def relevanciaSalvar(ator, populacao, pesos):
+    try:
+        populacao = int(populacao)
+        pesos = {k: max(0, float(pesos.get(k, 0))) for k in estatisticas.PESOS_PADRAO}
+    except (TypeError, ValueError, AttributeError):
+        raise Erro("Valores inválidos.")
+    if populacao < 1000 or not sum(pesos.values()):
+        raise Erro("Informe a população (mínimo 1.000) e ao menos um peso maior que zero.")
+    S["relevancia"] = {"populacao": populacao, "pesos": pesos}
+    S["projetosRev"] += 1
 
 
 @acao("presidente")
@@ -708,6 +885,11 @@ def materiaRemover(ator, id):
     S["pauta"] = [m for m in S["pauta"] if m["id"] != id]
     if S["materiaAtual"] == id:
         S["materiaAtual"] = None
+    p = proj_obter(id)
+    if p and p["situacao"] == "em_pauta":
+        p["situacao"] = "em_tramitacao"
+        proj_salvar(p)
+        S["projetosRev"] += 1
 
 
 @acao("presidente")
@@ -735,6 +917,11 @@ def materiaSituacao(ator, id, situacao):
     if situacao not in ("pendente", "em_discussao", "aprovada", "rejeitada", "adiada", "retirada"):
         raise Erro("Situação inválida.")
     materia(id)["situacao"] = situacao
+    p = proj_obter(id)
+    if p and situacao in ("aprovada", "rejeitada", "retirada"):
+        p["situacao"] = situacao
+        proj_salvar(p)
+        S["projetosRev"] += 1
 
 
 # --- votação
@@ -830,6 +1017,14 @@ def votacaoEncerrar(ator, resultado=None):
     if m:
         m["situacao"] = v["resultado"] if v["resultado"] != "sem_quorum" else "adiada"
     S["votacoes"].insert(0, json.loads(json.dumps(publico_votacao(v))))
+    p = proj_obter(v["materia"])
+    if p:
+        if v["resultado"] in ("aprovada", "rejeitada"):
+            p["situacao"] = v["resultado"]
+        p["historico"].append({"ts": v["fim"], "sessao": S["casa"]["titulo"], "evento": "votacao", "tipo": v["tipo"],
+                               "resultado": v["resultado"], "contagem": publico_votacao(v)["contagem"]})
+        proj_salvar(p)
+        S["projetosRev"] += 1
     sinal("fim")
 
 
@@ -936,12 +1131,20 @@ def imagem(ator, alvo, dataUrl=None):
 def sessaoZerar(ator, manterPauta=True):
     S.update(filas={}, orador=None, interr=None, pedidos=[], hist=[], presenca={}, votacao=None, votacoes=[],
              micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[])
+    inicio = S["sessao"]["inicio"]
+    for m in S["pauta"]:  # a sessão descartada não conta no banco de projetos
+        p = proj_obter(m["id"])
+        if p:
+            p["historico"] = [h for h in p["historico"] if h["ts"] < inicio]
+            p["situacao"] = "em_pauta" if manterPauta else "em_tramitacao"
+            proj_salvar(p)
     if not manterPauta:
         S["pauta"] = []
     else:
         for m in S["pauta"]:
             m["situacao"] = "pendente"
     S["materiaAtual"] = None
+    S["projetosRev"] += 1
 
 
 # --- sessões: encerrar, arquivar, consultar
@@ -983,6 +1186,15 @@ def sessaoEncerrar(ator, proximoTitulo, manterPauta=True):
     S.update(filas={}, orador=None, interr=None, pedidos=[], hist=[], presenca={}, votacao=None, votacoes=[],
              micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[], pauta=nao_votadas, materiaAtual=None,
              sessao={"id": secrets.token_hex(8), "inicio": agora()})
+    seguem = {m["id"] for m in nao_votadas}  # continuam na pauta da próxima sessão
+    for m in r["pauta"]:  # histórico no banco de projetos
+        p = proj_obter(m["id"])
+        if p:
+            p["historico"].append({"ts": fim, "sessao": r["titulo"], "evento": "pauta", "situacao": m["situacao"]})
+            if p["situacao"] == "em_pauta" and m["id"] not in seguem:
+                p["situacao"] = "em_tramitacao"
+            proj_salvar(p)
+    S["projetosRev"] += 1
     S["casa"]["titulo"] = proximoTitulo
 
 
@@ -1238,6 +1450,10 @@ class Manipulador(BaseHTTPRequestHandler):
             return self._certificado()
         if caminho.startswith("/api/sessoes") or caminho.startswith("/api/ata/"):
             return self._sessoes(caminho)
+        if caminho == "/api/transparencia":
+            return self._transparencia()
+        if caminho == "/api/recomendacoes":
+            return self._recomendacoes()
         if caminho == "/eventos":
             return self._eventos()
         if caminho.startswith("/imagem/"):
@@ -1323,6 +1539,41 @@ class Manipulador(BaseHTTPRequestHandler):
                     break
                 self.wfile.write(bloco)
                 resta -= len(bloco)
+
+    def _transparencia(self):
+        """Estatísticas das sessões arquivadas e banco de projetos. ?interno=1 (presidente) traz mais detalhes."""
+        interno = "interno" in urllib.parse.parse_qs(urlparse(self.path).query)
+        with trava:
+            ator = self._ator()
+            if interno and not (ator and ator["papel"] == "presidente"):
+                return self._json(401, {"erro": "Entre no painel do presidente."})
+            sessoes = [json.loads(x[0]) for x in db.execute("select json from sessoes order by fim").fetchall()]
+            projetos = proj_todos()
+            if not interno:  # propostas ainda não protocoladas não são públicas
+                projetos = [p for p in projetos if p["situacao"] != "proposta"]
+            parls, rel = json.loads(json.dumps(S["parls"])), dict(S["relevancia"])
+            casa = {k: S["casa"][k] for k in ("nome", "titulo", "logoV", "destaque", "tema")}
+            partidos = dict(S["partidos"])
+        dados = estatisticas.calcular(sessoes, projetos, parls, rel["populacao"], rel["pesos"], interno)
+        dados["casa"], dados["partidos"] = casa, partidos
+        return self._json(200, dados)
+
+    def _recomendacoes(self):
+        """Área privada do parlamentar: boas práticas recomendadas e suas propostas."""
+        with trava:
+            ator = self._ator()
+            if not ator or ator["papel"] != "parlamentar":
+                return self._json(401, {"erro": "Entre com seu PIN de parlamentar."})
+            nome = parl(ator["pid"])["nome"]
+            interesses = list(S["_perfis"].get(ator["pid"], []))
+            projetos = proj_todos()
+        itens = recomendacao.recomendar(nome, interesses, projetos, estatisticas.AREAS)
+        minhas = [{k: p.get(k) for k in ("id", "numero", "ementa", "situacao", "origem", "historico", "atualizado")}
+                  for p in projetos if p.get("autor") == nome]
+        return self._json(200, {"interesses": interesses, "areas": estatisticas.AREAS, "itens": itens,
+                                "minhas": sorted(minhas, key=lambda p: -(p.get("atualizado") or 0)),
+                                "abrangenciaNomes": {k: v[0] for k, v in estatisticas.ABRANGENCIA.items()},
+                                "vulneraveisNomes": estatisticas.VULNERAVEIS})
 
     def _certificado(self):
         ca = TLS_DIR / "ca.crt"

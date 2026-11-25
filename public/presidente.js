@@ -25,11 +25,14 @@ document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
   document.querySelectorAll('.aba').forEach(s => s.classList.toggle('ativa', s.id === 'aba-' + abaAtual));
   if (abaAtual === 'config') carregarConfig();
   if (abaAtual === 'sessoes') carregarSessoes();
+  if (abaAtual === 'projetos') carregarProjetos();
   desenhar();
 });
 
 /* ---------------- desenho ---------------- */
 PL.aoMudar(() => desenhar());
+let projetosRev = null;
+PL.aoMudar(S => { if (abaAtual === 'projetos' && S.projetosRev !== projetosRev) carregarProjetos(); });
 PL.aoSinal = tipo => { if (som) PL.bipe(tipo); };
 function desenhar() {
   const S = PL.estado; if (!S) return;
@@ -596,6 +599,120 @@ function zerar() {
   dialogo('Zerar sessão', `<p style="margin:0">Apaga filas, presença, pedidos, histórico de falas e votações. Parlamentares e configurações são mantidos.</p>
     <label class="linha">Manter a pauta (volta para “pendente”)<input type="checkbox" id="dManter" checked></label>`,
     () => A('sessaoZerar', { manterPauta: $('dManter').checked }), 'Zerar sessão');
+}
+
+/* ---------------- banco de projetos ---------------- */
+let dadosProj = null;
+const PARTES = ['beneficiados', 'abrangencia', 'vulneraveis', 'urgencia'];
+const NOMES_PARTES = { beneficiados: 'Pessoas beneficiadas', abrangencia: 'Abrangência', vulneraveis: 'Grupos vulneráveis', urgencia: 'Urgência' };
+const SIT_PROJ = { em_tramitacao: 'Em tramitação', em_pauta: 'Em pauta', aprovada: 'Aprovado', rejeitada: 'Rejeitado', retirada: 'Retirado', arquivado: 'Arquivado', proposta: 'Proposta' };
+async function carregarProjetos() {
+  projetosRev = PL.estado.projetosRev;
+  try { dadosProj = await (await apiGet('/api/transparencia?interno=1')).json(); } catch (e) { return PL.avisar(e.message, true); }
+  if ($('pArea').options.length === 1) $('pArea').innerHTML += Object.entries(dadosProj.areas).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
+  const rel = PL.estado.relevancia;
+  if (document.activeElement?.closest?.('#aba-projetos .cartao') == null || !$('rPop').value) {
+    $('rPop').value = rel.populacao; $('rBenef').value = rel.pesos.beneficiados; $('rAbr').value = rel.pesos.abrangencia;
+    $('rVuln').value = rel.pesos.vulneraveis; $('rUrg').value = rel.pesos.urgencia;
+  }
+  desenharProjetos();
+}
+['pBusca', 'pArea', 'pSituacao'].forEach(id => $(id).addEventListener('input', () => desenharProjetos()));
+function barraNota(r) {
+  if (!r) return '<span class="suave" style="font-size:12px">sem ficha social</span>';
+  return `<div class="nota" title="${PARTES.map(k => `${NOMES_PARTES[k]}: ${r.partes[k]}`).join(' · ')}"><div class="b">${PARTES.map(k => `<i class="c-${k}" style="width:${r.partes[k]}%"></i>`).join('')}</div><b>${r.nota}</b></div>`;
+}
+const fmtNum = n => (n || 0).toLocaleString('pt-BR');
+function desenharProjetos() {
+  if (!dadosProj) return;
+  const q = $('pBusca').value.toLowerCase(), area = $('pArea').value, sit = $('pSituacao').value;
+  const lista = dadosProj.projetos.filter(p => (!q || (p.numero + ' ' + p.ementa + ' ' + p.autor).toLowerCase().includes(q))
+    && (!area || (p.areas || []).includes(area)) && (!sit || p.situacao === sit));
+  const naPauta = new Set(PL.estado.pauta.map(m => m.id));
+  $('tabProjetos').innerHTML = lista.length ? '<tr><th>#</th><th>Projeto</th><th>Áreas</th><th class="num">Beneficiados</th><th>Relevância</th><th>Situação</th><th></th></tr>' +
+    lista.map((p, k) => `<tr><td class="suave tnum">${p.relevancia ? k + 1 : '—'}</td>
+      <td><b>${esc(p.numero)}</b><div style="font-size:13px;max-width:420px">${esc(p.ementa)}</div><small class="suave">${esc(p.autor || '')}</small></td>
+      <td><div class="tags">${(p.areas || []).map(a => `<span class="tag">${esc(dadosProj.areas[a])}</span>`).join('')}</div></td>
+      <td class="num tnum">${p.beneficiados ? fmtNum(p.beneficiados) : '—'}</td>
+      <td>${barraNota(p.relevancia)}</td>
+      <td><span class="chip ${p.situacao === 'aprovada' ? 'sim' : p.situacao === 'rejeitada' ? 'nao' : p.situacao === 'em_pauta' ? 'ambar' : ''}">${SIT_PROJ[p.situacao] || p.situacao}</span></td>
+      <td style="white-space:nowrap;text-align:right"><button class="botao pq" onclick="editarProjeto('${p.id}')">Ficha</button>
+        ${['em_tramitacao', 'proposta'].includes(p.situacao) && !naPauta.has(p.id) ? `<button class="botao pq principal" onclick="A('pautaIncluir',{id:'${p.id}'})">Pautar</button>` : ''}
+        ${!naPauta.has(p.id) ? `<button class="botao pq fantasma" onclick="if(confirm('Remover ${esc(p.numero)} do banco de projetos?'))A('projetoRemover',{id:'${p.id}'})">✕</button>` : ''}</td></tr>`).join('')
+    : '<tr><td class="vazio">Nenhum projeto encontrado.</td></tr>';
+  const t = dadosProj.projetos, comFicha = t.filter(p => p.relevancia);
+  $('projResumo').innerHTML = `<div class="numeros" style="margin:0">
+    <div><b>${t.length}</b>projetos</div><div><b>${comFicha.length}</b>com ficha social</div>
+    <div><b>${t.filter(p => p.situacao === 'aprovada').length}</b>aprovados</div><div><b>${fmtNum(dadosProj.totais.beneficiadosAprovados)}</b>pessoas em projetos aprovados</div></div>
+    <div class="grupo" style="margin-top:12px;font-size:12px">${PARTES.map(k => `<span style="display:inline-flex;align-items:center;gap:5px"><i class="c-${k}" style="width:10px;height:10px;border-radius:3px;display:inline-block"></i>${NOMES_PARTES[k]}</span>`).join('')}</div>`;
+}
+function notaLocal(p) {  // mesma fórmula do servidor, para a prévia ao preencher a ficha
+  if (!p.beneficiados && !p.abrangencia) return null;
+  const rel = PL.estado.relevancia, pop = Math.max(rel.populacao, 1000);
+  const comp = { beneficiados: Math.min(1, Math.log10(p.beneficiados + 1) / Math.log10(pop + 1)),
+    abrangencia: { local: 1 / 3, regional: 2 / 3, municipal: 1 }[p.abrangencia] || 0,
+    vulneraveis: Math.min(1, p.vulneraveis.length / 3), urgencia: { baixa: .2, media: .6, alta: 1 }[p.urgencia] || 0 };
+  const soma = PARTES.reduce((a, k) => a + Math.max(0, rel.pesos[k]), 0) || 1;
+  const partes = Object.fromEntries(PARTES.map(k => [k, Math.round(1000 * Math.max(0, rel.pesos[k]) * comp[k] / soma) / 10]));
+  return { nota: Math.round(PARTES.reduce((a, k) => a + partes[k], 0)), partes };
+}
+function editarProjeto(id) {
+  const d = dadosProj, p = id ? d.projetos.find(x => x.id === id) : { numero: '', ementa: '', autor: '', areas: [], beneficiados: 0, abrangencia: '', vulneraveis: [], urgencia: '', fonte: '', situacao: 'em_tramitacao', historico: [] };
+  const naPauta = PL.estado.pauta.some(m => m.id === id);
+  const opcoes = (nome, mapa, marcados) => `<div class="opcoes">${Object.entries(mapa).map(([k, v]) => `<label><input type="checkbox" name="${nome}" value="${k}" ${marcados.includes(k) ? 'checked' : ''} hidden>${esc(v)}</label>`).join('')}</div>`;
+  dlg.classList.add('largo');
+  dialogo(id ? 'Ficha do projeto' : 'Novo projeto', `
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px">
+      <label class="rot">Número<input class="campo" id="fNum" value="${esc(p.numero)}" placeholder="PL 123/2026"></label>
+      <label class="rot">Autoria<input class="campo" id="fAutor" value="${esc(p.autor)}" list="dlAutores"></label>
+    </div>
+    <datalist id="dlAutores">${PL.estado.parls.map(x => `<option value="${esc(x.nome)}">`).join('')}<option value="Executivo Municipal"><option value="Mesa Diretora"></datalist>
+    <label class="rot">Ementa<textarea class="campo" id="fEmenta" rows="2">${esc(p.ementa)}</textarea></label>
+    <div class="rot">Áreas${opcoes('fArea', d.areas, p.areas || [])}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <label class="rot">Pessoas beneficiadas (estimativa)<input class="campo" type="number" min="0" id="fBenef" value="${p.beneficiados || ''}"></label>
+      <label class="rot">Abrangência<select class="campo" id="fAbr"><option value="">—</option>${Object.entries(d.abrangenciaNomes).map(([k, v]) => `<option value="${k}" ${p.abrangencia === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
+      <label class="rot">Urgência<select class="campo" id="fUrg"><option value="">—</option>${Object.entries(d.urgenciaNomes).map(([k, v]) => `<option value="${k}" ${p.urgencia === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
+    </div>
+    <label class="rot">Fonte da estimativa<input class="campo" id="fFonte" value="${esc(p.fonte || '')}" placeholder="Ex.: Censo IBGE 2022; cadastro da Secretaria de Saúde"></label>
+    <div class="rot">Grupos vulneráveis atendidos${opcoes('fVuln', d.vulneraveisNomes, p.vulneraveis || [])}</div>
+    ${!naPauta ? `<label class="linha">Situação<select class="campo" id="fSit" style="width:auto">${[...(p.situacao === 'proposta' ? ['proposta'] : []), 'em_tramitacao', 'aprovada', 'rejeitada', 'retirada', 'arquivado'].map(k => `<option value="${k}" ${p.situacao === k ? 'selected' : ''}>${SIT_PROJ[k]}</option>`).join('')}</select></label>` : '<p class="detalhe" style="margin:0">Na pauta da sessão: a situação muda pela votação.</p>'}
+    <div class="previa-nota" id="fPrevia"></div>
+    ${p.situacao === 'proposta' ? `<div class="rot">Proposta de parlamentar${p.instrumento ? ' · instrumento sugerido: ' + esc(p.instrumento) : ''}
+      ${p.justificativa ? `<div style="color:var(--texto);font-size:13px;white-space:pre-wrap">${esc(p.justificativa)}</div>` : ''}
+      <small>Para protocolar, informe o número oficial e mude a situação para “Em tramitação”.</small></div>` : ''}
+    ${(p.historico || []).length ? `<div class="rot">Histórico<div style="font-size:13px;color:var(--texto)">${p.historico.map(h => `${new Date(h.ts).toLocaleDateString('pt-BR')} · ${esc(h.sessao)} · ${h.evento === 'votacao' ? 'votação: ' + (PL.SITUACOES[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim}×${h.contagem.nao})` : '') : 'em pauta: ' + (PL.SITUACOES[h.situacao] || h.situacao)}`).join('<br>')}</div></div>` : ''}`,
+    async () => {
+      await PL.acao('presidente', 'projetoSalvar', fichaDoFormulario(id));
+      carregarProjetos();
+    });
+  const previa = () => {
+    const r = notaLocal(fichaDoFormulario(id));
+    $('fPrevia').innerHTML = r ? `<b>${r.nota}</b><div style="flex:1">${barraNota(r)}<small class="suave">${PARTES.map(k => `${NOMES_PARTES[k]} ${r.partes[k]}`).join(' · ')}</small></div>`
+      : '<span class="suave">Informe beneficiados ou abrangência para calcular a relevância.</span>';
+  };
+  $('dlgCorpo').addEventListener('input', previa); previa();
+  dlg.addEventListener('close', () => dlg.classList.remove('largo'), { once: true });
+}
+function fichaDoFormulario(id) {
+  const marcados = nome => [...document.querySelectorAll(`input[name=${nome}]:checked`)].map(i => i.value);
+  return { id, numero: $('fNum').value, ementa: $('fEmenta').value, autor: $('fAutor').value, areas: marcados('fArea'),
+    beneficiados: +$('fBenef').value || 0, abrangencia: $('fAbr').value, vulneraveis: marcados('fVuln'), urgencia: $('fUrg').value,
+    fonte: $('fFonte').value, situacao: $('fSit')?.value };
+}
+async function salvarRelevancia() {
+  await A('relevanciaSalvar', { populacao: +$('rPop').value, pesos: { beneficiados: +$('rBenef').value, abrangencia: +$('rAbr').value, vulneraveis: +$('rVuln').value, urgencia: +$('rUrg').value } });
+  PL.avisar('Critérios salvos.');
+}
+async function escolherDoBanco() {
+  let d;
+  try { d = await (await apiGet('/api/transparencia?interno=1')).json(); } catch (e) { return PL.avisar(e.message, true); }
+  const naPauta = new Set(PL.estado.pauta.map(m => m.id));
+  const disp = d.projetos.filter(p => ['em_tramitacao', 'proposta'].includes(p.situacao) && !naPauta.has(p.id));
+  dialogo('Incluir projetos na pauta', disp.length ? `<p class="detalhe" style="margin:0">Ordenados por relevância social.</p>` + disp.map(p => `<label class="linha" style="align-items:flex-start;border-top:1px solid var(--linha)">
+      <span><input type="checkbox" name="dPautar" value="${p.id}"> <b>${esc(p.numero)}</b> ${esc(p.ementa)}</span>${barraNota(p.relevancia)}</label>`).join('')
+    : '<p class="vazio">Nenhum projeto em tramitação disponível.</p>',
+    async () => { for (const i of document.querySelectorAll('input[name=dPautar]:checked')) await PL.acao('presidente', 'pautaIncluir', { id: i.value }); }, 'Incluir na pauta');
 }
 
 /* ---------------- sessões e ata ---------------- */

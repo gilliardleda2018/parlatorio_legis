@@ -112,6 +112,21 @@
   .numeros div { background: var(--cartao2); border-radius: 12px; padding: 12px; text-align: center; font-size: 13px; color: var(--suave) }
   .numeros b { display: block; font-size: 28px; color: var(--texto) }
   dialog.largo { width: min(860px, 96vw) }
+  .grade-projetos { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start }
+  @media (max-width: 1100px) { .grade-projetos { grid-template-columns: 1fr } }
+  .nota { display: flex; align-items: center; gap: 8px; min-width: 130px }
+  .nota .b { flex: 1; height: 8px; border-radius: 4px; background: var(--fundo-fundo); overflow: hidden; display: flex; gap: 2px }
+  .nota .b i { display: block; height: 100% }
+  .nota b { width: 28px; text-align: right; font-variant-numeric: tabular-nums }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--cartao3); white-space: nowrap }
+  .opcoes { display: flex; flex-wrap: wrap; gap: 6px }
+  .opcoes label { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 99px; background: var(--cartao2); font-size: 13px; cursor: pointer }
+  .opcoes label:has(input:checked) { background: var(--destaque-suave); color: #fff }
+  .previa-nota { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; background: var(--cartao2) }
+  .previa-nota b { font-size: 34px }
+  /* cores dos componentes da nota (mesma ordem em todas as telas) */
+  .c-beneficiados { background: #3987e5 } .c-abrangencia { background: #199e70 } .c-vulneraveis { background: #d95926 } .c-urgencia { background: #c98500 }
   .cores button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer }
   .cores button.on { border-color: var(--texto) }
   .fases-cfg td { padding: 4px }
@@ -136,6 +151,7 @@
       <a class="marca" href="/"><img data-logo src="/marca/logo.svg" alt=""><span><span data-casa></span><small data-sessao></small></span></a>
       <button class="item ativo" data-aba="sessao">Sessão</button>
       <button class="item" data-aba="pauta">Pauta e votação</button>
+      <button class="item" data-aba="projetos">Projetos</button>
       <button class="item" data-aba="plenario">Plenário <span class="bolha" id="bolhaPresenca"></span></button>
       <button class="item" data-aba="relatorios">Relatórios</button>
       <button class="item" data-aba="sessoes">Sessões</button>
@@ -144,6 +160,7 @@
       <span class="conexao" title="Conectando…"></span>
       <span class="relogio tnum" id="relogio"></span>
       <button class="item" id="btSom" title="Som de aviso neste computador"></button>
+      <a class="item" href="/transparencia?interno=1" target="estatisticas">Estatísticas ↗</a>
       <a class="item" href="/telao" target="telao">Telão ↗</a>
       <button class="item" onclick="PL.sair('presidente').then(() => location.reload())">Sair</button>
     </div>
@@ -200,12 +217,44 @@
     <section class="aba" id="aba-pauta">
       <div class="grade2">
         <div class="cartao neutro">
-          <h2>Pauta da sessão<span class="esp"></span><button class="botao pq" onclick="editarMateria()">+ Matéria</button></h2>
+          <h2>Pauta da sessão<span class="esp"></span><button class="botao pq" onclick="escolherDoBanco()">+ Do banco de projetos</button><button class="botao pq" onclick="editarMateria()">+ Matéria nova</button></h2>
           <ul class="lista" id="pauta"></ul>
         </div>
         <div class="coluna">
           <div class="cartao" id="votacao"></div>
           <div class="cartao neutro"><h2>Votações desta sessão</h2><div id="votacoes"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PROJETOS ===== -->
+    <section class="aba" id="aba-projetos">
+      <div class="grade-projetos">
+        <div class="cartao neutro">
+          <h2>Banco de projetos por relevância social<span class="esp"></span><button class="botao pq principal" onclick="editarProjeto()">+ Projeto</button></h2>
+          <div class="grupo" style="margin-bottom:12px">
+            <input class="campo" id="pBusca" placeholder="Buscar número, ementa ou autor…" style="flex:1;min-width:200px">
+            <select class="campo" id="pArea" style="width:auto"><option value="">Todas as áreas</option></select>
+            <select class="campo" id="pSituacao" style="width:auto">
+              <option value="">Todas as situações</option><option value="em_tramitacao">Em tramitação</option><option value="em_pauta">Em pauta</option>
+              <option value="aprovada">Aprovados</option><option value="rejeitada">Rejeitados</option><option value="proposta">Propostas de parlamentares</option>
+            </select>
+          </div>
+          <table class="tab" id="tabProjetos"></table>
+        </div>
+        <div class="coluna">
+          <div class="cartao">
+            <h2>Como a relevância é calculada</h2>
+            <p class="detalhe" style="margin-top:0">Nota de 0 a 100 a partir da ficha social. É um apoio para priorizar, baseado em estimativas: confira sempre a fonte informada.</p>
+            <label class="linha">População do município<input class="campo" type="number" min="1000" id="rPop" style="width:130px"></label>
+            <label class="linha">Peso: pessoas beneficiadas<input class="campo" type="number" min="0" id="rBenef" style="width:80px"></label>
+            <label class="linha">Peso: abrangência territorial<input class="campo" type="number" min="0" id="rAbr" style="width:80px"></label>
+            <label class="linha">Peso: grupos vulneráveis<input class="campo" type="number" min="0" id="rVuln" style="width:80px"></label>
+            <label class="linha">Peso: urgência<input class="campo" type="number" min="0" id="rUrg" style="width:80px"></label>
+            <small class="suave">Beneficiados contam em escala logarítmica em relação à população (1.000 pessoas num município de 100 mil já pesam 60%).</small>
+            <div class="grupo" style="justify-content:flex-end;margin-top:10px"><button class="botao principal" onclick="salvarRelevancia()">Salvar critérios</button></div>
+          </div>
+          <div class="cartao neutro"><h2>Resumo</h2><div id="projResumo"></div></div>
         </div>
       </div>
     </section>

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Transparência — Parlatório Legis</title>
+<meta name="description" content="Projetos por relevância social, votações, presença e tempo de fala das sessões.">
+<link rel="icon" type="image/png" href="/marca/favicon-32x32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  /* séries dos gráficos (ordem fixa; mesma cor = mesma coisa em toda a página) */
+  :root { --s-aprovada: #3987e5; --s-rejeitada: #d95926; --s-outras: #8a95a8; --s-tramitacao: #199e70;
+          --c-beneficiados: #3987e5; --c-abrangencia: #199e70; --c-vulneraveis: #d95926; --c-urgencia: #c98500 }
+  [data-tema="claro"] { --s-aprovada: #2a78d6; --s-rejeitada: #eb6834; --s-tramitacao: #1baf7a;
+          --c-beneficiados: #2a78d6; --c-abrangencia: #1baf7a; --c-vulneraveis: #eb6834; --c-urgencia: #eda100 }
+  main { max-width: 1240px; margin: 0 auto; padding: 24px 16px 56px; display: flex; flex-direction: column; gap: 16px }
+  .topo { display: flex; align-items: center; gap: 16px }
+  .topo img { width: 64px; height: 64px; object-fit: contain; background: #fff; border-radius: 12px; padding: 6px }
+  .topo h1 { font-size: 26px }
+  .aviso-interno { background: color-mix(in srgb, var(--azul) 16%, var(--cartao)); border-radius: var(--raio); padding: 10px 16px; font-size: 14px }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px }
+  .tile { background: var(--cartao); border-radius: var(--raio); padding: 16px }
+  .tile b { display: block; font-size: 32px; font-variant-numeric: tabular-nums; line-height: 1.1 }
+  .tile span { color: var(--suave); font-size: 13px }
+  .grade2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px }
+  @media (max-width: 900px) { .grade2 { grid-template-columns: 1fr } }
+  .filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px }
+  .filtros .campo { width: auto }
+  .proj { display: grid; grid-template-columns: 40px minmax(0, 1fr) 200px; gap: 14px; padding: 14px 0; border-top: 1px solid var(--linha); align-items: start }
+  .proj .pos { font-size: 20px; font-weight: 700; color: var(--suave); text-align: center; font-variant-numeric: tabular-nums }
+  .proj .num { font-weight: 700 }
+  .proj .em { margin: 2px 0 6px }
+  .proj details { font-size: 13px; color: var(--suave); margin-top: 6px }
+  .proj summary { cursor: pointer; color: var(--texto) }
+  @media (max-width: 700px) { .proj { grid-template-columns: 30px 1fr } .proj .lado { grid-column: 2 } }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--cartao3); white-space: nowrap }
+  .nota { display: flex; align-items: center; gap: 8px }
+  .nota .b { flex: 1; height: 10px; border-radius: 4px; background: var(--fundo-fundo); overflow: hidden; display: flex; gap: 2px }
+  .nota .b i { display: block; height: 100% }
+  .nota b { font-size: 22px; width: 36px; text-align: right; font-variant-numeric: tabular-nums }
+  .legenda { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--suave); margin-bottom: 10px }
+  .legenda span { display: inline-flex; align-items: center; gap: 6px }
+  .legenda i { width: 10px; height: 10px; border-radius: 3px; display: inline-block }
+  /* barras horizontais */
+  .hbar { display: grid; grid-template-columns: 170px 1fr 90px; gap: 10px; align-items: center; font-size: 13px; padding: 4px 0 }
+  .hbar .trilho { display: flex; gap: 2px; height: 14px }
+  .hbar .trilho i { display: block; height: 100%; border-radius: 0 4px 4px 0; min-width: 2px }
+  .hbar .trilho i + i { border-radius: 0 4px 4px 0 }
+  .hbar .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--texto) }
+  /* colunas por mês */
+  .colunas { display: flex; align-items: flex-end; gap: 10px; height: 180px; padding: 0 4px; border-bottom: 1px solid var(--linha) }
+  .colunas .col { flex: 1; display: flex; flex-direction: column-reverse; gap: 2px; height: 100%; justify-content: flex-start; cursor: default }
+  .colunas .col i { display: block; width: 100%; max-width: 46px; margin: 0 auto; border-radius: 4px 4px 0 0 }
+  .colunas .col i:not(:last-child) { border-radius: 0 }
+  .rotulos { display: flex; gap: 10px; padding: 6px 4px 0; font-size: 12px; color: var(--suave) }
+  .rotulos span { flex: 1; text-align: center }
+  table.tab { width: 100%; border-collapse: collapse; font-size: 14px }
+  table.tab th { text-align: left; color: var(--suave); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; padding: 8px; cursor: pointer; user-select: none; white-space: nowrap }
+  table.tab th.n, table.tab td.n { text-align: right }
+  table.tab td { padding: 8px; border-top: 1px solid var(--linha) }
+  .mini { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: var(--fundo-fundo); vertical-align: middle; margin-left: 6px; overflow: hidden }
+  .mini i { display: block; height: 100%; background: var(--s-aprovada) }
+  .vot { padding: 12px 0; border-top: 1px solid var(--linha) }
+  .vot .placar { font-variant-numeric: tabular-nums; font-weight: 700 }
+  .votos-nominais { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px; margin-top: 8px; font-size: 13px }
+  .alternar { font-size: 12px; color: var(--suave); background: none; border: 0; cursor: pointer; text-decoration: underline; padding: 0 }
+  #dica { position: fixed; pointer-events: none; background: var(--cartao2); color: var(--texto); padding: 8px 10px; border-radius: 8px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.35); z-index: 50; display: none; max-width: 260px }
+  .vazio { color: var(--suave) }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img id="logoNav" src="/marca/logo.svg" alt=""><span><span id="casaNav">Parlatório Legis</span><small>Transparência legislativa</small></span></a>
+  <span class="esp"></span>
+  <a class="item" href="#projetos">Projetos</a><a class="item" href="#votacoes">Votações</a><a class="item" href="#parlamentares">Parlamentares</a><a class="item" href="#sessoes">Sessões</a>
+</div></nav>
+
+<main>
+  <div id="avisoInterno" class="aviso-interno oculto"></div>
+  <div class="tiles" id="tiles"></div>
+
+  <section class="cartao" id="projetos">
+    <h2>Projetos por relevância social</h2>
+    <p class="detalhe" style="margin-top:0">A nota (0–100) combina pessoas beneficiadas, abrangência, grupos vulneráveis atendidos e urgência, conforme a ficha social de cada projeto.
+      São estimativas com fonte declarada: servem para comparar e priorizar, não substituem a análise do mérito.</p>
+    <div class="filtros">
+      <input class="campo" id="fBusca" placeholder="Buscar projeto…" style="flex:1;min-width:180px" aria-label="Buscar projeto">
+      <select class="campo" id="fArea" aria-label="Área"><option value="">Todas as áreas</option></select>
+      <select class="campo" id="fSit" aria-label="Situação"><option value="">Todas as situações</option><option value="tramitando">Em tramitação ou pauta</option><option value="aprovada">Aprovados</option><option value="rejeitada">Rejeitados</option></select>
+    </div>
+    <div class="legenda" id="legNota"></div>
+    <div id="listaProjetos"></div>
+  </section>
+
+  <div class="grade2">
+    <section class="cartao neutro">
+      <h2>Pessoas beneficiadas por área</h2>
+      <div class="legenda"><span><i style="background:var(--s-aprovada)"></i>Projetos aprovados</span><span><i style="background:var(--s-tramitacao)"></i>Em tramitação</span></div>
+      <div id="porArea"></div>
+    </section>
+    <section class="cartao neutro" id="votacoes">
+      <h2>Votações por mês<span class="esp"></span><button class="alternar" id="altMes">ver tabela</button></h2>
+      <div class="legenda"><span><i style="background:var(--s-aprovada)"></i>Aprovadas</span><span><i style="background:var(--s-rejeitada)"></i>Rejeitadas</span><span><i style="background:var(--s-outras)"></i>Sem quórum / adiadas</span></div>
+      <div id="porMes"></div>
+    </section>
+  </div>
+
+  <section class="cartao neutro" id="parlamentares">
+    <h2>Parlamentares<span class="esp"></span><small class="suave" style="text-transform:none;letter-spacing:0;font-weight:400">clique no título da coluna para ordenar</small></h2>
+    <div style="overflow-x:auto"><table class="tab" id="tabParl"></table></div>
+  </section>
+
+  <div class="grade2">
+    <section class="cartao neutro"><h2>Tempo de fala por partido</h2><div id="porPartido"></div></section>
+    <section class="cartao neutro"><h2>Últimas votações</h2><div id="ultVotacoes"></div></section>
+  </div>
+
+  <section class="cartao neutro" id="sessoes"><h2>Sessões realizadas</h2><div style="overflow-x:auto"><table class="tab" id="tabSessoes"></table></div></section>
+  <p class="suave" style="text-align:center;font-size:13px" id="rodape"></p>
+</main>
+<div id="dica" role="tooltip"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const num = n => (n ?? 0).toLocaleString('pt-BR');
+const data = ms => new Date(ms).toLocaleDateString('pt-BR');
+function dur(seg) { seg = Math.round(seg); const h = Math.floor(seg / 3600), m = Math.floor(seg % 3600 / 60); return h ? `${h}h${String(m).padStart(2, '0')}` : `${m} min`; }
+const SIT = { em_tramitacao: 'Em tramitação', em_pauta: 'Em pauta', aprovada: 'Aprovado', rejeitada: 'Rejeitado', retirada: 'Retirado', arquivado: 'Arquivado', proposta: 'Proposta', sem_quorum: 'Sem quórum', adiada: 'Adiada' };
+const PARTES = ['beneficiados', 'abrangencia', 'vulneraveis', 'urgencia'];
+const NOMES_PARTES = { beneficiados: 'Pessoas beneficiadas', abrangencia: 'Abrangência', vulneraveis: 'Grupos vulneráveis', urgencia: 'Urgência' };
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+let D = null, ordem = { col: 'nome', asc: true }, mesTabela = false;
+const interno = new URLSearchParams(location.search).has('interno');
+
+/* dica (tooltip) para qualquer elemento com data-dica */
+const dica = $('dica');
+addEventListener('pointermove', e => {
+  const alvo = e.target.closest('[data-dica]');
+  if (!alvo) { dica.style.display = 'none'; return; }
+  dica.innerHTML = alvo.dataset.dica; dica.style.display = 'block';
+  const x = Math.min(e.clientX + 14, innerWidth - dica.offsetWidth - 8), y = Math.min(e.clientY + 14, innerHeight - dica.offsetHeight - 8);
+  dica.style.left = x + 'px'; dica.style.top = y + 'px';
+});
+
+async function carregar() {
+  const token = localStorage.getItem('parlatorio.token.presidente');
+  const r = await fetch('/api/transparencia' + (interno ? '?interno=1' : ''), { headers: interno && token ? { Authorization: 'Bearer ' + token } : {} });
+  if (r.status === 401) {
+    $('avisoInterno').classList.remove('oculto');
+    $('avisoInterno').innerHTML = 'A visão interna exige entrar no <a href="/presidente">painel do presidente</a>. Mostrando os dados públicos.';
+    history.replaceState(null, '', '/transparencia');
+    return carregarPublico();
+  }
+  D = await r.json();
+  desenhar();
+}
+async function carregarPublico() { D = await (await fetch('/api/transparencia')).json(); desenhar(); }
+
+function aplicarCasa() {
+  const c = D.casa, raiz = document.documentElement;
+  raiz.style.setProperty('--destaque', c.destaque || '#d66060');
+  raiz.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
+  $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg';
+  $('casaNav').textContent = c.nome;
+  document.title = `Transparência — ${c.nome}`;
+}
+const corPartido = s => D.partidos[s] || '#5b6b86';
+const sigla = s => s ? `<span class="sigla" style="--cor-partido:${corPartido(s)}">${esc(s)}</span>` : '';
+
+function desenhar() {
+  aplicarCasa();
+  if (D.interno) { $('avisoInterno').classList.remove('oculto'); $('avisoInterno').innerHTML = '<b>Visão interna</b> — inclui propostas ainda não protocoladas, alinhamento com o resultado das votações e ocorrências por parlamentar. Não compartilhe este endereço logado.'; }
+  const t = D.totais;
+  $('tiles').innerHTML = [
+    [num(t.sessoes), 'sessões realizadas'], [String(t.horas).replace('.', ','), 'horas de sessão'],
+    [t.presencaMedia == null ? '—' : t.presencaMedia + '%', 'presença média'], [num(t.votacoes), `votações (${num(t.aprovadas)} aprovadas)`],
+    [num(t.projetos), 'projetos cadastrados'], [num(t.beneficiadosAprovados), 'pessoas em projetos aprovados'],
+  ].map(([v, r]) => `<div class="tile"><b>${v}</b><span>${r}</span></div>`).join('');
+  if ($('fArea').options.length === 1) $('fArea').innerHTML += Object.entries(D.areas).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
+  $('legNota').innerHTML = PARTES.map(k => `<span><i style="background:var(--c-${k})"></i>${NOMES_PARTES[k]}</span>`).join('');
+  desenharProjetos(); desenharAreas(); desenharMeses(); desenharParlamentares(); desenharPartidos(); desenharVotacoes(); desenharSessoes();
+  $('rodape').textContent = `Dados das sessões encerradas e arquivadas · atualizado em ${new Date(D.geradoEm).toLocaleString('pt-BR')} · Parlatório Legis`;
+}
+
+function barraNota(r) {
+  if (!r) return '<span class="suave" style="font-size:12px">ficha social não preenchida</span>';
+  return `<div class="nota" data-dica="${PARTES.map(k => `${NOMES_PARTES[k]}: <b>${r.partes[k]}</b>`).join('<br>')}">
+    <div class="b">${PARTES.map(k => `<i style="width:${r.partes[k]}%;background:var(--c-${k})"></i>`).join('')}</div><b>${r.nota}</b></div>`;
+}
+['fBusca', 'fArea', 'fSit'].forEach(id => $(id).addEventListener('input', desenharProjetos));
+function desenharProjetos() {
+  const q = $('fBusca').value.toLowerCase(), area = $('fArea').value, sit = $('fSit').value;
+  const lista = D.projetos.filter(p => (!q || (p.numero + ' ' + p.ementa + ' ' + (p.autor || '')).toLowerCase().includes(q))
+    && (!area || (p.areas || []).includes(area))
+    && (!sit || (sit === 'tramitando' ? ['em_tramitacao', 'em_pauta', 'proposta'].includes(p.situacao) : p.situacao === sit)));
+  let pos = 0;
+  $('listaProjetos').innerHTML = lista.length ? lista.map(p => `<div class="proj">
+      <div class="pos">${p.relevancia ? ++pos + 'º' : ''}</div>
+      <div><span class="num">${esc(p.numero)}</span> <span class="chip ${p.situacao === 'aprovada' ? 'sim' : p.situacao === 'rejeitada' ? 'nao' : ''}" style="font-size:10px;padding:2px 8px">${SIT[p.situacao] || p.situacao}</span>
+        <div class="em">${esc(p.ementa)}</div>
+        <div class="tags">${(p.areas || []).map(a => `<span class="tag">${esc(D.areas[a])}</span>`).join('')}${(p.vulneraveis || []).map(v => `<span class="tag" style="background:color-mix(in srgb,var(--c-vulneraveis) 30%,var(--cartao3))">${esc(D.vulneraveisNomes[v])}</span>`).join('')}</div>
+        <details><summary>Detalhes</summary>
+          ${p.autor ? 'Autoria: ' + esc(p.autor) + '<br>' : ''}${p.abrangencia ? 'Abrangência: ' + esc(D.abrangenciaNomes[p.abrangencia]) + '<br>' : ''}${p.urgencia ? 'Urgência: ' + esc(D.urgenciaNomes[p.urgencia]) + '<br>' : ''}
+          ${p.fonte ? 'Fonte da estimativa: ' + esc(p.fonte) + '<br>' : ''}
+          ${(p.historico || []).map(h => `${data(h.ts)} · ${esc(h.sessao)} · ${h.evento === 'votacao' ? 'votação: ' + (SIT[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim} sim, ${h.contagem.nao} não)` : '') : 'pauta'}`).join('<br>')}
+        </details></div>
+      <div class="lado">${barraNota(p.relevancia)}<div class="suave" style="font-size:12px;margin-top:4px">${p.beneficiados ? num(p.beneficiados) + ' pessoas beneficiadas' : ''}</div></div>
+    </div>`).join('') : '<p class="vazio">Nenhum projeto encontrado.</p>';
+}
+
+function desenharAreas() {
+  const areas = D.porArea.filter(a => a.beneficiadosAprovados + a.beneficiadosTramitacao > 0);
+  const max = Math.max(1, ...areas.map(a => a.beneficiadosAprovados + a.beneficiadosTramitacao));
+  $('porArea').innerHTML = areas.length ? areas.map(a => `<div class="hbar"><span>${esc(a.nome)}</span>
+      <div class="trilho">${a.beneficiadosAprovados ? `<i style="width:${a.beneficiadosAprovados / max * 100}%;background:var(--s-aprovada)" data-dica="${esc(a.nome)}<br>Aprovados: <b>${num(a.beneficiadosAprovados)}</b> pessoas"></i>` : ''}${a.beneficiadosTramitacao ? `<i style="width:${a.beneficiadosTramitacao / max * 100}%;background:var(--s-tramitacao)" data-dica="${esc(a.nome)}<br>Em tramitação: <b>${num(a.beneficiadosTramitacao)}</b> pessoas"></i>` : ''}</div>
+      <span class="v">${num(a.beneficiadosAprovados + a.beneficiadosTramitacao)}</span></div>`).join('')
+    : '<p class="vazio">Nenhum projeto com estimativa de beneficiados.</p>';
+}
+
+$('altMes').onclick = () => { mesTabela = !mesTabela; $('altMes').textContent = mesTabela ? 'ver gráfico' : 'ver tabela'; desenharMeses(); };
+function desenharMeses() {
+  const m = D.porMes;
+  if (!m.length) { $('porMes').innerHTML = '<p class="vazio">Nenhuma votação em sessões encerradas.</p>'; return; }
+  const rot = x => { const [a, mm] = x.mes.split('-'); return `${MESES[+mm - 1]}/${a.slice(2)}`; };
+  if (mesTabela) {
+    $('porMes').innerHTML = `<table class="tab"><tr><th>Mês</th><th class="n">Aprovadas</th><th class="n">Rejeitadas</th><th class="n">Outras</th></tr>${m.map(x => `<tr><td>${rot(x)}</td><td class="n">${x.aprovada}</td><td class="n">${x.rejeitada}</td><td class="n">${x.outras}</td></tr>`).join('')}</table>`;
+    return;
+  }
+  const max = Math.max(1, ...m.map(x => x.aprovada + x.rejeitada + x.outras));
+  const seg = (v, cor) => v ? `<i style="height:${v / max * 100}%;background:var(${cor})"></i>` : '';
+  $('porMes').innerHTML = `<div class="colunas">${m.map(x => `<div class="col" data-dica="<b>${rot(x)}</b><br>Aprovadas: ${x.aprovada}<br>Rejeitadas: ${x.rejeitada}<br>Outras: ${x.outras}">
+      ${seg(x.aprovada, '--s-aprovada')}${seg(x.rejeitada, '--s-rejeitada')}${seg(x.outras, '--s-outras')}</div>`).join('')}</div>
+    <div class="rotulos">${m.map(x => `<span>${rot(x)}</span>`).join('')}</div>`;
+}
+
+function desenharParlamentares() {
+  const cols = [['nome', 'Parlamentar'], ['partido', 'Partido'], ['presencaPct', 'Presença', 'n'], ['falas', 'Falas', 'n'], ['tempoFala', 'Tempo de fala', 'n'],
+    ['votos', 'Votos nominais', 'n'], ['autoria', 'Projetos (aprovados)', 'n']];
+  if (D.interno) cols.push(['alinhamentoPct', 'Com o resultado', 'n'], ['ocorrencias', 'Ocorrências', 'n']);
+  const lista = [...D.parlamentares].sort((a, b) => {
+    const x = a[ordem.col] ?? -1, y = b[ordem.col] ?? -1;
+    return (typeof x === 'string' ? x.localeCompare(y) : x - y) * (ordem.asc ? 1 : -1);
+  });
+  $('tabParl').innerHTML = `<tr>${cols.map(([k, t, c]) => `<th class="${c || ''}" onclick="ordenar('${k}')" aria-sort="${ordem.col === k ? (ordem.asc ? 'ascending' : 'descending') : 'none'}">${t}${ordem.col === k ? (ordem.asc ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr>` +
+    lista.map(p => `<tr><td>${esc(p.nome)}${p.membro ? '' : ' <small class="suave">(ex-membro)</small>'}</td><td>${sigla(p.partido)}</td>
+      <td class="n">${p.presencaPct == null ? '—' : p.presencaPct + '%'}<span class="mini"><i style="width:${p.presencaPct || 0}%"></i></span></td>
+      <td class="n">${p.falas}</td><td class="n">${dur(p.tempoFala)}</td>
+      <td class="n" data-dica="Sim ${p.sim} · Não ${p.nao} · Abstenção ${p.abst}">${p.votos}</td>
+      <td class="n">${p.autoria} (${p.autoriaAprovada})</td>
+      ${D.interno ? `<td class="n">${p.alinhamentoPct == null ? '—' : p.alinhamentoPct + '%'}</td><td class="n">${p.ocorrencias}</td>` : ''}</tr>`).join('');
+}
+function ordenar(col) { ordem = { col, asc: ordem.col === col ? !ordem.asc : col === 'nome' || col === 'partido' }; desenharParlamentares(); }
+
+function desenharPartidos() {
+  const p = D.porPartido, max = Math.max(1, ...p.map(x => x.tempoFala));
+  $('porPartido').innerHTML = p.length ? p.map(x => `<div class="hbar" style="grid-template-columns:120px 1fr 70px"><span>${sigla(x.partido)}</span>
+      <div class="trilho"><i style="width:${x.tempoFala / max * 100}%;background:${corPartido(x.partido)}" data-dica="${esc(x.partido)}<br>${x.falas} fala(s) · <b>${dur(x.tempoFala)}</b>"></i></div><span class="v">${dur(x.tempoFala)}</span></div>`).join('')
+    : '<p class="vazio">Sem pronunciamentos registrados.</p>';
+}
+
+function desenharVotacoes() {
+  $('ultVotacoes').innerHTML = D.votacoes.length ? D.votacoes.slice(0, 10).map(v => `<div class="vot">
+      <div><b>${esc(v.numero)}</b> <span class="chip ${v.resultado === 'aprovada' ? 'sim' : v.resultado === 'rejeitada' ? 'nao' : 'ambar'}" style="font-size:10px;padding:2px 8px">${SIT[v.resultado] || v.resultado}</span>
+        <span class="suave" style="font-size:12px">${data(v.data)} · ${esc(v.sessao)}</span></div>
+      <div style="font-size:13px;margin:2px 0">${esc(v.ementa)}</div>
+      ${v.contagem ? `<div class="placar" style="font-size:13px">${v.contagem.sim} sim · ${v.contagem.nao} não · ${v.contagem.abst} abstenção</div>` : `<div class="suave" style="font-size:13px">Votação ${v.tipo === 'simbolica' ? 'simbólica' : 'secreta'}</div>`}
+      ${v.votos.length ? `<details style="font-size:13px"><summary>Como cada parlamentar votou</summary><div class="votos-nominais">${v.votos.sort((a, b) => a.nome.localeCompare(b.nome)).map(x => `<span>${esc(x.nome)} ${sigla(x.partido)} — <b>${{ sim: 'Sim', nao: 'Não', abst: 'Abstenção' }[x.voto]}</b></span>`).join('')}</div></details>` : ''}
+    </div>`).join('') : '<p class="vazio">Nenhuma votação em sessões encerradas.</p>';
+}
+
+function desenharSessoes() {
+  $('tabSessoes').innerHTML = D.sessoes.length ? '<tr><th>Data</th><th>Sessão</th><th class="n">Duração</th><th class="n">Presentes</th><th class="n">Pronunciamentos</th><th class="n">Votações</th></tr>' +
+    D.sessoes.map(s => `<tr><td>${data(s.inicio)}</td><td>${esc(s.titulo)}</td><td class="n">${dur(s.duracao)}</td><td class="n">${s.presentes}/${s.membros}</td><td class="n">${s.falas}</td><td class="n">${s.votacoes}</td></tr>`).join('')
+    : '<tr><td class="vazio">Nenhuma sessão encerrada ainda.</td></tr>';
+}
+
+carregar();
+</script>
+</body>
+</html>
