@@ -65,12 +65,13 @@ def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict]
     votacoes = aprovadas = rejeitadas = 0
 
     for s in sessoes:
-        dur = max(0, (s["fim"] - s["inicio"]) // 1000)
+        dur = 0 if s.get("semHorario") or s.get("virtual") else max(0, (s["fim"] - s["inicio"]) // 1000)
         total_seg += dur
         total_pres += len(s["presenca"])
         total_membros += len(s["parls"])
         lista_sessoes.append({"id": s["id"], "titulo": s["titulo"], "inicio": s["inicio"], "duracao": dur,
-                              "semHorario": bool(s.get("semHorario")), "fonte": s.get("fonte"),
+                              "semHorario": bool(s.get("semHorario") or s.get("virtual")), "virtual": bool(s.get("virtual")),
+                              "fonte": s.get("fonte"),
                               "presentes": len(s["presenca"]), "membros": len(s["parls"]), "falas": len(s["hist"]),
                               "votacoes": len(s["votacoes"]), "pauta": len(s.get("pauta") or [])})
         for p in s["parls"]:

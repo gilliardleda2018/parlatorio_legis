@@ -125,6 +125,8 @@
     </section>
   </div>
 
+  <section class="cartao oculto" id="secVirtual"><h2>Plenário virtual em andamento</h2><div id="listaVirtual"></div></section>
+
   <div class="grade2">
     <section class="cartao" id="atuacao">
       <h2>Parlamentares mais atuantes<span class="esp"></span><button class="alternar" id="altAtuacao">ver todos</button></h2>
@@ -214,7 +216,7 @@ function desenhar() {
   ].map(([v, r]) => `<div class="tile"><b>${v}</b><span>${r}</span></div>`).join('');
   if ($('fArea').options.length === 1) $('fArea').innerHTML += Object.entries(D.areas).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
   $('legNota').innerHTML = PARTES.map(k => `<span><i style="background:var(--c-${k})"></i>${NOMES_PARTES[k]}</span>`).join('');
-  desenharAtuacao(); desenharBlocos();
+  desenharAtuacao(); desenharBlocos(); desenharVirtual();
   desenharProjetos(); desenharAreas(); desenharMeses(); desenharParlamentares(); desenharPartidos(); desenharVotacoes(); desenharSessoes();
   Rodape.mostrar(D.rodape, D.casa);
   $('rodape').textContent = `Dados das sessões encerradas e arquivadas · atualizado em ${new Date(D.geradoEm).toLocaleString('pt-BR')} · Parlatório Legis`;
@@ -278,6 +280,17 @@ function desenharBlocos() {
       <span class="suave" style="font-size:12px">${data(x.data)} · venceu: ${esc(D.blocosNomes[x.venceu])}</span>
       <div style="font-size:13px">${esc(x.ementa)}</div>
       <div class="placar-blocos">${Object.entries(x.placar).filter(([b]) => b).map(([b, c]) => `${blocoTag(b)} ${c.sim} sim · ${c.nao} não${c.abst ? ' · ' + c.abst + ' abst.' : ''}`).join('<span class="suave">|</span>')}</div></div>`).join('')}`;
+}
+
+function desenharVirtual() {
+  const vs = D.virtuaisAbertas || [];
+  $('secVirtual').classList.toggle('oculto', !vs.length);
+  const dtv = ms => new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  $('listaVirtual').innerHTML = vs.map(v => `<div class="vot"><b>${esc(v.titulo)}</b> <span class="chip ${v.status === 'aberta' ? 'sim' : ''}" style="font-size:10px;padding:2px 8px">${v.status === 'aberta' ? 'Votação aberta' : 'Agendada'}</span>
+      <span class="suave" style="font-size:12px">votação de ${dtv(v.inicio)} a ${dtv(v.fim)}</span>
+      ${v.itens.map(it => `<div style="margin-top:8px;font-size:13px"><b>${esc(it.numero)}</b> — ${esc(it.ementa)}
+        <div class="suave tnum">${it.destacado ? 'Destacado para a sessão presencial' : v.status === 'aberta' ? `Parcial: ${it.contagem.sim} sim · ${it.contagem.nao} não · ${it.contagem.abst} abstenção · votaram ${it.votaram} de ${D.membrosTotal}` : ''}
+        ${it.manifestacoes.length ? ` · ${it.manifestacoes.length} manifestação(ões)` : ''}</div></div>`).join('')}</div>`).join('');
 }
 
 function desenharAreas() {

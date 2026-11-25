@@ -103,7 +103,8 @@ const PL = (() => {
   const VOTOS = { sim: 'Sim', nao: 'Não', abst: 'Abstenção' };
   const MICS = { aberto: 'Microfone aberto', fechado: 'Microfone fechado', cortado: 'Microfone cortado', tribuna: 'Na tribuna' };
   const OCORRENCIAS = { congelar: 'Tempo congelado', descongelar: 'Tempo descongelado', corte: 'Microfone cortado', liberacao: 'Microfone liberado',
-    tempo_esgotado: 'Tempo esgotado', plenario_congelado: 'Plenário congelado', plenario_retomado: 'Sessão retomada' };
+    tempo_esgotado: 'Tempo esgotado', plenario_congelado: 'Plenário congelado', plenario_retomado: 'Sessão retomada',
+    encerramento_antecipado: 'Encerramento antecipado' };
   const mic = pid => estado.microfones?.[pid] || 'fechado';
   function micChip(pid) {
     const m = mic(pid);
@@ -153,6 +154,36 @@ const PL = (() => {
     box.append(el); setTimeout(() => el.remove(), 3500);
   }
 
+  /* videoconferência (Jitsi Meet). A sala só vem do servidor para quem está logado. */
+  let jitsi = null;
+  async function video(container, papel) {
+    const r = await fetch('/api/remoto', { headers: { Authorization: 'Bearer ' + localStorage.getItem(tokenChave(papel)) } });
+    const cfg = await r.json();
+    if (!r.ok) throw new Error(cfg.erro || 'Sessão remota indisponível.');
+    if (!window.JitsiMeetExternalAPI) {
+      await new Promise((ok, falha) => {
+        const sc = document.createElement('script');
+        sc.src = cfg.servidor + '/external_api.js'; sc.onload = ok; sc.onerror = () => falha(new Error('Não foi possível carregar o Jitsi.'));
+        document.head.append(sc);
+      });
+    }
+    jitsi?.dispose();
+    jitsi = new JitsiMeetExternalAPI(new URL(cfg.servidor).host, {
+      roomName: cfg.sala, parentNode: container, width: '100%', height: '100%',
+      userInfo: { displayName: cfg.nome },
+      configOverwrite: { startWithAudioMuted: true, prejoinPageEnabled: false, disableDeepLinking: true },
+      interfaceConfigOverwrite: { MOBILE_APP_PROMO: false }
+    });
+    return jitsi;
+  }
+  /* mantém o microfone da videoconferência igual ao que o plenário decidiu (aberto/fechado/cortado) */
+  async function sincronizarMicrofone(aberto) {
+    if (!jitsi) return;
+    const mudo = await jitsi.isAudioMuted();
+    if (aberto === mudo) jitsi.executeCommand('toggleAudio');
+  }
+  const encerrarVideo = () => { jitsi?.dispose(); jitsi = null; };
+
   /* reduz uma foto para um quadrado de 320 px em JPEG antes de enviar */
   function lerImagem(arquivo, lado = 320, quadrado = true, formato = quadrado ? 'jpeg' : 'png') {
     return new Promise((ok, falha) => {
@@ -177,6 +208,7 @@ const PL = (() => {
     conectar, agora, entrar, quemSou, sair, acao, esc, tempo, hora, relogio, decorrido, restante, nivel, pintar,
     parl, fase, corPartido, avatar, sigla, TIPOS, SITUACOES, QUORUNS, VOTOS, quorum, usadoNaFase, bipe, avisar, lerImagem,
     MICS, OCORRENCIAS, mic, micChip, gravando, token: papel => localStorage.getItem(tokenChave(papel)),
+    video, sincronizarMicrofone, encerrarVideo, temVideo: () => !!jitsi,
     get estado() { return estado; },
     aoMudar: f => ouvintes.push(f),
     aoSinal: null

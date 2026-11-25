@@ -141,7 +141,7 @@ function desenhar() {
   } else if (o || i) {
     const quem = o ? parl(o.pid) : parl(i.pid);
     $('conteudo').innerHTML = `<div class="faixa"><span class="fase">${esc(o ? fase(o.fase).nome : PL.TIPOS[i.tipo])}</span></div>${faixaMateria}
-      <div class="palco">${avatar(quem)}<div class="nome">${esc(quem.nome)}</div>${sigla(quem.partido)}
+      <div class="palco">${avatar(quem)}<div class="nome">${esc(quem.nome)}</div>${sigla(quem.partido)}${S.presencaModo?.[quem.id] === 'remoto' ? '<span class="chip interr" style="font-size:2vh;padding:.6vh 1.6vh"><span class="ponto"></span>🎥 Participação remota</span>' : ''}
         <div class="tempo tnum" id="tPrincipal"></div><div class="barra" id="bPrincipal"><i></i></div>${o ? chip(o) : ''}</div>`;
   } else {
     $('conteudo').innerHTML = `<div class="faixa"><span class="fase">${esc(fase(S.faseAtual).nome)}</span></div>${faixaMateria}

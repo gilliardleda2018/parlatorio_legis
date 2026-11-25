@@ -96,6 +96,27 @@ O catálogo foi pesquisado em novembro de 2026. Revise as fontes e atualize-o pe
 - **Índice de atuação (0 a 100)** por parlamentar, com presença, participação nos debates (falas por sessão), projetos apresentados (aprovados valem 3) e participação nas votações nominais. Mede a quantidade de atividade registrada, não a qualidade do mandato.
 - **Blocos**: a presidência classifica cada parlamentar como situação, oposição ou independente (um a um ou por partido, na aba Plenário). A transparência mostra por bloco: presença, tempo de fala, projetos e aprovações, **coesão** nas votações, **votações que dividiram situação e oposição** com o placar por bloco e quem venceu, e quanto cada parlamentar **votou com a situação**. Na visão interna, o sistema sugere o bloco a partir dos votos (≥70% com a situação: situação; ≤30%: oposição).
 
+## Plenário virtual
+
+**Sessão virtual assíncrona** (aba Plenário virtual do painel):
+
+- O presidente cria a sessão com abertura e encerramento (prazo mínimo de 1 hora) e inclui projetos do banco, com o quórum de cada um. A pauta só muda antes da abertura.
+- Durante o prazo, cada vereador, pelo app (aba Virtual):
+  - vota e pode mudar o voto até o fim;
+  - registra manifestações escritas, que são públicas e vão para a ata;
+  - pode pedir destaque: o item sai da sessão virtual e vai para a sessão presencial.
+- No fim do prazo o servidor apura sozinho e arquiva a sessão com votos nominais, presença (quem votou) e ata em PDF. Isso alimenta a transparência, os perfis e as estatísticas. A presidência pode encerrar antes do prazo, e isso fica registrado na ata.
+- Na maioria simples, a votação só vale se votou a maioria absoluta dos membros; senão o item fica "sem quórum".
+
+**Sessão remota/híbrida ao vivo:**
+
+- O presidente liga a sessão remota e informa o servidor Jitsi Meet.
+- Os vereadores entram pelo app com "Entrar na sessão remota". A presença é registrada como remota, e eles pedem a palavra e votam normalmente.
+- O endereço da sala só é entregue a quem está logado, nunca às telas públicas.
+- Pausar, congelar, cortar ou encerrar a palavra também silencia o microfone do vereador remoto na videoconferência.
+- O telão mostra "Participação remota" quando o orador está por vídeo.
+- O meet.jit.si público exige login do moderador. Para uso oficial, instale um Jitsi próprio da câmara (`docker` oficial em jitsi.github.io/handbook).
+
 ## Página pública de cada parlamentar
 
 - `/parlamentares` lista todos (foto, partido, bloco, presença, índice de atuação), com busca e ordenação.

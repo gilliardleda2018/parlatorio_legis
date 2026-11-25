@@ -231,7 +231,7 @@ PROCESSOS = {"nominal": "nominal", "simbolica": "simbólica", "secreta": "secret
 VOTOS = {"sim": "Sim", "nao": "Não", "abst": "Abstenção"}
 OCORRENCIAS = {"congelar": "Tempo congelado", "descongelar": "Tempo descongelado", "corte": "Microfone cortado",
                "liberacao": "Microfone liberado", "tempo_esgotado": "Tempo esgotado", "plenario_congelado": "Plenário congelado",
-               "plenario_retomado": "Sessão retomada"}
+               "plenario_retomado": "Sessão retomada", "encerramento_antecipado": "Encerramento antecipado"}
 MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
 
 
@@ -272,7 +272,9 @@ def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = N
     pdf.texto(x_txt, topo - 16, r["casa"].upper(), 13, True)
     pdf.texto(x_txt, topo - 34, f"ATA DA {r['titulo'].upper()}", 11.5, True, (0.84, 0.38, 0.38))
     fim = r.get("fim")
-    pdf.texto(x_txt, topo - 50, f"{_data_extenso(r['inicio'])} · de {_hora(r['inicio'])} às {_hora(fim) if fim else '—'}"
+    pdf.texto(x_txt, topo - 50, (f"Sessão virtual · votação de {time.strftime('%d/%m/%Y %H:%M', time.localtime(r['inicio'] / 1000))} "
+              f"a {time.strftime('%d/%m/%Y %H:%M', time.localtime(fim / 1000))}" if r.get("virtual") else
+              f"{_data_extenso(r['inicio'])}" + ("" if r.get("semHorario") else f" · de {_hora(r['inicio'])} às {_hora(fim) if fim else '—'}"))
               + ("  ·  PRÉVIA (sessão em andamento)" if not fim else ""), 9, False, CINZA)
     pdf.y = topo - 70
     pdf.linha(pdf.m, pdf.y, pdf.L - pdf.m, pdf.y, ESCURO, 1)
@@ -354,7 +356,13 @@ def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = N
             linhas = [[nome(pid), parls.get(pid, {}).get("partido", ""), VOTOS.get(x, x)] for pid, x in v["votos"].items()]
             linhas.sort(key=lambda l: (["Sim", "Não", "Abstenção"].index(l[2]) if l[2] in ("Sim", "Não", "Abstenção") else 9, l[0]))
             pdf.tabela([("Parlamentar", .55, "e"), ("Partido", .25, "e"), ("Voto", .2, "c")], linhas)
-        elif v["tipo"] == "secreta":
+        if v.get("manifestacoes"):
+            pdf.espaco(4)
+            pdf.paragrafo("Manifestações escritas (sessão virtual):", 9.5, True)
+            for m in v["manifestacoes"]:
+                pdf.paragrafo(f"{m['nome']}, {_hora(m['ts'])} de {time.strftime('%d/%m', time.localtime(m['ts'] / 1000))}: {m['texto']}",
+                              9, False, ESCURO, recuo=10)
+        if v["tipo"] == "secreta":
             pdf.paragrafo(f"Votação secreta: {len(v.get('votantes', []))} parlamentares votaram; os votos individuais não são registrados.", 9, False, CINZA)
         pdf.espaco(6)
 

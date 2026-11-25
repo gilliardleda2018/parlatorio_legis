@@ -43,6 +43,7 @@ function desenhar() {
   if (abaAtual === 'plenario') desenharPlenario();
   if (abaAtual === 'relatorios') desenharRelatorios();
   if (abaAtual === 'sessoes') desenharSessaoAtual();
+  if (abaAtual === 'virtual') desenharVirtual();
   relogios();
 }
 $('btSom').onclick = () => { som = !som; localStorage.setItem('parlatorio.som', som ? '1' : '0'); desenhar(); if (som) PL.bipe('alerta'); };
@@ -661,6 +662,73 @@ function zerar() {
   dialogo('Zerar sessão', `<p style="margin:0">Apaga filas, presença, pedidos, histórico de falas e votações. Parlamentares e configurações são mantidos.</p>
     <label class="linha">Manter a pauta (volta para “pendente”)<input type="checkbox" id="dManter" checked></label>`,
     () => A('sessaoZerar', { manterPauta: $('dManter').checked }), 'Zerar sessão');
+}
+
+/* ---------------- plenário virtual ---------------- */
+let projetosParaVirtual = null;
+const SIT_V = { agendada: ['Agendada', ''], aberta: ['Votação aberta', 'sim'], apurando: ['Apurando…', 'ambar'], encerrada: ['Encerrada', ''], cancelada: ['Cancelada', 'nao'] };
+const RES_V = { aprovada: 'sim', rejeitada: 'nao', sem_quorum: 'ambar', destacado: 'interr' };
+const dt = ms => new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const valorLocal = ms => { const d = new Date(ms - new Date().getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
+async function alternarRemoto() {
+  await A('remotoConfigurar', { ativo: !PL.estado.remoto.ativo, servidor: $('remServidor').value.trim() || PL.estado.remoto.servidor });
+}
+async function abrirVideo() {
+  if (PL.temVideo()) { PL.encerrarVideo(); $('remVideo').classList.add('oculto'); desenharVirtual(); return; }
+  $('remVideo').classList.remove('oculto');
+  try { await PL.video($('remVideo'), 'presidente'); } catch (e) { $('remVideo').classList.add('oculto'); PL.avisar(e.message, true); }
+  desenharVirtual();
+}
+async function criarVirtual() {
+  const ini = new Date($('vInicio').value).getTime(), fim = new Date($('vFim').value).getTime();
+  await PL.acao('presidente', 'virtualCriar', { titulo: $('vTitulo').value, inicio: ini, fim }).then(() => { $('vTitulo').value = ''; PL.avisar('Sessão virtual criada. Inclua os itens antes da abertura.'); }).catch(() => {});
+}
+async function carregarProjetosVirtual() {
+  try { projetosParaVirtual = (await (await apiGet('/api/transparencia?interno=1')).json()).projetos.filter(p => ['em_tramitacao', 'em_pauta'].includes(p.situacao)); }
+  catch { projetosParaVirtual = []; }
+  desenharVirtual();
+}
+function desenharVirtual() {
+  const S = PL.estado, rem = S.remoto;
+  if (document.activeElement !== $('remServidor')) $('remServidor').value = rem.servidor || '';
+  $('remEstado').innerHTML = rem.ativo ? '<span class="chip vivo"><span class="ponto"></span>Ativa</span>' : '<span class="chip">Desligada</span>';
+  $('remAlternar').textContent = rem.ativo ? 'Desligar sessão remota' : 'Ligar sessão remota';
+  $('remAlternar').className = 'botao ' + (rem.ativo ? 'perigo' : 'ok');
+  $('remVideoBt').disabled = !rem.ativo; $('remVideoBt').textContent = PL.temVideo() ? 'Fechar vídeo' : 'Abrir vídeo aqui';
+  const remotos = Object.entries(S.presencaModo || {}).filter(([, m]) => m === 'remoto').map(([pid]) => parl(pid));
+  $('remPresentes').innerHTML = rem.ativo ? (remotos.length ? `<div class="detalhe">Presentes remotamente (${remotos.length}):</div><div class="grupo" style="margin-top:6px">${remotos.map(p => `<span class="chip">${esc(p.nome)} ${PL.micChip(p.id)}</span>`).join('')}</div>` : '<p class="detalhe">Nenhum vereador remoto ainda.</p>') : '';
+  if (!$('vInicio').value) { const h = Date.now() + 3600000; $('vInicio').value = valorLocal(h - h % 3600000); $('vFim').value = valorLocal(h - h % 3600000 + 3 * 86400000); }
+  if (projetosParaVirtual === null && S.virtuais.some(v => v.status === 'agendada')) { projetosParaVirtual = []; carregarProjetosVirtual(); }
+  const n = S.parls.length;
+  $('listaVirtuais').innerHTML = S.virtuais.length ? S.virtuais.map(v => {
+    const [rot, cls] = SIT_V[v.status];
+    const usados = new Set(v.itens.map(i => i.projeto));
+    return `<div class="cartao ${v.status === 'aberta' ? '' : 'neutro'}">
+      <h2>${esc(v.titulo)}<span class="esp"></span><span class="chip ${cls}">${rot}</span></h2>
+      <div class="detalhe">Votação de ${dt(v.inicio)} a ${dt(v.fim)} · ${v.itens.length} item(ns)</div>
+      ${v.itens.map(it => {
+        const votos = Object.values(it.votos), c = { sim: 0, nao: 0, abst: 0 };
+        votos.forEach(x => c[x.valor]++);
+        return `<div style="border-top:1px solid var(--linha);padding:10px 0;margin-top:8px">
+          <div style="display:flex;gap:8px;align-items:flex-start"><div style="flex:1"><b>${esc(it.numero)}</b> <small class="suave">${esc(it.autor || '')} · ${PL.QUORUNS[it.quorum]}</small>
+            <div style="font-size:13px">${esc(it.ementa)}</div></div>
+            ${it.resultado ? `<span class="chip ${RES_V[it.resultado] || ''}">${it.resultado === 'destacado' ? 'Destacado' : PL.SITUACOES[it.resultado]}</span>` : ''}
+            ${v.status === 'agendada' ? `<button class="botao pq fantasma" onclick="A('virtualItem',{vid:'${v.id}',projetoId:'${it.projeto}',remover:true})">✕</button>` : ''}</div>
+          ${v.status !== 'agendada' ? `<div class="tnum" style="font-size:13px;margin-top:4px">Sim <b>${c.sim}</b> · Não <b>${c.nao}</b> · Abst. <b>${c.abst}</b> · votaram ${votos.length} de ${n}
+            ${it.destaques.length ? ` · <span class="chip interr" style="font-size:10px">destaque: ${it.destaques.map(d => esc(parl(d).nome)).join(', ')}</span>` : ''}</div>` : ''}
+          ${it.manifestacoes.length ? `<details style="font-size:13px;margin-top:4px"><summary class="suave" style="cursor:pointer">${it.manifestacoes.length} manifestação(ões)</summary>${it.manifestacoes.map(m => `<p style="margin:6px 0"><b>${esc(m.nome)}</b> <small class="suave">${dt(m.ts)}</small><br>${esc(m.texto)}</p>`).join('')}</details>` : ''}
+        </div>`;
+      }).join('') || '<p class="vazio">Sem itens ainda.</p>'}
+      ${v.status === 'agendada' ? `<div class="grupo" style="margin-top:10px">
+          <select class="campo" id="vProj_${v.id}" style="flex:1;min-width:200px">${(projetosParaVirtual || []).filter(p => !usados.has(p.id)).map(p => `<option value="${p.id}">${esc(p.numero)} — ${esc(p.ementa.slice(0, 70))}</option>`).join('')}</select>
+          <select class="campo" id="vQ_${v.id}" style="width:auto"><option value="simples">Maioria simples</option><option value="absoluta">Maioria absoluta</option><option value="dois_tercos">Dois terços</option></select>
+          <button class="botao pq" onclick="A('virtualItem',{vid:'${v.id}',projetoId:$('vProj_${v.id}').value,quorum:$('vQ_${v.id}').value})">Incluir</button></div>` : ''}
+      <div class="grupo" style="justify-content:flex-end;margin-top:10px">
+        ${['agendada', 'aberta'].includes(v.status) ? `<button class="botao pq fantasma" onclick="if(confirm('Cancelar esta sessão virtual? Os votos serão descartados.'))A('virtualCancelar',{vid:'${v.id}'})">Cancelar sessão</button>` : ''}
+        ${v.status === 'aberta' ? `<button class="botao pq perigo" onclick="if(confirm('Encerrar a votação agora, antes do prazo? Fica registrado na ata.'))A('virtualEncerrarAgora',{vid:'${v.id}'})">Encerrar agora</button>` : ''}
+        ${v.arquivo ? `<button class="botao pq principal" onclick="abrirAta('${v.arquivo}')">Ata PDF</button>` : ''}
+      </div></div>`;
+  }).join('') : '<div class="cartao neutro"><p class="vazio" style="margin:0">Nenhuma sessão virtual ainda.</p></div>';
 }
 
 /* ---------------- banco de projetos ---------------- */

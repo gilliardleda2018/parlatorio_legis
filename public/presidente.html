@@ -152,6 +152,7 @@
       <button class="item ativo" data-aba="sessao">Sessão</button>
       <button class="item" data-aba="pauta">Pauta e votação</button>
       <button class="item" data-aba="projetos">Projetos</button>
+      <button class="item" data-aba="virtual">Plenário virtual</button>
       <button class="item" data-aba="plenario">Plenário <span class="bolha" id="bolhaPresenca"></span></button>
       <button class="item" data-aba="relatorios">Relatórios</button>
       <button class="item" data-aba="sessoes">Sessões</button>
@@ -224,6 +225,39 @@
           <div class="cartao" id="votacao"></div>
           <div class="cartao neutro"><h2>Votações desta sessão</h2><div id="votacoes"></div></div>
         </div>
+      </div>
+    </section>
+
+    <!-- ===== PLENÁRIO VIRTUAL ===== -->
+    <section class="aba" id="aba-virtual">
+      <div class="grade2">
+        <div class="coluna">
+          <div class="cartao">
+            <h2>Sessão híbrida (videoconferência)<span class="esp"></span><span id="remEstado"></span></h2>
+            <p class="detalhe" style="margin-top:0">Vereadores participam de casa pelo app: entram na sala de vídeo, têm presença registrada como remota, pedem a palavra e votam normalmente.
+              Pausar, congelar ou cortar o microfone também silencia quem está remoto.</p>
+            <label class="rot">Servidor Jitsi<input class="campo" id="remServidor" placeholder="https://meet.jit.si"></label>
+            <small class="suave">O meet.jit.si público exige login do moderador. Para uso oficial, prefira um Jitsi próprio da câmara (ex.: https://meet.suacamara.leg.br).</small>
+            <div class="grupo" style="margin-top:10px">
+              <button class="botao" id="remAlternar" onclick="alternarRemoto()"></button>
+              <button class="botao fantasma" onclick="A('remotoNovaSala')" title="Gera um novo endereço de sala">Nova sala</button>
+              <button class="botao azul" id="remVideoBt" onclick="abrirVideo()">Abrir vídeo aqui</button>
+            </div>
+            <div id="remPresentes" style="margin-top:12px"></div>
+            <div id="remVideo" class="oculto" style="height:420px;margin-top:12px;border-radius:12px;overflow:hidden;background:#000"></div>
+          </div>
+          <div class="cartao neutro">
+            <h2>Nova sessão virtual</h2>
+            <p class="detalhe" style="margin-top:0">Votação online com prazo, sem reunião: os vereadores votam e se manifestam pelo app. No fim do prazo o resultado é apurado e a sessão é arquivada com ata.</p>
+            <label class="rot">Título<input class="campo" id="vTitulo" placeholder="1ª Sessão Virtual de 2026"></label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+              <label class="rot">Abertura<input class="campo" type="datetime-local" id="vInicio"></label>
+              <label class="rot">Encerramento<input class="campo" type="datetime-local" id="vFim"></label>
+            </div>
+            <div class="grupo" style="justify-content:flex-end;margin-top:10px"><button class="botao principal" onclick="criarVirtual()">Criar sessão virtual</button></div>
+          </div>
+        </div>
+        <div class="coluna" id="listaVirtuais"></div>
       </div>
     </section>
 

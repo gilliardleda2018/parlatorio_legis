@@ -227,6 +227,10 @@ def NOVOS_CAMPOS() -> dict:
         "_feedback": {},        # pid -> {prática: "salvo" | "descartado"}
         "sapl": {"url": "", "casa": None, "tipos": [], "sessoes": [], "job": None},  # integração com o SAPL
         "rodape": rodape_padrao(),  # contatos públicos da câmara e da Aggilli, no rodapé das páginas
+        "virtuais": [],         # sessões virtuais assíncronas (votação online com prazo)
+        "remoto": {"ativo": False, "servidor": "https://meet.jit.si"},  # sessão híbrida por videoconferência
+        "presencaModo": {},     # pid -> "remoto" quando a presença foi registrada pela videoconferência
+        "_remoto": {"sala": ""},  # nome da sala: nunca vai para as telas públicas
         "mesa": dict(CFG_PADRAO),
     }
 
@@ -1213,7 +1217,7 @@ def imagem(ator, alvo, dataUrl=None):
 @acao("presidente")
 def sessaoZerar(ator, manterPauta=True):
     S.update(filas={}, orador=None, interr=None, pedidos=[], hist=[], presenca={}, votacao=None, votacoes=[],
-             micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[])
+             micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[], presencaModo={})
     inicio = S["sessao"]["inicio"]
     for m in S["pauta"]:  # a sessão descartada não conta no banco de projetos
         p = proj_obter(m["id"])
@@ -1420,6 +1424,197 @@ def saplImportarPauta(ator, sessaoId, substituir=False):
     _sapl_job("pauta", _sapl_pauta, int(sessaoId), bool(substituir))
 
 
+# --- plenário virtual: sessões assíncronas (votação online com prazo)
+def _virtual(vid: str) -> dict:
+    v = next((x for x in S["virtuais"] if x["id"] == vid), None)
+    if not v:
+        raise Erro("Sessão virtual não encontrada.")
+    return v
+
+
+def _status_virtual(v: dict) -> str:
+    if v.get("encerrada"):
+        return "encerrada"
+    if v.get("cancelada"):
+        return "cancelada"
+    return "aberta" if v["inicio"] <= agora() < v["fim"] else ("agendada" if agora() < v["inicio"] else "apurando")
+
+
+def _item(v: dict, iid: str) -> dict:
+    it = next((x for x in v["itens"] if x["id"] == iid), None)
+    if not it:
+        raise Erro("Item não encontrado.")
+    return it
+
+
+@acao("presidente")
+def virtualCriar(ator, titulo, inicio, fim):
+    try:
+        inicio, fim = int(inicio), int(fim)
+    except (TypeError, ValueError):
+        raise Erro("Datas inválidas.")
+    if not str(titulo).strip():
+        raise Erro("Informe o título.")
+    if fim <= inicio or fim - inicio < 3600_000:
+        raise Erro("O prazo de votação deve ter ao menos 1 hora.")
+    if fim <= agora():
+        raise Erro("O encerramento precisa ser no futuro.")
+    S["virtuais"].insert(0, {"id": uid(), "titulo": str(titulo).strip()[:120], "inicio": inicio, "fim": fim,
+                             "criada": agora(), "itens": [], "encerrada": None, "cancelada": None})
+
+
+@acao("presidente")
+def virtualItem(ator, vid, projetoId, quorum="simples", remover=False):
+    v = _virtual(vid)
+    if _status_virtual(v) != "agendada":
+        raise Erro("Só é possível alterar a pauta antes da abertura.")
+    if remover:
+        v["itens"] = [i for i in v["itens"] if i["projeto"] != projetoId]
+        return
+    if quorum not in ("simples", "absoluta", "dois_tercos"):
+        raise Erro("Quórum inválido.")
+    p = proj_obter(projetoId)
+    if not p or p["situacao"] in ("aprovada", "rejeitada", "proposta"):
+        raise Erro("Projeto indisponível para votação.")
+    if any(i["projeto"] == projetoId for i in v["itens"]):
+        raise Erro("Já está na pauta virtual.")
+    v["itens"].append({"id": uid(), "projeto": projetoId, "numero": p["numero"], "ementa": p["ementa"], "autor": p["autor"],
+                       "quorum": quorum, "votos": {}, "manifestacoes": [], "destaques": [], "resultado": None})
+
+
+@acao("presidente")
+def virtualCancelar(ator, vid):
+    v = _virtual(vid)
+    if _status_virtual(v) not in ("agendada", "aberta"):
+        raise Erro("Esta sessão não pode mais ser cancelada.")
+    v["cancelada"] = agora()
+
+
+@acao("presidente")
+def virtualEncerrarAgora(ator, vid):
+    v = _virtual(vid)
+    if _status_virtual(v) not in ("aberta", "apurando"):
+        raise Erro("Só é possível encerrar uma sessão aberta.")
+    _virtual_apurar(v, antecipada=True)
+
+
+def _pode_votar(ator, v):
+    if _status_virtual(v) != "aberta":
+        raise Erro("A votação desta sessão virtual não está aberta.")
+    parl(ator["pid"])
+
+
+@acao("parlamentar")
+def virtualVotar(ator, vid, itemId, valor):
+    v = _virtual(vid)
+    _pode_votar(ator, v)
+    it = _item(v, itemId)
+    if it["destaques"]:
+        raise Erro("Item destacado: será votado na sessão presencial.")
+    if valor not in ("sim", "nao", "abst"):
+        raise Erro("Voto inválido.")
+    it["votos"][ator["pid"]] = {"valor": valor, "ts": agora()}
+
+
+@acao("parlamentar")
+def virtualManifestar(ator, vid, itemId, texto):
+    v = _virtual(vid)
+    _pode_votar(ator, v)
+    texto = str(texto or "").strip()
+    if len(texto) < 10:
+        raise Erro("Escreva a manifestação (mínimo de 10 caracteres).")
+    _item(v, itemId)["manifestacoes"].append({"pid": ator["pid"], "nome": parl(ator["pid"])["nome"], "texto": texto[:3000],
+                                              "ts": agora()})
+
+
+@acao("parlamentar")
+def virtualDestaque(ator, vid, itemId):
+    """Pede destaque: o item sai da sessão virtual e vai para a sessão presencial."""
+    v = _virtual(vid)
+    _pode_votar(ator, v)
+    it = _item(v, itemId)
+    if ator["pid"] not in it["destaques"]:
+        it["destaques"].append(ator["pid"])
+    it["votos"] = {}
+
+
+def _virtual_apurar(v: dict, antecipada: bool = False):
+    fim = agora() if antecipada else v["fim"]
+    membros = [{k: p.get(k) for k in ("id", "nome", "partido", "lider")} for p in S["parls"]]
+    votantes, votacoes, pauta = {}, [], []
+    for it in v["itens"]:
+        p = proj_obter(it["projeto"])
+        if it["destaques"]:
+            it["resultado"] = "destacado"
+            if p and p["situacao"] not in ("aprovada", "rejeitada"):
+                p["situacao"] = "em_tramitacao"
+                p["historico"].append({"ts": fim, "sessao": v["titulo"], "evento": "destaque",
+                                       "situacao": "destacado para a sessão presencial"})
+                proj_salvar(p)
+            pauta.append({"id": it["projeto"], "numero": it["numero"], "ementa": it["ementa"], "autor": it["autor"],
+                          "situacao": "adiada"})
+            continue
+        contagem = {"sim": 0, "nao": 0, "abst": 0}
+        for pid, voto in it["votos"].items():
+            contagem[voto["valor"]] += 1
+            votantes[pid] = min(votantes.get(pid, voto["ts"]), voto["ts"])
+        vt = {"contagem": contagem, "quorum": it["quorum"]}
+        it["resultado"] = _apurar(vt)
+        situacao = it["resultado"] if it["resultado"] != "sem_quorum" else "adiada"
+        votacoes.insert(0, {"id": uid(), "materia": it["projeto"], "numero": it["numero"], "ementa": it["ementa"],
+                            "tipo": "nominal", "quorum": it["quorum"], "aberta": False, "inicio": v["inicio"], "fim": fim,
+                            "votos": {pid: x["valor"] for pid, x in it["votos"].items()},
+                            "votantes": list(it["votos"]), "contagem": contagem, "resultado": it["resultado"],
+                            "membros": len(membros), "presentes": len(it["votos"]), "virtual": True,
+                            "manifestacoes": it["manifestacoes"]})
+        pauta.append({"id": it["projeto"], "numero": it["numero"], "ementa": it["ementa"], "autor": it["autor"],
+                      "situacao": situacao})
+        if p:
+            if it["resultado"] in ("aprovada", "rejeitada"):
+                p["situacao"] = it["resultado"]
+            p["historico"].append({"ts": fim, "sessao": v["titulo"], "evento": "votacao", "tipo": "virtual",
+                                   "resultado": it["resultado"], "contagem": contagem})
+            proj_salvar(p)
+    r = {"id": f"virtual{v['id']}", "titulo": v["titulo"], "casa": S["casa"]["nome"], "inicio": v["inicio"], "fim": fim,
+         "virtual": True, "parls": membros, "presenca": votantes, "pauta": pauta, "hist": [], "votacoes": votacoes,
+         "ocorrencias": ([{"id": uid(), "ts": fim, "tipo": "encerramento_antecipado", "pid": None, "nome": "",
+                           "motivo": "Sessão virtual encerrada antes do prazo pela presidência", "materia": None}]
+                         if antecipada else []), "gravacoes": []}
+    db.execute("insert or replace into sessoes (id, titulo, inicio, fim, resumo, json) values (?, ?, ?, ?, ?, ?)",
+               (r["id"], r["titulo"], r["inicio"], fim, json.dumps(resumo(r)), json.dumps(r, ensure_ascii=False)))
+    db.commit()
+    v["encerrada"] = fim
+    v["arquivo"] = r["id"]
+    S["projetosRev"] += 1
+    sinal("fim")
+
+
+# --- sessão remota (videoconferência Jitsi)
+@acao("presidente")
+def remotoConfigurar(ator, ativo, servidor=None):
+    if servidor is not None:
+        servidor = str(servidor).strip().rstrip("/")
+        if not re.match(r"^https://[a-z0-9.-]+(:\d+)?$", servidor, re.I):
+            raise Erro("Informe o servidor Jitsi como https://meet.suacamara.leg.br")
+        S["remoto"]["servidor"] = servidor
+    S["remoto"]["ativo"] = bool(ativo)
+    if ativo and not S["_remoto"]["sala"]:
+        S["_remoto"]["sala"] = "parlatorio-" + secrets.token_urlsafe(12).replace("_", "").replace("-", "")
+
+
+@acao("presidente")
+def remotoNovaSala(ator):
+    S["_remoto"]["sala"] = "parlatorio-" + secrets.token_urlsafe(12).replace("_", "").replace("-", "")
+
+
+@acao("parlamentar")
+def presencaRemota(ator):
+    if not S["remoto"]["ativo"]:
+        raise Erro("A sessão remota não está ativa.")
+    S["presenca"].setdefault(ator["pid"], agora())
+    S["presencaModo"][ator["pid"]] = "remoto"
+
+
 # --- sessões: encerrar, arquivar, consultar
 def retrato(fim=None) -> dict:
     """Tudo o que a ata precisa da sessão em andamento (cópia independente do estado)."""
@@ -1524,6 +1719,10 @@ def tique():
                 sinal("fim")
                 _encerrar_interr()
                 mudou = True
+            for v in S["virtuais"]:
+                if not v.get("encerrada") and not v.get("cancelada") and agora() >= v["fim"]:
+                    _virtual_apurar(v)
+                    mudou = True
             if int(time.time()) % 5 == 0:
                 for g in grav_da_sessao(S["sessao"]["id"]):
                     if not g["fim"] and agora() - g["ultimo"] > 60000:
@@ -1589,6 +1788,7 @@ def pacote() -> str:
     pub["mesaPresets"] = PRESETS
     pub["gravacoes"] = grav_da_sessao(S["sessao"]["id"])
     pub["portaHttps"] = PORTA_HTTPS if HTTPS_ATIVO else None
+    pub["virtuais"] = [{**v, "status": _status_virtual(v)} for v in S["virtuais"][:20]]
     return json.dumps({"tipo": "estado", "agora": agora(), "estado": pub}, ensure_ascii=False)
 
 
@@ -1727,6 +1927,14 @@ class Manipulador(BaseHTTPRequestHandler):
             return self._transparencia()
         if caminho == "/api/recomendacoes":
             return self._recomendacoes()
+        if caminho == "/api/remoto":
+            with trava:
+                ator = self._ator()
+                if not ator or not S["remoto"]["ativo"]:
+                    return self._json(403, {"erro": "Sessão remota indisponível."})
+                nome = "Presidência" if ator["papel"] == "presidente" else parl(ator["pid"])["nome"]
+                return self._json(200, {"servidor": S["remoto"]["servidor"], "sala": S["_remoto"]["sala"], "nome": nome,
+                                        "moderador": ator["papel"] == "presidente"})
         if caminho.startswith("/api/perfil/"):
             return self._perfil(caminho.rsplit("/", 1)[1])
         if caminho == "/eventos":
@@ -1836,6 +2044,13 @@ class Manipulador(BaseHTTPRequestHandler):
         dados["casa"], dados["partidos"] = casa, partidos
         with trava:
             dados["rodape"] = json.loads(json.dumps(S["rodape"]))
+            dados["virtuaisAbertas"] = [{"titulo": v["titulo"], "inicio": v["inicio"], "fim": v["fim"], "status": _status_virtual(v),
+                                         "itens": [{"numero": it["numero"], "ementa": it["ementa"], "autor": it["autor"],
+                                                    "contagem": {x: sum(1 for y in it["votos"].values() if y["valor"] == x) for x in ("sim", "nao", "abst")},
+                                                    "votaram": len(it["votos"]), "destacado": bool(it["destaques"]),
+                                                    "manifestacoes": it["manifestacoes"]} for it in v["itens"]]}
+                                        for v in S["virtuais"] if _status_virtual(v) in ("aberta", "agendada")]
+            dados["membrosTotal"] = len(S["parls"])
         return self._json(200, dados)
 
     def _perfil(self, chave):

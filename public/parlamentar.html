@@ -33,7 +33,7 @@
   .login img { width: 90px; margin: 10px auto 0 }
   .pin { font-size: 28px; letter-spacing: .4em; text-align: center }
   .status { font-size: 15px; display: flex; flex-direction: column; gap: 4px }
-  .segmento { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; background: var(--cartao); padding: 4px; border-radius: 12px; position: sticky; top: 62px; z-index: 5 }
+  .segmento { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: var(--cartao); padding: 4px; border-radius: 12px; position: sticky; top: 62px; z-index: 5 }
   .segmento button { border: 0; background: none; padding: 10px 4px; border-radius: 9px; font-weight: 600; font-size: 14px; cursor: pointer; color: var(--suave) }
   .segmento button.ativo { background: var(--destaque-suave); color: #fff }
   .coluna { display: flex; flex-direction: column; gap: 14px }
@@ -73,7 +73,13 @@
   <div class="segmento" role="tablist">
     <button class="ativo" data-aba="plenario" role="tab">Plenário</button>
     <button data-aba="ideias" role="tab">Ideias de projetos</button>
+    <button data-aba="virtual" role="tab">Virtual <span id="bolhaVirtual"></span></button>
     <button data-aba="minhas" role="tab">Minhas propostas</button>
+  </div>
+  <div id="videoCartao" class="cartao oculto" style="padding:10px">
+    <div class="grupo" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+      <b>Sessão remota</b><span id="videoMic"></span><button class="botao pq fantasma" onclick="sairVideo()">Sair do vídeo</button></div>
+    <div id="videoBox" style="height:320px;border-radius:10px;overflow:hidden;background:#000"></div>
   </div>
   <div id="conteudoApp" class="coluna"></div>
 </main>
@@ -90,6 +96,7 @@ async function iniciar() {
   PL.conectar();
   eu = await PL.quemSou('parlamentar');
   (eu ? $('app') : $('login')).classList.remove('oculto');
+  if (eu && PL.estado) desenhar();  // o primeiro estado pode ter chegado antes de confirmar o login
 }
 async function entrar() {
   try { await PL.entrar('parlamentar', $('lPin').value, $('lParl').value); location.reload(); }
@@ -125,6 +132,12 @@ function desenhar() {
       ${presente ? '<span class="chip sim">✓ Presença registrada</span>'
         : S.cfg.presencaCelular ? `<button class="botao ok gr" onclick="A('presenca')">Registrar presença</button>` : '<span class="chip ambar">Presença não registrada — procure a secretaria</span>'}
     </div></div>`;
+
+  if (S.remoto?.ativo && !PL.temVideo()) {
+    html += `<div class="cartao" style="border-top-color:var(--azul)"><h2>Sessão remota ativa</h2>
+      <p class="detalhe" style="margin-top:0">Participe por vídeo: sua presença fica registrada como remota. O microfone abre quando a presidência conceder a palavra.</p>
+      <button class="botao azul gr" style="width:100%" onclick="entrarVideo()">🎥 Entrar na sessão remota</button></div>`;
+  }
 
   if (falando || apartando) {
     html += `<div class="cartao eu-fala"><h2 style="justify-content:center">${falando && o.congelado ? '❄ Seu tempo está congelado' : falando ? 'Você está com a palavra' : PL.TIPOS[i.tipo]}</h2>
@@ -170,15 +183,76 @@ function desenhar() {
   $('conteudoApp').innerHTML = html;
   relogios();
 }
+/* ---------------- sessão remota (vídeo) ---------------- */
+async function entrarVideo() {
+  try {
+    await PL.acao('parlamentar', 'presencaRemota');
+    $('videoCartao').classList.remove('oculto');
+    await PL.video($('videoBox'), 'parlamentar');
+    sincronizarMic();
+    desenhar();
+  } catch (e) { $('videoCartao').classList.add('oculto'); PL.avisar(e.message, true); }
+}
+function sairVideo() { PL.encerrarVideo(); $('videoCartao').classList.add('oculto'); desenhar(); }
+function sincronizarMic() {
+  if (!eu || !PL.temVideo()) return;
+  const m = PL.mic(eu.pid), aberto = m === 'aberto' || m === 'tribuna';
+  $('videoMic').innerHTML = PL.micChip(eu.pid);
+  PL.sincronizarMicrofone(aberto);
+}
+PL.aoMudar(S => { sincronizarMic(); if (!S.remoto?.ativo && PL.temVideo()) sairVideo(); });
+
+/* ---------------- plenário virtual (votação online com prazo) ---------------- */
+const rascunhos = {};
+const dtv = ms => new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+function desenharVirtualParl() {
+  const S = PL.estado, lista = S.virtuais.filter(v => ['aberta', 'agendada', 'encerrada'].includes(v.status)).slice(0, 6);
+  if (aba !== 'virtual') return;
+  if (document.activeElement?.closest?.('#conteudoApp textarea')) return;  // não apaga o que está sendo digitado
+  $('conteudoApp').innerHTML = lista.length ? lista.map(v => `<div class="cartao ${v.status === 'aberta' ? '' : 'neutro'}">
+      <h2>${esc(v.titulo)}<span class="esp"></span><span class="chip ${v.status === 'aberta' ? 'sim' : ''}">${{ aberta: 'Votação aberta', agendada: 'Agendada', encerrada: 'Encerrada' }[v.status]}</span></h2>
+      <p class="detalhe" style="margin-top:0">${v.status === 'aberta' ? `Vote até ${dtv(v.fim)}. Você pode mudar o voto até lá.` : v.status === 'agendada' ? `Abre em ${dtv(v.inicio)}.` : `Encerrada em ${dtv(v.encerrada)}.`}</p>
+      ${v.itens.map(it => {
+        const meu = it.votos[eu.pid]?.valor, c = { sim: 0, nao: 0, abst: 0 };
+        Object.values(it.votos).forEach(x => c[x.valor]++);
+        const destacado = it.destaques.length > 0;
+        return `<div style="border-top:1px solid var(--linha);padding:12px 0">
+          <b>${esc(it.numero)}</b> <small class="suave">${esc(it.autor || '')}</small>
+          <p style="margin:4px 0 8px;font-size:14px">${esc(it.ementa)}</p>
+          ${it.resultado ? `<span class="chip ${it.resultado === 'aprovada' ? 'sim' : it.resultado === 'rejeitada' ? 'nao' : 'ambar'}">${it.resultado === 'destacado' ? 'Destacado para a sessão presencial' : PL.SITUACOES[it.resultado]}</span>`
+            : destacado ? `<span class="chip interr">Destacado por ${it.destaques.map(d => esc(parl(d).nome)).join(', ')} — vai à sessão presencial</span>`
+            : v.status === 'aberta' ? `<div class="votar" style="grid-template-columns:1fr 1fr 1fr">${['sim', 'nao', 'abst'].map(x => `<button class="botao ${x} ${meu === x ? 'escolhido' : ''}" style="min-height:52px;font-size:17px" onclick="A('virtualVotar',{vid:'${v.id}',itemId:'${it.id}',valor:'${x}'})">${PL.VOTOS[x]}</button>`).join('')}</div>
+              ${meu ? `<p class="detalhe" style="margin:6px 0 0">Seu voto: <b>${PL.VOTOS[meu]}</b></p>` : ''}` : ''}
+          ${v.status !== 'agendada' ? `<div class="detalhe tnum" style="margin-top:6px">Parcial: sim ${c.sim} · não ${c.nao} · abst. ${c.abst}</div>` : ''}
+          ${it.manifestacoes.length ? `<details style="margin-top:6px;font-size:13px"><summary class="suave" style="cursor:pointer">${it.manifestacoes.length} manifestação(ões)</summary>${it.manifestacoes.map(m => `<p style="margin:6px 0"><b>${esc(m.nome)}</b> <small class="suave">${dtv(m.ts)}</small><br>${esc(m.texto)}</p>`).join('')}</details>` : ''}
+          ${v.status === 'aberta' && !destacado && !it.resultado ? `<details style="margin-top:8px"><summary class="suave" style="cursor:pointer;font-size:13px">Manifestar-se ou pedir destaque</summary>
+            <textarea class="campo" rows="3" style="margin-top:8px" placeholder="Sua manifestação por escrito (fica pública e vai para a ata)" oninput="rascunhos['${it.id}']=this.value">${esc(rascunhos[it.id] || '')}</textarea>
+            <div class="grupo" style="margin-top:6px"><button class="botao pq" onclick="manifestar('${v.id}','${it.id}')">Enviar manifestação</button>
+            <button class="botao pq fantasma" onclick="if(confirm('Pedir destaque? O item sai da sessão virtual e será votado na sessão presencial; os votos já dados são descartados.'))A('virtualDestaque',{vid:'${v.id}',itemId:'${it.id}'})">Pedir destaque</button></div></details>` : ''}
+        </div>`;
+      }).join('') || '<p class="vazio">Sem itens.</p>'}
+    </div>`).join('') : '<div class="cartao neutro"><p class="vazio" style="margin:0">Nenhuma sessão virtual no momento.</p></div>';
+}
+async function manifestar(vid, itemId) {
+  try { await PL.acao('parlamentar', 'virtualManifestar', { vid, itemId, texto: rascunhos[itemId] || '' }); rascunhos[itemId] = ''; document.activeElement?.blur(); PL.avisar('Manifestação registrada.'); desenharVirtualParl(); } catch {}
+}
+PL.aoMudar(S => {
+  if (!eu) return;
+  const abertas = S.virtuais.filter(v => v.status === 'aberta' && v.itens.some(it => !it.votos[eu.pid] && !it.destaques.length)).length;
+  $('bolhaVirtual').textContent = abertas ? '●' : '';
+  $('bolhaVirtual').style.color = 'var(--ambar)';
+  desenharVirtualParl();
+});
+
 /* ---------------- ideias de projetos (recomendações) ---------------- */
 let aba = 'plenario', R = null, revCarregada = null, escopo = '';
 document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
   aba = b.dataset.aba;
   document.querySelectorAll('[data-aba]').forEach(x => x.classList.toggle('ativo', x === b));
-  if (aba === 'plenario') desenhar(); else carregarIdeias();
+  if (aba === 'plenario') desenhar(); else if (aba === 'virtual') desenharVirtualParl(); else carregarIdeias();
   scrollTo(0, 0);
 });
-PL.aoMudar(S => { if (eu && aba !== 'plenario' && S.projetosRev !== revCarregada) carregarIdeias(); });
+PL.aoMudar(S => { if (eu && ['ideias', 'minhas'].includes(aba) && S.projetosRev !== revCarregada) carregarIdeias(); });
 async function carregarIdeias() {
   revCarregada = PL.estado?.projetosRev;
   const r = await fetch('/api/recomendacoes', { headers: { Authorization: 'Bearer ' + PL.token('parlamentar') } });
