@@ -38,6 +38,8 @@ import recomendacao
 import sapl as sapl_cli
 import seguranca
 import backup as backup_mod
+import transcricao
+from texto import _sem_acento
 from mesa import CFG_PADRAO, PRESETS, Mesa
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -179,7 +181,8 @@ def estado_inicial() -> dict:
         "casa": {"nome": "Câmara Municipal", "titulo": "45ª Sessão Ordinária", "destaque": "#d66060",
                  "tema": "escuro", "logoV": 0},
         "cfg": {"alerta": 60, "aparte": 60, "ordem": 180, "desconta": True, "corte": True, "som": True,
-                "autoInscricao": False, "exigePresenca": True, "presencaCelular": True},
+                "autoInscricao": False, "exigePresenca": True, "presencaCelular": True,
+                "transcricaoAutoPublicar": False},
         "fases": [
             {"id": "pe", "nome": "Pequeno Expediente", "min": 5, "totalMin": 60},
             {"id": "ge", "nome": "Grande Expediente", "min": 15, "totalMin": 60},
@@ -258,6 +261,7 @@ def carregar() -> dict:
         estado.setdefault(k, v)
     for k, v in CFG_PADRAO.items():
         estado["mesa"].setdefault(k, v)
+    estado["cfg"].setdefault("transcricaoAutoPublicar", False)
     for p in estado["parls"]:
         p.setdefault("canal", 0)
     for pid, pin in list(estado["_pins"].items()):
@@ -1849,7 +1853,8 @@ def pacote() -> str:
     pub["microfones"], pub["tribunaAberta"] = microfones()
     pub["mesaStatus"] = mesa.publico()
     pub["mesaPresets"] = PRESETS
-    pub["gravacoes"] = grav_da_sessao(S["sessao"]["id"])
+    pub["gravacoes"] = [grav_publica(g) for g in grav_da_sessao(S["sessao"]["id"])]
+    pub["transcricaoMotor"] = transcritor.descricao()
     pub["portaHttps"] = PORTA_HTTPS if HTTPS_ATIVO else None
     pub["virtuais"] = [{**v, "status": _status_virtual(v)} for v in S["virtuais"][:20]]
     return json.dumps({"tipo": "estado", "agora": agora(), "estado": pub}, ensure_ascii=False)
@@ -1924,6 +1929,149 @@ def gravacao_iniciar(pid: str, inicio: int, mime: str) -> dict:
     GRAVACOES.mkdir(parents=True, exist_ok=True)
     grav_salvar(g)
     return g
+
+
+# ---------------------------------------------------------------- transcrição dos discursos
+transcritor = transcricao.Motor(BANCO.parent)
+fila_transcricao: "queue.Queue[str]" = queue.Queue()
+LIMITE_TRANSCRICAO = 200_000  # caracteres
+
+
+def grav_publica(g: dict) -> dict:
+    """O que vai no estado transmitido a todos: sem o texto (pesado e, antes de publicado, não é público)."""
+    t = g.get("transcricao")
+    if not t:
+        return g
+    resumo = {k: t.get(k) for k in ("status", "publicada", "revisada", "motor", "erro")}
+    resumo["palavras"] = len((t.get("texto") or "").split())
+    return {**g, "transcricao": resumo}
+
+
+def transcricao_enfileirar(g: dict):
+    if not transcritor.ligado or not g.get("fim"):
+        return
+    g["transcricao"] = {**(g.get("transcricao") or {}), "status": "pendente", "erro": None}
+    grav_salvar(g)
+    fila_transcricao.put(g["id"])
+
+
+def transcricao_retomar():
+    """Ao iniciar: transcreve o que ficou pela metade e as gravações que ainda não têm transcrição."""
+    if not transcritor.ligado:
+        return
+    for (texto_json,) in db.execute("select json from gravacoes order by criado").fetchall():
+        g = json.loads(texto_json)
+        if g.get("fim") and (g.get("transcricao") or {}).get("status") in (None, "pendente", "processando"):
+            transcricao_enfileirar(g)
+
+
+def _pos_gravacao(g: dict):
+    gravacao_finalizar_arquivo(g)
+    with trava:
+        g = grav_obter(g["id"])
+        if g:
+            transcricao_enfileirar(g)
+            confirmar()
+
+
+def trabalhador_transcricao():
+    while True:
+        gid = fila_transcricao.get()
+        with trava:
+            g = grav_obter(gid)
+            if not g or (g.get("transcricao") or {}).get("status") != "pendente":
+                continue
+            g["transcricao"]["status"] = "processando"
+            grav_salvar(g)
+            confirmar()
+        duracao = ((g.get("fim") or g["ultimo"]) - g["criado"]) / 1000
+        try:
+            r, erro = transcritor.transcrever(GRAVACOES / f"{g['id']}.{g['ext']}", duracao), None
+            if not r["texto"]:
+                r, erro = None, "Nenhuma fala reconhecida no áudio."
+        except Exception as e:  # motor externo: qualquer falha vira status de erro, sem derrubar o servidor
+            r, erro = None, (str(e) or e.__class__.__name__)[:300]
+        with trava:
+            g = grav_obter(gid)
+            if not g:
+                continue
+            t = g.get("transcricao") or {}
+            if t.get("revisada"):  # alguém corrigiu à mão enquanto o motor trabalhava: vale o texto revisado
+                t["status"] = "pronta"
+            elif r:
+                t.update(status="pronta", texto=r["texto"][:LIMITE_TRANSCRICAO], segmentos=r["segmentos"],
+                         motor=r["motor"], erro=None, revisada=False, quando=agora(),
+                         publicada=bool(S["cfg"].get("transcricaoAutoPublicar")))
+            else:
+                t.update(status="erro", erro=erro, quando=agora())
+            g["transcricao"] = t
+            grav_salvar(g)
+            confirmar()
+
+
+@acao("presidente")
+def transcricaoRefazer(ator, id):
+    g = _gravacao(id)
+    if not transcritor.ligado:
+        raise Erro("A transcrição automática está desligada neste servidor. Você pode digitar o texto.")
+    if not g.get("fim"):
+        raise Erro("A gravação ainda não terminou.")
+    if (g.get("transcricao") or {}).get("status") in ("pendente", "processando"):
+        raise Erro("Esta gravação já está na fila de transcrição.")
+    g["transcricao"] = {"status": "pendente"}
+    transcricao_enfileirar(g)
+
+
+@acao("presidente")
+def transcricaoSalvar(ator, id, texto=None, publicada=None):
+    g = _gravacao(id)
+    t = g.get("transcricao") or {}
+    if texto is not None:
+        texto = re.sub(r"[ \t]+", " ", str(texto)).strip()
+        if len(texto) > LIMITE_TRANSCRICAO:
+            raise Erro("Texto grande demais.")
+        if texto != (t.get("texto") or ""):
+            t.update(texto=texto, segmentos=[], revisada=True, motor=t.get("motor") or "digitada")
+        if t.get("status") != "processando" or texto:
+            t["status"] = "pronta" if texto else "vazia"
+    if publicada is not None:
+        if publicada and not (t.get("texto") or "").strip():
+            raise Erro("Não há texto para publicar.")
+        t["publicada"] = bool(publicada)
+    t["quando"] = agora()
+    g["transcricao"] = t
+    grav_salvar(g)
+    registrar("presidente", "transcricao", {"id": id, "publicada": t.get("publicada", False)})
+
+
+def _trecho(texto: str, termos: list[str], raio: int = 140) -> str:
+    base = _sem_acento(texto.lower())
+    pos = min((base.find(t) for t in termos if base.find(t) >= 0), default=0)
+    ini, fim = max(0, pos - raio), min(len(texto), pos + raio)
+    return ("…" if ini else "") + texto[ini:fim].strip() + ("…" if fim < len(texto) else "")
+
+
+def discursos_publicos(q: str = "", pid: str = "", limite: int = 30) -> dict:
+    termos = [t for t in _sem_acento(q.lower()).split() if len(t) > 1][:8]
+    titulos = dict(db.execute("select id, titulo from sessoes").fetchall())
+    titulos[S["sessao"]["id"]] = S["casa"]["titulo"]
+    achados = []
+    for (texto_json,) in db.execute("select json from gravacoes order by criado desc").fetchall():
+        g = json.loads(texto_json)
+        t = g.get("transcricao") or {}
+        if not t.get("publicada") or not t.get("texto") or (pid and g["pid"] != pid):
+            continue
+        base = _sem_acento(t["texto"].lower())
+        if termos and not all(x in base for x in termos):
+            continue
+        achados.append((sum(base.count(x) for x in termos), g, t))
+    if termos:
+        achados.sort(key=lambda a: (-a[0], -a[1]["inicio"]))
+    return {"total": len(achados), "termos": termos, "itens": [
+        {"id": g["id"], "pid": g["pid"], "nome": g["nome"], "partido": g["partido"], "fase": g.get("faseNome", ""),
+         "sessao": titulos.get(g["sessao"], ""), "inicio": g["inicio"], "audio": f"/gravacao/{g['id']}.{g['ext']}",
+         "palavras": len(t["texto"].split()), "revisada": bool(t.get("revisada")), "ocorrencias": n,
+         "trecho": _trecho(t["texto"], termos)} for n, g, t in achados[:max(1, min(limite, 100))]]}
 
 
 # ---------------------------------------------------------------- HTTP
@@ -2012,6 +2160,10 @@ class Manipulador(BaseHTTPRequestHandler):
                                         "moderador": ator["papel"] == "presidente"})
         if caminho.startswith("/api/perfil/"):
             return self._perfil(caminho.rsplit("/", 1)[1])
+        if caminho == "/api/discursos":
+            return self._discursos()
+        if caminho.startswith("/api/transcricao/"):
+            return self._transcricao(caminho.rsplit("/", 1)[1])
         if caminho == "/eventos":
             return self._eventos()
         if caminho.startswith("/imagem/"):
@@ -2202,6 +2354,31 @@ class Manipulador(BaseHTTPRequestHandler):
                                 "abrangenciaNomes": {k: v[0] for k, v in estatisticas.ABRANGENCIA.items()},
                                 "vulneraveisNomes": estatisticas.VULNERAVEIS})
 
+    def _discursos(self):
+        """GET /api/discursos?q=saude&pid=…: busca pública nos discursos com transcrição publicada."""
+        qs = urllib.parse.parse_qs(urlparse(self.path).query)
+        q = (qs.get("q") or [""])[0][:200]
+        pid = (qs.get("pid") or [""])[0][:40]
+        try:
+            limite = int((qs.get("limite") or ["30"])[0])
+        except ValueError:
+            limite = 30
+        with trava:
+            return self._json(200, discursos_publicos(q, pid, limite))
+
+    def _transcricao(self, gid):
+        """GET /api/transcricao/<id>: texto completo. Publicada: qualquer um; antes disso, só o presidente."""
+        with trava:
+            g = grav_obter(gid) if gid.isalnum() else None
+            ator = self._ator()
+        t = (g or {}).get("transcricao") or {}
+        presidente = bool(ator and ator["papel"] == "presidente")
+        if not g or not (t.get("publicada") or presidente):
+            return self._json(404, {"erro": "Transcrição não encontrada."})
+        return self._json(200, {"id": g["id"], "nome": g["nome"], "partido": g["partido"], "fase": g.get("faseNome", ""),
+                                "inicio": g["inicio"], "audio": f"/gravacao/{g['id']}.{g['ext']}",
+                                "transcricao": t if presidente else {k: t.get(k) for k in ("texto", "segmentos", "revisada", "motor")}})
+
     def _certificado(self):
         ca = TLS_DIR / "ca.crt"
         if not ca.exists():
@@ -2292,7 +2469,7 @@ class Manipulador(BaseHTTPRequestHandler):
                 grav_salvar(g)
                 registrar("presidente", "gravacao", {"id": g["id"], "pid": g["pid"], "bytes": g["bytes"]})
                 confirmar()
-            threading.Thread(target=gravacao_finalizar_arquivo, args=(g,), daemon=True).start()
+            threading.Thread(target=_pos_gravacao, args=(g,), daemon=True).start()
             return self._json(200, {"ok": True})
         return self._json(404, {"erro": "Não encontrado."})
 
@@ -2486,6 +2663,9 @@ def main():
     global HTTPS_ATIVO
     threading.Thread(target=tique, daemon=True).start()
     threading.Thread(target=agendador_backup, daemon=True).start()
+    threading.Thread(target=trabalhador_transcricao, daemon=True).start()
+    with trava:
+        transcricao_retomar()
     par = certificado()
     if par:
         ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -2507,6 +2687,7 @@ def main():
     print(f"Parlatório Legis em http://localhost:{PORTA}  (PIN do presidente: variável PIN_PRESIDENTE)", flush=True)
     if not TROCA_PIN_OBRIGATORIA:
         print("ATENÇÃO: troca obrigatória de PIN desligada (TROCA_PIN=0) — use só em testes.", flush=True)
+    print(f"Transcrição dos discursos: {transcritor.descricao()}", flush=True)
     servidor.serve_forever()
 
 

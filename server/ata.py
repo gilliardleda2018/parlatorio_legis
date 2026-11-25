@@ -386,6 +386,25 @@ def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = N
                      _dur(((g.get("fim") or g["ultimo"]) - g["criado"]) / 1000)] for g in reversed(gravs)])
         pdf.paragrafo("Os arquivos de áudio ficam arquivados no servidor do Parlatório Legis.", 8.5, False, CINZA)
 
+    # 7. íntegra dos pronunciamentos (transcrição)
+    transcritas = [g for g in reversed(gravs) if ((g.get("transcricao") or {}).get("texto") or "").strip()]
+    if transcritas:
+        n += 1
+        pdf.secao(n, "Íntegra dos pronunciamentos")
+        if any(not g["transcricao"].get("revisada") for g in transcritas):
+            pdf.paragrafo("Trechos marcados como transcrição automática não foram revisados e podem conter erros; "
+                          "em caso de dúvida, vale o áudio.", 8.5, False, CINZA)
+        for g in transcritas:
+            t = g["transcricao"]
+            pdf.garantir(60)
+            pdf.espaco(6)
+            pdf.paragrafo(f"{_hora(g['inicio'])} · {g['nome']} ({g['partido']})" + (f" · {g['faseNome']}" if g.get("faseNome") else ""),
+                          10, True)
+            if not t.get("revisada"):
+                pdf.paragrafo("Transcrição automática, não revisada.", 8.5, False, CINZA)
+            for bloco in [b.strip() for b in t["texto"].split("\n") if b.strip()]:
+                pdf.paragrafo(bloco, 9.5, False, ESCURO, recuo=10)
+
     # assinaturas
     pdf.garantir(90)
     pdf.espaco(48)

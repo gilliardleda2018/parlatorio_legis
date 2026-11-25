@@ -35,6 +35,7 @@ Variáveis de ambiente:
 - `TLS_NOMES`: nomes ou IPs extras para o certificado local, separados por vírgula
 - `TZ`: fuso das atas (o Docker já usa `America/Sao_Paulo`)
 - `PIN_PRESIDENTE`: PIN do painel do presidente (padrão 1234; troque em produção)
+- `TRANSCRICAO`: `auto` (padrão), `local`, `api`, `comando` ou `0` — veja **Transcrição dos discursos**
 - `TROCA_PIN=0`: período de testes — deixa entrar com o PIN padrão (0000) sem obrigar a troca. Não use em produção.
 - `PARLATORIO_BANCO`: caminho do banco SQLite (padrão `dados/parlatorio.db`)
 
@@ -211,6 +212,18 @@ Para apresentar o sistema com dados fictícios (16 projetos e 8 sessões arquiva
 python3 scripts/dados_demo.py dados/demo.db
 PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 ```
+
+## Transcrição dos discursos
+
+Cada fala gravada é transcrita automaticamente depois que termina. O texto aparece no painel (Relatórios → Gravações das falas), onde a presidência lê, corrige e decide se publica. Só os discursos publicados entram na busca pública (**Transparência → O que foi dito na tribuna**) e na página de cada parlamentar. A ata em PDF traz a íntegra e marca o que ainda é transcrição automática não revisada.
+
+Transcrição local, no próprio servidor e sem mandar áudio para fora (faster-whisper, CPU):
+
+```bash
+sh scripts/instalar_transcricao.sh          # cria dados/whisper e baixa o modelo "small" (~460 MB)
+```
+
+Depois é só reiniciar o servidor. Outras opções: `TRANSCRICAO=api` com `TRANSCRICAO_URL` e `TRANSCRICAO_CHAVE` (serviço compatível com `/v1/audio/transcriptions`; o áudio sai do servidor), `TRANSCRICAO_CMD` (um comando seu) ou `TRANSCRICAO=0`. Sem motor, a secretaria pode digitar o texto no painel. Em Configurações dá para publicar as transcrições automáticas sem revisão.
 
 ## Como funciona
 

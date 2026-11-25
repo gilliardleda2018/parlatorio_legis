@@ -399,7 +399,8 @@ function desenharRelatorios() {
         <span style="flex:1"></span>${g.fim ? `<span class="suave tnum" style="font-size:12px">${(g.bytes / 1048576).toFixed(1)} MB</span>` : '<span class="rec">gravando</span>'}</div>
       ${g.fim ? `<audio controls preload="none" src="/gravacao/${g.id}.${g.ext}"></audio>
       <div class="grupo"><a class="botao pq" href="/gravacao/${g.id}.${g.ext}?baixar=1">Baixar</a>
-        <button class="botao pq fantasma" onclick="if(confirm('Apagar esta gravação? Não pode ser desfeito.'))A('gravacaoRemover',{id:'${g.id}'})">Apagar</button></div>` : ''}
+        <button class="botao pq fantasma" onclick="if(confirm('Apagar esta gravação? Não pode ser desfeito.'))A('gravacaoRemover',{id:'${g.id}'})">Apagar</button></div>
+      ${transcricaoHtml(g)}` : ''}
     </div>`).join('') : '<p class="vazio">Nenhuma gravação. Ative “Gravar falas” na aba Sessão.</p>';
 
   // WebM gravado sem ffmpeg no servidor não traz a duração: força o navegador a calcular
@@ -450,6 +451,7 @@ function carregarConfig() {
   $('cAlerta').value = c.alerta; $('cAparte').value = c.aparte; $('cOrdem').value = c.ordem;
   $('cDesconta').checked = c.desconta; $('cCorte').checked = c.corte; $('cSom').checked = c.som;
   $('cAuto').checked = c.autoInscricao; $('cExige').checked = c.exigePresenca; $('cPresCel').checked = c.presencaCelular;
+  $('cTranscPub').checked = !!c.transcricaoAutoPublicar;
   cfgFases = S.fases.map(f => ({ ...f })); desenharFases();
   cfgPartidos = Object.entries(S.partidos); desenharPartidos();
   $('sUrl').value = S.sapl.url || ''; $('sAnos').value = new Date().getFullYear();
@@ -658,7 +660,7 @@ async function salvarConfig() {
   await A('configSalvar', {
     casa: { nome: $('cNome').value, titulo: $('cTitulo').value, destaque: $('cDestaque').value, tema: $('cTema').value },
     cfg: { alerta: +$('cAlerta').value, aparte: +$('cAparte').value, ordem: +$('cOrdem').value, desconta: $('cDesconta').checked, corte: $('cCorte').checked,
-      som: $('cSom').checked, autoInscricao: $('cAuto').checked, exigePresenca: $('cExige').checked, presencaCelular: $('cPresCel').checked },
+      som: $('cSom').checked, autoInscricao: $('cAuto').checked, exigePresenca: $('cExige').checked, presencaCelular: $('cPresCel').checked, transcricaoAutoPublicar: $('cTranscPub').checked },
     fases: cfgFases, partidos: Object.fromEntries(cfgPartidos)
   });
   PL.avisar('Configurações salvas.');
@@ -943,7 +945,7 @@ async function verSessao(id) {
       <td>${esc(h.faseNome)}</td><td class="tnum">${tempo(h.usado * 1000)}</td></tr>`).join('') + '</table>' : '<p class="vazio">Nenhum.</p>'}
     <h3 style="font-size:15px;margin:8px 0 0">Gravações</h3>
     ${r.gravacoes.length ? r.gravacoes.map(g => `<div class="grav-item"><div><b>${esc(g.nome)}</b> <span class="suave">${esc(g.faseNome)} · ${hora(g.inicio)}</span></div>
-      <audio controls preload="none" src="/gravacao/${g.id}.${g.ext}"></audio></div>`).join('') : '<p class="vazio">Nenhuma.</p>'}
+      <audio controls preload="none" src="/gravacao/${g.id}.${g.ext}"></audio>${transcricaoHtml(g)}</div>`).join('') : '<p class="vazio">Nenhuma.</p>'}
     ${r.ocorrencias.length ? `<h3 style="font-size:15px;margin:8px 0 0">Ocorrências</h3><table class="tab">${r.ocorrencias.map(o => `<tr><td class="tnum">${hora(o.ts)}</td>
       <td>${PL.OCORRENCIAS[o.tipo] || o.tipo}</td><td>${esc(o.nome || '—')}</td><td class="suave">${esc(o.motivo || '')}</td></tr>`).join('')}</table>` : ''}`,
     () => abrirAta(id), 'Abrir ata em PDF');
@@ -959,6 +961,44 @@ function excluirSessao(id) {
 }
 
 /* ---------------- diálogo genérico ---------------- */
+/* ---------------- transcrição dos discursos ---------------- */
+const TRANSC_STATUS = { pendente: ['ambar', 'Na fila para transcrever'], processando: ['ambar', 'Transcrevendo…'],
+  pronta: ['sim', 'Transcrita'], erro: ['nao', 'Falha na transcrição'], vazia: ['', 'Sem texto'] };
+function transcricaoHtml(g) {
+  const t = g.transcricao, ligada = PL.estado?.transcricaoMotor && PL.estado.transcricaoMotor !== 'desligada';
+  if (!t) return `<div class="transc"><span class="suave">${ligada ? 'Sem transcrição.' : 'Transcrição automática desligada.'}</span>
+    <span style="flex:1"></span>${ligada ? `<button class="botao pq fantasma" onclick="A('transcricaoRefazer',{id:'${g.id}'})">Transcrever</button>` : ''}
+    <button class="botao pq fantasma" onclick="editarTranscricao('${g.id}')">Digitar texto</button></div>`;
+  const [cor, rot] = TRANSC_STATUS[t.status] || ['', t.status];
+  const palavras = t.palavras ?? (t.texto || '').split(/\s+/).filter(Boolean).length;
+  const pronta = t.status === 'pronta';
+  return `<div class="transc"><span class="chip ${cor}">${rot}</span>
+    ${pronta ? `<span class="suave">${palavras} palavras · ${t.revisada ? 'revisada' : 'automática'}</span>
+      <span class="chip ${t.publicada ? 'sim' : ''}">${t.publicada ? 'Pública' : 'Não publicada'}</span>` : ''}
+    ${t.status === 'erro' ? `<span class="suave" title="${esc(t.erro || '')}">${esc((t.erro || '').slice(0, 80))}</span>` : ''}
+    <span style="flex:1"></span>
+    ${t.status !== 'processando' && t.status !== 'pendente' ? `<button class="botao pq ${pronta ? '' : 'fantasma'}" onclick="editarTranscricao('${g.id}')">${pronta ? 'Ler e revisar' : 'Digitar texto'}</button>` : ''}
+    ${pronta ? `<button class="botao pq fantasma" onclick="A('transcricaoSalvar',{id:'${g.id}',publicada:${!t.publicada}})">${t.publicada ? 'Despublicar' : 'Publicar'}</button>` : ''}
+    ${ligada && (t.status === 'erro' || pronta) ? `<button class="botao pq fantasma" title="Transcrever de novo a partir do áudio" onclick="if(confirm('Transcrever de novo? O texto atual, inclusive correções, será substituído.'))A('transcricaoRefazer',{id:'${g.id}'})">Refazer</button>` : ''}
+  </div>`;
+}
+async function editarTranscricao(id) {
+  let d;
+  try { d = await (await apiGet('/api/transcricao/' + id)).json(); } catch (e) { return PL.avisar(e.message, true); }
+  const t = d.transcricao || {};
+  if (dlg.open) dlg.close();
+  dlg.classList.add('largo');
+  dialogo(`Discurso — ${d.nome}`, `
+    <div class="detalhe">${esc(d.fase)} · ${new Date(d.inicio).toLocaleString('pt-BR')} · ${t.revisada ? 'texto revisado' : t.motor ? 'transcrição automática (' + esc(t.motor) + ')' : 'sem transcrição'}</div>
+    <audio controls preload="none" src="${d.audio}" style="width:100%"></audio>
+    <label class="rot">Texto do discurso — corrija o que a transcrição automática errou; separe parágrafos com uma linha em branco
+      <textarea class="campo" id="tTexto" rows="14" style="font:inherit;line-height:1.5;resize:vertical">${esc(t.texto || '')}</textarea></label>
+    <label class="linha">Publicar na página pública (busca de discursos e perfil do parlamentar)<input type="checkbox" id="tPub" ${t.publicada ? 'checked' : ''}></label>
+    <p class="suave" style="margin:0;font-size:13px">Até ser publicado, só o painel do presidente vê este texto. A ata em PDF traz a íntegra e indica o que ainda é automático.</p>`,
+    async () => { await PL.acao('presidente', 'transcricaoSalvar', { id, texto: $('tTexto').value, publicada: $('tPub').checked }); PL.avisar('Texto salvo.'); });
+  dlg.addEventListener('close', () => dlg.classList.remove('largo'), { once: true });
+}
+
 function dialogo(titulo, html, aoConfirmar, rotulo = 'Salvar') {
   $('dlgTitulo').textContent = titulo; $('dlgCorpo').innerHTML = html; $('dlgOk').textContent = rotulo;
   $('dlgOk').onclick = async () => { try { await aoConfirmar(); dlg.close(); } catch {} };

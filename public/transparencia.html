@@ -151,11 +151,14 @@
     <section class="cartao neutro"><h2>Últimas votações</h2><div id="ultVotacoes"></div></section>
   </div>
 
+  <section class="cartao neutro" id="discursos"></section>
+
   <section class="cartao neutro" id="sessoes"><h2>Sessões realizadas</h2><div style="overflow-x:auto"><table class="tab" id="tabSessoes"></table></div></section>
   <p class="suave" style="text-align:center;font-size:13px" id="rodape"></p>
 </main>
 <div id="dica" role="tooltip"></div>
 <script src="/rodape.js"></script>
+<script src="/discursos.js"></script>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -167,6 +170,7 @@ const SIT = { em_tramitacao: 'Em tramitação', em_pauta: 'Em pauta', aprovada: 
 const PARTES = ['beneficiados', 'abrangencia', 'vulneraveis', 'urgencia'];
 const NOMES_PARTES = { beneficiados: 'Pessoas beneficiadas', abrangencia: 'Abrangência', vulneraveis: 'Grupos vulneráveis', urgencia: 'Urgência' };
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+Discursos.montar(document.getElementById('discursos'), { titulo: 'O que foi dito na tribuna' });
 let D = null, ordem = { col: 'nome', asc: true }, mesTabela = false;
 const interno = new URLSearchParams(location.search).has('interno');
 

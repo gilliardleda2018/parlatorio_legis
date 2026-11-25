@@ -61,6 +61,7 @@
 <main id="conteudo"><p class="vazio">Carregando…</p></main>
 <div id="dica" role="tooltip"></div>
 <script src="/rodape.js"></script>
+<script src="/discursos.js"></script>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -151,9 +152,11 @@ function desenhar() {
         ${D.votos.length ? `<table class="tab"><tr><th>Matéria</th><th>Voto</th><th>Resultado</th></tr>${D.votos.slice(0, 12).map(v => `<tr><td><b>${esc(v.numero)}</b> <span class="suave" style="font-size:12px">${data(v.data)}</span><div style="font-size:13px">${esc(v.ementa)}</div></td>
           <td><b>${VOTO[v.voto] || '—'}</b></td><td>${SIT[v.resultado] || v.resultado}</td></tr>`).join('')}</table>` : '<p class="vazio">Nenhum voto nominal registrado.</p>'}</section>
     </div>
+    <section class="cartao neutro" id="discursosParl"></section>
     <section class="cartao neutro"><h2>Outros parlamentares</h2>
       <div class="outros">${D.outros.map(o => `<a href="/parlamentares/${o.id}-${slug(o.nome)}" class="${o.id === p.id ? 'atual' : ''}">${avatar(o, 'width:56px;height:56px;font-size:18px')}${esc(o.nome)}</a>`).join('')}</div></section>
     <p class="suave" style="text-align:center;font-size:13px">Dados das sessões encerradas e arquivadas no Parlatório Legis.</p>`;
+  Discursos.montar($('discursosParl'), { pid: p.id, titulo: 'Discursos na tribuna' });
 }
 carregar();
 </script>
