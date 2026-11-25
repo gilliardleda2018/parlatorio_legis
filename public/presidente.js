@@ -318,12 +318,26 @@ function editarMateria(id) {
 }
 
 /* ---------------- plenário ---------------- */
+let sugestoesBloco = null;
+async function carregarSugestoesBloco() {
+  try {
+    const d = await (await apiGet('/api/transparencia?interno=1')).json();
+    sugestoesBloco = Object.fromEntries(d.parlamentares.filter(p => p.blocoSugerido).map(p => [p.id, { bloco: p.blocoSugerido, pct: p.comSituacaoPct }]));
+    desenharPlenario();
+  } catch {}
+}
+const NOMES_BLOCO = { situacao: 'Situação', oposicao: 'Oposição', independente: 'Independente', '': 'Sem bloco' };
 function desenharPlenario() {
   const S = PL.estado;
+  if (sugestoesBloco === null) { sugestoesBloco = {}; carregarSugestoesBloco(); }
+  const partidos = [...new Set(S.parls.map(p => p.partido))].sort();
+  if ($('bpPartido').options.length !== partidos.length) $('bpPartido').innerHTML = partidos.map(x => `<option>${esc(x)}</option>`).join('');
   $('quorumGrande').innerHTML = quorumHtml();
   $('tabParls').innerHTML = S.parls.map(p => {
     const pres = S.presenca[p.id];
     return `<tr><td style="width:52px">${avatar(p)}</td><td><b>${esc(p.nome)}</b>${p.lider ? ' <span class="chip" style="font-size:10px">Líder</span>' : ''}</td><td>${sigla(p.partido)}</td>
+      <td><select class="campo" style="width:auto;padding:4px 6px;font-size:13px" onchange="A('parlBloco',{id:'${p.id}',bloco:this.value})">${Object.entries(NOMES_BLOCO).map(([k, v]) => `<option value="${k}" ${(p.bloco || '') === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        ${sugestoesBloco?.[p.id] && sugestoesBloco[p.id].bloco !== (p.bloco || '') ? `<br><small class="suave" title="Votou com a maioria da situação em ${sugestoesBloco[p.id].pct}% das votações nominais">pelo voto: ${NOMES_BLOCO[sugestoesBloco[p.id].bloco]} (${sugestoesBloco[p.id].pct}%)</small>` : ''}</td>
       <td class="tnum">${p.canal || '—'}</td><td><span class="grupo" style="gap:4px;flex-wrap:nowrap;align-items:center">${PL.micChip(p.id)}${micBotoes(p.id)}</span></td>
       <td><label class="linha" style="justify-content:flex-start"><input type="checkbox" ${pres ? 'checked' : ''} onchange="A('presenca',{pid:'${p.id}',presente:this.checked})"> ${pres ? 'Presente' : 'Ausente'}</label></td>
       <td class="suave tnum">${pres ? hora(pres) : '—'}</td>
@@ -335,7 +349,7 @@ async function todosPresentes(v) {
   for (const p of PL.estado.parls) if (!!PL.estado.presenca[p.id] !== v) await A('presenca', { pid: p.id, presente: v });
 }
 function editarParl(id) {
-  const p = id ? parl(id) : { nome: '', partido: '', lider: false, canal: 0 };
+  const p = id ? parl(id) : { nome: '', partido: '', lider: false, canal: 0, bloco: '' };
   dialogo(id ? 'Editar parlamentar' : 'Novo parlamentar', `
     ${id ? `<div style="display:flex;gap:12px;align-items:center">${avatar(p, '', 'width:72px;height:72px;font-size:24px')}
       <label class="rot">Foto<input type="file" accept="image/*" id="dFoto"></label>
@@ -344,10 +358,11 @@ function editarParl(id) {
     <label class="rot">Partido<input class="campo" id="dPartido" value="${esc(p.partido)}" list="dlPartidos"></label>
     <datalist id="dlPartidos">${Object.keys(PL.estado.partidos).map(s => `<option value="${esc(s)}">`).join('')}</datalist>
     <label class="linha">Líder de bancada<input type="checkbox" id="dLider" ${p.lider ? 'checked' : ''}></label>
+    <label class="linha">Bloco<select class="campo" id="dBloco" style="width:auto">${Object.entries(NOMES_BLOCO).map(([k, v]) => `<option value="${k}" ${(p.bloco || '') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
     <label class="linha">Canal do microfone na mesa de som (0 = sem canal)<input class="campo" type="number" min="0" max="256" id="dCanal" value="${p.canal || 0}" style="width:100px"></label>
     <label class="rot">PIN de acesso pelo celular (4 a 8 dígitos)<input class="campo" id="dPin" inputmode="numeric" placeholder="${id ? 'deixe em branco para manter' : 'padrão: 0000'}"></label>`,
     async () => {
-      await PL.acao('presidente', 'parlSalvar', { id, nome: $('dNome').value, partido: $('dPartido').value, lider: $('dLider').checked, pin: $('dPin').value, canal: +$('dCanal').value });
+      await PL.acao('presidente', 'parlSalvar', { id, nome: $('dNome').value, partido: $('dPartido').value, lider: $('dLider').checked, pin: $('dPin').value, canal: +$('dCanal').value, bloco: $('dBloco').value });
       const arq = $('dFoto')?.files[0];
       if (arq) A('imagem', { alvo: id, dataUrl: await PL.lerImagem(arq) });
     });

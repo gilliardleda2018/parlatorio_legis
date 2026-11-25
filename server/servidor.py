@@ -212,7 +212,8 @@ def NOVOS_CAMPOS() -> dict:
         "sessao": {"id": secrets.token_hex(8), "inicio": agora()},  # sessão em andamento
         "relevancia": {"populacao": 100000, "pesos": dict(estatisticas.PESOS_PADRAO)},
         "projetosRev": 0,       # muda quando o banco de projetos muda (as telas recarregam a lista)
-        "_perfis": {},          # pid -> áreas de interesse declaradas (área privada do parlamentar)
+        "_perfis": {},          # pid -> {areas, temas} declarados na área privada do parlamentar
+        "_feedback": {},        # pid -> {prática: "salvo" | "descartado"}
         "mesa": dict(CFG_PADRAO),
     }
 
@@ -228,6 +229,9 @@ def carregar() -> dict:
         estado["mesa"].setdefault(k, v)
     for p in estado["parls"]:
         p.setdefault("canal", 0)
+    for pid, perfil in list(estado["_perfis"].items()):  # perfis antigos eram só a lista de áreas
+        if isinstance(perfil, list):
+            estado["_perfis"][pid] = {"areas": perfil, "temas": ""}
     for g in estado.pop("gravacoes", []):  # versões anteriores guardavam as gravações no estado
         g.setdefault("sessao", estado["sessao"]["id"])
         grav_salvar(g)
@@ -825,8 +829,26 @@ def pautaIncluir(ator, id):
 
 
 @acao("parlamentar")
-def perfilInteresses(ator, areas):
-    S["_perfis"][ator["pid"]] = _limpar_lista(areas, estatisticas.AREAS)
+def perfilInteresses(ator, areas=None, temas=None):
+    perfil = S["_perfis"].setdefault(ator["pid"], {"areas": [], "temas": ""})
+    if areas is not None:
+        perfil["areas"] = _limpar_lista(areas, estatisticas.AREAS)
+    if temas is not None:
+        perfil["temas"] = str(temas).strip()[:500]
+
+
+@acao("parlamentar")
+def feedbackPratica(ator, praticaId, valor=None):
+    """Salvar ou descartar uma recomendação (valor vazio desfaz)."""
+    if praticaId not in {p["id"] for p in recomendacao.catalogo()}:
+        raise Erro("Prática não encontrada.")
+    if valor not in (None, "", "salvo", "descartado"):
+        raise Erro("Valor inválido.")
+    fb = S["_feedback"].setdefault(ator["pid"], {})
+    if valor:
+        fb[praticaId] = valor
+    else:
+        fb.pop(praticaId, None)
 
 
 @acao("parlamentar")
@@ -1063,7 +1085,7 @@ def configSalvar(ator, casa, cfg, fases, partidos):
 
 
 @acao("presidente")
-def parlSalvar(ator, nome, partido, lider=False, pin=None, id=None, canal=0):
+def parlSalvar(ator, nome, partido, lider=False, pin=None, id=None, canal=0, bloco=None):
     if not nome.strip():
         raise Erro("Informe o nome.")
     if pin is not None and pin != "" and not (str(pin).isdigit() and 4 <= len(str(pin)) <= 8):
@@ -1071,6 +1093,8 @@ def parlSalvar(ator, nome, partido, lider=False, pin=None, id=None, canal=0):
     canal = int(canal or 0)
     if not 0 <= canal <= 256:
         raise Erro("Canal da mesa inválido.")
+    if bloco is not None and bloco not in estatisticas.BLOCOS:
+        raise Erro("Bloco inválido.")
     if id:
         p = parl(id)
         p.update(nome=nome.strip(), partido=partido.strip().upper(), lider=bool(lider), canal=canal)
@@ -1082,7 +1106,27 @@ def parlSalvar(ator, nome, partido, lider=False, pin=None, id=None, canal=0):
     if pin:
         S["_pins"][p["id"]] = str(pin)
         S["_tokens"] = {t: a for t, a in S["_tokens"].items() if a.get("pid") != p["id"]}
+    if bloco is not None:
+        p["bloco"] = bloco
     S["partidos"].setdefault(p["partido"], "#5b6b86")
+
+
+@acao("presidente")
+def parlBloco(ator, id, bloco):
+    if bloco not in estatisticas.BLOCOS:
+        raise Erro("Bloco inválido.")
+    parl(id)["bloco"] = bloco
+
+
+@acao("presidente")
+def blocoPorPartido(ator, partido, bloco):
+    if bloco not in estatisticas.BLOCOS:
+        raise Erro("Bloco inválido.")
+    alvo = [p for p in S["parls"] if p["partido"] == partido]
+    if not alvo:
+        raise Erro("Nenhum parlamentar desse partido.")
+    for p in alvo:
+        p["bloco"] = bloco
 
 
 @acao("presidente")
@@ -1552,9 +1596,10 @@ class Manipulador(BaseHTTPRequestHandler):
             if not interno:  # propostas ainda não protocoladas não são públicas
                 projetos = [p for p in projetos if p["situacao"] != "proposta"]
             parls, rel = json.loads(json.dumps(S["parls"])), dict(S["relevancia"])
+            blocos = {p["id"]: p.get("bloco", "") for p in S["parls"]}
             casa = {k: S["casa"][k] for k in ("nome", "titulo", "logoV", "destaque", "tema")}
             partidos = dict(S["partidos"])
-        dados = estatisticas.calcular(sessoes, projetos, parls, rel["populacao"], rel["pesos"], interno)
+        dados = estatisticas.calcular(sessoes, projetos, parls, rel["populacao"], rel["pesos"], interno, blocos)
         dados["casa"], dados["partidos"] = casa, partidos
         return self._json(200, dados)
 
@@ -1565,12 +1610,15 @@ class Manipulador(BaseHTTPRequestHandler):
             if not ator or ator["papel"] != "parlamentar":
                 return self._json(401, {"erro": "Entre com seu PIN de parlamentar."})
             nome = parl(ator["pid"])["nome"]
-            interesses = list(S["_perfis"].get(ator["pid"], []))
+            perfil = dict(S["_perfis"].get(ator["pid"]) or {"areas": [], "temas": ""})
+            feedback_todos = json.loads(json.dumps(S["_feedback"]))
             projetos = proj_todos()
-        itens = recomendacao.recomendar(nome, interesses, projetos, estatisticas.AREAS)
+        itens = recomendacao.recomendar(nome, perfil, feedback_todos.get(ator["pid"], {}), feedback_todos, projetos,
+                                        estatisticas.AREAS, ator["pid"])
         minhas = [{k: p.get(k) for k in ("id", "numero", "ementa", "situacao", "origem", "historico", "atualizado")}
                   for p in projetos if p.get("autor") == nome]
-        return self._json(200, {"interesses": interesses, "areas": estatisticas.AREAS, "itens": itens,
+        return self._json(200, {"interesses": perfil.get("areas", []), "temas": perfil.get("temas", ""),
+                                "areas": estatisticas.AREAS, "itens": itens,
                                 "minhas": sorted(minhas, key=lambda p: -(p.get("atualizado") or 0)),
                                 "abrangenciaNomes": {k: v[0] for k, v in estatisticas.ABRANGENCIA.items()},
                                 "vulneraveisNomes": estatisticas.VULNERAVEIS})

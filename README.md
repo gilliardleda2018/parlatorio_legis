@@ -78,15 +78,23 @@ O presidente abre a versão interna (`/transparencia?interno=1`), que mostra tam
 
 ## Ideias de projetos (recomendações)
 
-Na área privada do app do parlamentar, a aba **Ideias de projetos** recomenda boas práticas do Brasil e do mundo (catálogo em `server/boas_praticas.json`, com resultados relatados, força da evidência, custo, fontes e o **instrumento adequado** para propor na Câmara, considerando os limites de iniciativa do Legislativo). A nota combina:
+Na área privada do app do parlamentar, a aba **Ideias de projetos** recomenda boas práticas do Brasil e do mundo (catálogo em `server/boas_praticas.json`, com resultados relatados, força da evidência, custo, fontes e o **instrumento adequado** para propor na Câmara, considerando os limites de iniciativa do Legislativo). A nota (0 a 100) é explicável e combina:
 
-- as áreas de interesse do parlamentar e as de seus projetos;
-- a força da evidência;
-- as lacunas da cidade (áreas com poucos projetos ativos).
+- **afinidade (45%)**: áreas marcadas no perfil, áreas dos projetos do parlamentar, práticas que ele salvou ou descartou e **semelhança de texto** (TF-IDF em português, `server/texto.py`) entre a prática e as ementas dos seus projetos, os temas que ele escreveu no perfil e as práticas salvas;
+- **evidência (25%)**: força das fontes;
+- **lacuna (15%)**: áreas com poucos projetos ativos na cidade;
+- **colegas (15%)**: práticas salvas ou propostas por outros parlamentares.
+
+Perde 15 pontos se já existe projeto parecido na cidade, e a tela mostra qual. O parlamentar pode **salvar** (★), marcar **não me interessa** (some da lista, com opção de desfazer) e filtrar só as salvas.
 
 Ao clicar em **Propor este projeto**, o parlamentar adapta a ementa e envia uma proposta (`PROP n/ano`). Ela fica visível só para o presidente, que revisa, numera e protocola na aba Projetos.
 
 O catálogo foi pesquisado em novembro de 2026. Revise as fontes e atualize-o periodicamente.
+
+## Atuação parlamentar e situação × oposição
+
+- **Índice de atuação (0 a 100)** por parlamentar, com presença, participação nos debates (falas por sessão), projetos apresentados (aprovados valem 3) e participação nas votações nominais. Mede a quantidade de atividade registrada, não a qualidade do mandato.
+- **Blocos**: a presidência classifica cada parlamentar como situação, oposição ou independente (um a um ou por partido, na aba Plenário). A transparência mostra por bloco: presença, tempo de fala, projetos e aprovações, **coesão** nas votações, **votações que dividiram situação e oposição** com o placar por bloco e quem venceu, e quanto cada parlamentar **votou com a situação**. Na visão interna, o sistema sugere o bloco a partir dos votos (≥70% com a situação: situação; ≤30%: oposição).
 
 ## Demonstração
 

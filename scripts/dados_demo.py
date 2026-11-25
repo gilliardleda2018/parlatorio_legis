@@ -56,7 +56,12 @@ if db.execute("select count(*) from sessoes").fetchone()[0]:
     sys.exit("Este banco já tem sessões arquivadas; escolha outro arquivo.")
 
 hexid = lambda: "%08x" % random.getrandbits(32)
-parls = [{"id": hexid(), "nome": n, "partido": p, "lider": False, "fotoV": 0, "canal": k + 1} for k, (n, p) in enumerate(PARLS)]
+# blocos FICTÍCIOS desta câmara de demonstração
+BLOCO = {"PSD": "situacao", "MDB": "situacao", "PL": "situacao", "UNIÃO": "situacao", "PP": "situacao", "REPUBLICANOS": "situacao",
+         "PSDB": "situacao", "PT": "oposicao", "PSOL": "oposicao", "PCdoB": "oposicao", "PDT": "oposicao", "REDE": "oposicao",
+         "PSB": "oposicao", "NOVO": "independente", "PODE": "independente"}
+parls = [{"id": hexid(), "nome": n, "partido": p, "lider": False, "fotoV": 0, "canal": k + 1, "bloco": BLOCO[p]}
+         for k, (n, p) in enumerate(PARLS)]
 projetos = []
 for k, (numero, ementa, autor, areas, benef, abr, vuln, urg) in enumerate(PROJETOS):
     projetos.append({"id": hexid(), "numero": numero, "ementa": ementa, "autor": PARLS[autor][0], "areas": areas,
@@ -85,9 +90,17 @@ for n in range(8):
     pauta, votacoes = [], []
     for proj in [fila_votar.pop() for _ in range(random.choice([0, 1, 1, 2])) if fila_votar]:
         votos, cont = {}, {"sim": 0, "nao": 0, "abst": 0}
-        favor = random.uniform(0.15, 0.85)
+        governo = random.random() < 0.8  # posição da situação: a favor na maioria das vezes
         for p in presentes:
-            x = "sim" if random.random() < favor else random.choice(["nao", "nao", "abst"])
+            if p["bloco"] == "situacao":
+                segue = random.random() < 0.88
+                quer = governo if segue else not governo
+            elif p["bloco"] == "oposicao":
+                segue = random.random() < 0.75
+                quer = (not governo) if segue else governo
+            else:
+                quer = random.random() < 0.55
+            x = "sim" if quer else random.choice(["nao", "nao", "nao", "abst"])
             votos[p["id"]] = x
             cont[x] += 1
         res = "aprovada" if cont["sim"] > cont["nao"] else "rejeitada"

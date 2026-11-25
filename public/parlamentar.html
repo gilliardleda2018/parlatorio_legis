@@ -188,27 +188,50 @@ async function carregarIdeias() {
 }
 const EVID = { forte: 'sim', moderada: 'ambar', limitada: '' };
 const CUSTO = { baixo: 'Custo baixo', medio: 'Custo médio', alto: 'Custo alto' };
+let verDescartadas = false;
 function desenharIdeias() {
-  const lista = R.itens.filter(i => !escopo || i.escopo === escopo);
+  const descartadas = R.itens.filter(i => i.feedback === 'descartado');
+  const lista = R.itens.filter(i => (verDescartadas || i.feedback !== 'descartado')
+    && (escopo === 'salvas' ? i.feedback === 'salvo' : !escopo || i.escopo === escopo));
   $('conteudoApp').innerHTML = `
-    <div class="cartao"><h2>Suas áreas de interesse</h2>
-      <p class="detalhe" style="margin-top:0">As sugestões combinam suas áreas, os projetos que você já apresentou e as áreas com poucos projetos na cidade.</p>
-      <div class="opcoes">${Object.entries(R.areas).filter(([k]) => k !== 'outros').map(([k, v]) => `<button class="${R.interesses.includes(k) ? 'on' : ''}" onclick="alternarInteresse('${k}')" aria-pressed="${R.interesses.includes(k)}">${esc(v)}</button>`).join('')}</div></div>
-    <div class="opcoes" role="group" aria-label="Origem">${[['', 'Todas'], ['Brasil', 'No Brasil'], ['Mundo', 'No mundo']].map(([k, v]) => `<button class="${escopo === k ? 'on' : ''}" onclick="escopo='${k}';desenharIdeias()">${v}</button>`).join('')}</div>
-    ${lista.map(i => `<article class="cartao ideia ${i.situacao ? 'neutro' : ''}">
-      <h3>${esc(i.titulo)}</h3><div class="local">${esc(i.local)} · ${i.escopo === 'Mundo' ? 'experiência internacional' : 'experiência brasileira'}</div>
+    <div class="cartao"><h2>Seu perfil</h2>
+      <p class="detalhe" style="margin-top:0">As sugestões usam suas áreas, os temas que você escrever, o texto dos seus projetos, o que você salva ou descarta e as lacunas da cidade.</p>
+      <div class="opcoes">${Object.entries(R.areas).filter(([k]) => k !== 'outros').map(([k, v]) => `<button class="${R.interesses.includes(k) ? 'on' : ''}" onclick="alternarInteresse('${k}')" aria-pressed="${R.interesses.includes(k)}">${esc(v)}</button>`).join('')}</div>
+      <label class="rot" style="margin-top:12px">Temas que você defende (palavras ou frases)
+        <textarea class="campo" id="temas" rows="2" placeholder="Ex.: hortas nas escolas, ciclovias, primeira infância, combate à fome">${esc(R.temas)}</textarea></label>
+      <small class="suave" id="temasStatus"></small></div>
+    <div class="opcoes" role="group" aria-label="Filtro">${[['', 'Todas'], ['Brasil', 'No Brasil'], ['Mundo', 'No mundo'], ['salvas', `★ Salvas (${R.itens.filter(i => i.feedback === 'salvo').length})`]].map(([k, v]) => `<button class="${escopo === k ? 'on' : ''}" onclick="escopo='${k}';desenharIdeias()">${v}</button>`).join('')}</div>
+    ${lista.length ? '' : `<div class="cartao neutro"><p class="vazio" style="margin:0">${escopo === 'salvas' ? 'Você ainda não salvou nenhuma ideia. Use ☆ Salvar nos cartões.' : 'Nenhuma ideia neste filtro.'}</p></div>`}
+    ${lista.map(i => `<article class="cartao ideia ${i.situacao || i.feedback === 'descartado' ? 'neutro' : ''}" ${i.feedback === 'descartado' ? 'style="opacity:.6"' : ''}>
+      <div style="display:flex;gap:8px;align-items:flex-start"><div style="flex:1"><h3>${esc(i.titulo)}</h3><div class="local">${esc(i.local)} · ${i.escopo === 'Mundo' ? 'experiência internacional' : 'experiência brasileira'}</div></div>
+        <button class="botao pq ${i.feedback === 'salvo' ? 'principal' : 'fantasma'}" onclick="darFeedback('${i.id}','${i.feedback === 'salvo' ? '' : 'salvo'}')" aria-pressed="${i.feedback === 'salvo'}">${i.feedback === 'salvo' ? '★ Salva' : '☆ Salvar'}</button></div>
       <div class="afinidade" title="Nota de recomendação para você"><span class="barra"><i style="width:${i.nota}%"></i></span><b>${i.nota}</b></div>
       <ul>${i.motivos.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
+      ${i.parecido ? `<p class="chip ambar" style="margin:4px 0;white-space:normal">Já existe projeto parecido na cidade: ${esc(i.parecido.numero)} (${SIT_PROJ[i.parecido.situacao] || i.parecido.situacao})</p>` : ''}
       <p>${esc(i.resumo)}</p>
       <div class="rotulo">Resultados relatados</div><p>${esc(i.resultados)}</p>
       <div class="grupo"><span class="chip ${EVID[i.evidencia]}">Evidência ${i.evidencia}</span><span class="chip">${CUSTO[i.custo]}</span></div>
       <p class="detalhe">${esc(i.notaEvidencia)}</p>
       <div class="rotulo">Como propor na Câmara</div><p>${esc(i.instrumento)}</p>
       <details class="fontes"><summary class="rotulo" style="cursor:pointer">Fontes (${i.fontes.length})</summary>${i.fontes.map(f => `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.titulo)}</a>`).join('')}</details>
-      <div style="margin-top:12px">${i.situacao === 'proposto_por_voce' ? '<span class="chip sim">✓ Você já propôs</span>'
-        : `<button class="botao principal" style="width:100%" onclick="abrirProposta('${i.id}')">Propor este projeto</button>${i.situacao === 'proposto_por_outro' ? '<p class="detalhe">Outro parlamentar já apresentou proposta inspirada nesta prática.</p>' : ''}`}</div>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">${i.situacao === 'proposto_por_voce' ? '<span class="chip sim">✓ Você já propôs</span>'
+        : `<button class="botao principal" onclick="abrirProposta('${i.id}')">Propor este projeto</button>${i.situacao === 'proposto_por_outro' ? '<p class="detalhe" style="margin:0">Outro parlamentar já apresentou proposta inspirada nesta prática.</p>' : ''}`}
+        ${i.feedback === 'descartado' ? `<button class="botao pq fantasma" onclick="darFeedback('${i.id}','')">Voltar a recomendar</button>`
+          : `<button class="botao pq fantasma" onclick="darFeedback('${i.id}','descartado')">Não me interessa</button>`}</div>
     </article>`).join('')}
+    ${descartadas.length ? `<button class="botao fantasma" onclick="verDescartadas=!verDescartadas;desenharIdeias()">${verDescartadas ? 'Esconder' : 'Mostrar'} ${descartadas.length} ideia(s) descartada(s)</button>` : ''}
     <p class="detalhe" style="text-align:center">Catálogo de boas práticas pesquisado em novembro de 2026. Confira as fontes antes de citar números.</p>`;
+  $('temas').onchange = async () => {
+    $('temasStatus').textContent = 'Salvando…';
+    await A('perfilInteresses', { temas: $('temas').value });
+    await carregarIdeias();
+    PL.avisar('Temas salvos. Recomendações atualizadas.');
+  };
+}
+async function darFeedback(id, valor) {
+  await A('feedbackPratica', { praticaId: id, valor: valor || null });
+  if (valor === 'descartado') PL.avisar('Ideia descartada. Ela não aparece mais na lista.');
+  await carregarIdeias();
 }
 async function alternarInteresse(area) {
   const novo = R.interesses.includes(area) ? R.interesses.filter(a => a !== area) : [...R.interesses, area];

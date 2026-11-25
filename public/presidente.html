@@ -268,7 +268,14 @@
             <button class="botao pq" onclick="todosPresentes(true)">Marcar todos presentes</button>
             <button class="botao pq" onclick="todosPresentes(false)">Limpar presença</button>
             <button class="botao pq principal" onclick="editarParl()">+ Parlamentar</button></h2>
-          <table class="tab"><thead><tr><th></th><th>Nome</th><th>Partido</th><th>Canal</th><th>Microfone</th><th>Presença</th><th>Chegada</th><th></th></tr></thead><tbody id="tabParls"></tbody></table>
+          <div class="grupo" style="align-items:center;margin-bottom:10px">
+            <span class="detalhe">Bloco por partido:</span>
+            <select class="campo" id="bpPartido" style="width:auto"></select>
+            <select class="campo" id="bpBloco" style="width:auto"><option value="situacao">Situação</option><option value="oposicao">Oposição</option><option value="independente">Independente</option><option value="">Sem bloco</option></select>
+            <button class="botao pq" onclick="A('blocoPorPartido',{partido:$('bpPartido').value,bloco:$('bpBloco').value})">Aplicar ao partido</button>
+            <small class="suave" id="bpAjuda">A sugestão ao lado de cada nome vem de como a pessoa votou nas sessões encerradas.</small>
+          </div>
+          <table class="tab"><thead><tr><th></th><th>Nome</th><th>Partido</th><th>Bloco</th><th>Canal</th><th>Microfone</th><th>Presença</th><th>Chegada</th><th></th></tr></thead><tbody id="tabParls"></tbody></table>
         </div>
       </div>
     </section>

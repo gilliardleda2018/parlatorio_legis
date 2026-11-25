@@ -22,6 +22,9 @@ ABRANGENCIA = {"local": ("Bairro ou comunidade", 1 / 3), "regional": ("Região d
                "municipal": ("Todo o município", 1.0)}
 URGENCIA = {"baixa": ("Baixa", 0.2), "media": ("Média", 0.6), "alta": ("Alta", 1.0)}
 PESOS_PADRAO = {"beneficiados": 40, "abrangencia": 20, "vulneraveis": 25, "urgencia": 15}
+BLOCOS = {"situacao": "Situação", "oposicao": "Oposição", "independente": "Independente", "": "Sem bloco"}
+# índice de atuação: mede QUANTIDADE de atividade registrada, não a qualidade do mandato
+PESOS_ATUACAO = {"presenca": 25, "debates": 25, "producao": 25, "votacoes": 25}
 
 
 def relevancia(p: dict, populacao: int, pesos: dict) -> dict | None:
@@ -45,13 +48,13 @@ def _mes(ms: int) -> str:
 
 
 def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict], populacao: int, pesos: dict,
-             interno: bool = False) -> dict:
+             interno: bool = False, blocos: dict | None = None) -> dict:
     """sessoes: retratos arquivados (mais antigo primeiro); projetos: banco de projetos."""
     nomes = {p["id"]: {"nome": p["nome"], "partido": p["partido"]} for s in sessoes for p in s["parls"]}
     nomes.update({p["id"]: {"nome": p["nome"], "partido": p["partido"]} for p in parls_atuais})
     por_parl = {pid: {"id": pid, **info, "membro": False, "sessoes": 0, "presencas": 0, "falas": 0, "tempoFala": 0,
                       "votos": 0, "sim": 0, "nao": 0, "abst": 0, "autoria": 0, "autoriaAprovada": 0,
-                      "comMaioria": 0, "nominais": 0, "ocorrencias": 0}
+                      "comMaioria": 0, "nominais": 0, "ocorrencias": 0, "nominaisPossiveis": 0}
                 for pid, info in nomes.items()}
     for p in parls_atuais:
         por_parl[p["id"]]["membro"] = True
@@ -86,6 +89,9 @@ def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict]
                 por_parl[o["pid"]]["ocorrencias"] += 1
         for v in s["votacoes"]:
             votacoes += 1
+            if v.get("tipo") == "nominal":
+                for p in s["parls"]:
+                    por_parl[p["id"]]["nominaisPossiveis"] += 1
             mes = por_mes.setdefault(_mes(v.get("fim") or s["fim"]), {"aprovada": 0, "rejeitada": 0, "outras": 0})
             if v["resultado"] == "aprovada":
                 aprovadas += 1
@@ -142,17 +148,21 @@ def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict]
         lista_proj.append(item)
     lista_proj.sort(key=lambda x: (x["relevancia"] is None, -(x["relevancia"] or {}).get("nota", 0), x["numero"]))
 
+    blocos = blocos or {}
     parlamentares = []
     for a in por_parl.values():
         if not a["sessoes"] and not a["membro"]:
             continue
         a["presencaPct"] = round(100 * a["presencas"] / a["sessoes"]) if a["sessoes"] else None
         a["alinhamentoPct"] = round(100 * a["comMaioria"] / a["nominais"]) if a["nominais"] else None
+        a["bloco"] = blocos.get(a["id"], "")
         if not interno:
             for k in ("ocorrencias", "comMaioria", "nominais", "alinhamentoPct"):
                 a.pop(k, None)
         parlamentares.append(a)
     parlamentares.sort(key=lambda a: a["nome"])
+    _atuacao(parlamentares)
+    situacao_oposicao = _blocos(parlamentares, ultimas_votacoes, interno)
 
     return {
         "geradoEm": int(time.time() * 1000), "interno": interno, "populacao": populacao, "pesos": pesos,
@@ -172,4 +182,92 @@ def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict]
         "porPartido": sorted(por_partido.values(), key=lambda p: -p["tempoFala"]),
         "parlamentares": parlamentares,
         "votacoes": list(reversed(ultimas_votacoes))[:30],
+        "blocosNomes": BLOCOS, "pesosAtuacao": PESOS_ATUACAO,
+        "maisAtuantes": [{"id": a["id"], "nome": a["nome"], "partido": a["partido"], "bloco": a["bloco"], **a["atuacao"]}
+                         for a in sorted((a for a in parlamentares if a.get("atuacao")), key=lambda a: -a["atuacao"]["nota"])],
+        **situacao_oposicao,
     }
+
+
+def _atuacao(parlamentares: list[dict]):
+    """Índice 0–100: presença, falas por sessão, projetos (aprovados valem 3) e participação nas votações nominais."""
+    ativos = [a for a in parlamentares if a["sessoes"]]
+    falas = {a["id"]: a["falas"] / max(a["presencas"], 1) for a in ativos}
+    producao = {a["id"]: a["autoria"] + 2 * a["autoriaAprovada"] for a in ativos}
+    max_falas = max(falas.values(), default=0) or 1
+    max_prod = max(producao.values(), default=0) or 1
+    for a in parlamentares:
+        if not a["sessoes"]:
+            a["atuacao"] = None
+            continue
+        comp = {"presenca": (a["presencaPct"] or 0) / 100, "debates": falas[a["id"]] / max_falas,
+                "producao": producao[a["id"]] / max_prod,
+                "votacoes": min(1.0, a["votos"] / a["nominaisPossiveis"]) if a["nominaisPossiveis"] else 0.0}
+        partes = {k: round(PESOS_ATUACAO[k] * v, 1) for k, v in comp.items()}
+        a["atuacao"] = {"nota": round(sum(partes.values())), "partes": partes}
+
+
+def _blocos(parlamentares: list[dict], votacoes: list[dict], interno: bool) -> dict:
+    """Situação × oposição: números por bloco, coesão, votações que dividiram os blocos e quem venceu."""
+    bloco_de = {a["id"]: a["bloco"] for a in parlamentares}
+    stats = {b: {"bloco": b, "nome": nome, "membros": 0, "presencaSoma": 0, "presencaN": 0, "falas": 0, "tempoFala": 0,
+                 "autoria": 0, "autoriaAprovada": 0, "coesaoSoma": 0.0, "coesaoN": 0}
+             for b, nome in BLOCOS.items()}
+    for a in parlamentares:
+        if not a["membro"]:
+            continue
+        st = stats[a["bloco"] if a["bloco"] in stats else ""]
+        st["membros"] += 1
+        st["falas"] += a["falas"]
+        st["tempoFala"] += a["tempoFala"]
+        st["autoria"] += a["autoria"]
+        st["autoriaAprovada"] += a["autoriaAprovada"]
+        if a["presencaPct"] is not None:
+            st["presencaSoma"] += a["presencaPct"]
+            st["presencaN"] += 1
+    com_situacao: dict[str, list[int]] = {}
+    divididas, vitorias = [], {"situacao": 0, "oposicao": 0}
+    for v in votacoes:
+        if not v["votos"]:
+            continue
+        contagem: dict[str, dict] = {}
+        for x in v["votos"]:
+            c = contagem.setdefault(bloco_de.get(x["pid"], ""), {"sim": 0, "nao": 0, "abst": 0})
+            c[x["voto"]] = c.get(x["voto"], 0) + 1
+        posicao = {}
+        for b, c in contagem.items():
+            decididos = c["sim"] + c["nao"]
+            posicao[b] = "sim" if c["sim"] > c["nao"] else "nao" if c["nao"] > c["sim"] else None
+            if decididos and b in stats:
+                stats[b]["coesaoSoma"] += max(c["sim"], c["nao"]) / decididos
+                stats[b]["coesaoN"] += 1
+        sit = posicao.get("situacao")
+        if sit:
+            for x in v["votos"]:
+                if x["voto"] in ("sim", "nao"):
+                    par = com_situacao.setdefault(x["pid"], [0, 0])
+                    par[0] += x["voto"] == sit
+                    par[1] += 1
+        opo = posicao.get("oposicao")
+        if sit and opo and sit != opo and v["resultado"] in ("aprovada", "rejeitada"):
+            venceu = "situacao" if (v["resultado"] == "aprovada") == (sit == "sim") else "oposicao"
+            vitorias[venceu] += 1
+            divididas.append({"numero": v["numero"], "ementa": v["ementa"], "data": v["data"], "resultado": v["resultado"],
+                              "venceu": venceu, "placar": contagem, "posicao": {"situacao": sit, "oposicao": opo}})
+    for a in parlamentares:
+        par = com_situacao.get(a["id"])
+        a["comSituacaoPct"] = round(100 * par[0] / par[1]) if par and par[1] else None
+        if interno and par and par[1] >= 3:  # sugestão para quem classifica os blocos (só na visão interna)
+            pct = par[0] / par[1]
+            a["blocoSugerido"] = "situacao" if pct >= 0.7 else "oposicao" if pct <= 0.3 else "independente"
+    lista = []
+    for st in stats.values():
+        if not st["membros"]:
+            continue
+        lista.append({"bloco": st["bloco"], "nome": st["nome"], "membros": st["membros"],
+                      "presencaMedia": round(st["presencaSoma"] / st["presencaN"]) if st["presencaN"] else None,
+                      "falas": st["falas"], "tempoFala": st["tempoFala"], "autoria": st["autoria"],
+                      "autoriaAprovada": st["autoriaAprovada"],
+                      "coesao": round(100 * st["coesaoSoma"] / st["coesaoN"]) if st["coesaoN"] else None})
+    return {"blocos": lista, "votacoesDivididas": list(reversed(divididas))[:20], "vitoriasBlocos": vitorias,
+            "temBlocos": any(b["bloco"] in ("situacao", "oposicao") for b in lista)}

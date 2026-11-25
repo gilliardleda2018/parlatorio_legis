@@ -10,9 +10,13 @@
 <style>
   /* séries dos gráficos (ordem fixa; mesma cor = mesma coisa em toda a página) */
   :root { --s-aprovada: #3987e5; --s-rejeitada: #d95926; --s-outras: #8a95a8; --s-tramitacao: #199e70;
-          --c-beneficiados: #3987e5; --c-abrangencia: #199e70; --c-vulneraveis: #d95926; --c-urgencia: #c98500 }
+          --c-beneficiados: #3987e5; --c-abrangencia: #199e70; --c-vulneraveis: #d95926; --c-urgencia: #c98500;
+          --a-presenca: #3987e5; --a-debates: #c98500; --a-producao: #d95926; --a-votacoes: #d55181;
+          --b-situacao: #199e70; --b-oposicao: #9085e9; --b-independente: #8a95a8; --b-: #5b6b86 }
   [data-tema="claro"] { --s-aprovada: #2a78d6; --s-rejeitada: #eb6834; --s-tramitacao: #1baf7a;
-          --c-beneficiados: #2a78d6; --c-abrangencia: #1baf7a; --c-vulneraveis: #eb6834; --c-urgencia: #eda100 }
+          --c-beneficiados: #2a78d6; --c-abrangencia: #1baf7a; --c-vulneraveis: #eb6834; --c-urgencia: #eda100;
+          --a-presenca: #2a78d6; --a-debates: #eda100; --a-producao: #eb6834; --a-votacoes: #e87ba4;
+          --b-situacao: #1baf7a; --b-oposicao: #6250d6 }
   main { max-width: 1240px; margin: 0 auto; padding: 24px 16px 56px; display: flex; flex-direction: column; gap: 16px }
   .topo { display: flex; align-items: center; gap: 16px }
   .topo img { width: 64px; height: 64px; object-fit: contain; background: #fff; border-radius: 12px; padding: 6px }
@@ -65,6 +69,21 @@
   .vot .placar { font-variant-numeric: tabular-nums; font-weight: 700 }
   .votos-nominais { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px; margin-top: 8px; font-size: 13px }
   .alternar { font-size: 12px; color: var(--suave); background: none; border: 0; cursor: pointer; text-decoration: underline; padding: 0 }
+  .ranking { display: grid; grid-template-columns: 26px minmax(0, 1fr) minmax(120px, 2fr) 34px; gap: 10px; align-items: center; padding: 6px 0; font-size: 14px }
+  .ranking .pos { color: var(--suave); text-align: right; font-variant-numeric: tabular-nums }
+  .ranking .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .ranking .b { display: flex; gap: 2px; height: 12px }
+  .ranking .b i { display: block; height: 100% }
+  .ranking .b i:last-child { border-radius: 0 4px 4px 0 }
+  .ranking b { text-align: right; font-variant-numeric: tabular-nums }
+  .bloco-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap }
+  .bloco-tag::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--cor-bloco) }
+  .blocos { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 8px 0 16px }
+  .bloco { background: var(--cartao2); border-radius: 12px; padding: 14px; border-top: 4px solid var(--cor-bloco) }
+  .bloco h3 { font-size: 16px; margin: 0 0 8px }
+  .bloco dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 0; font-size: 13px }
+  .bloco dt { color: var(--suave) } .bloco dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600 }
+  .placar-blocos { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; margin-top: 4px }
   #dica { position: fixed; pointer-events: none; background: var(--cartao2); color: var(--texto); padding: 8px 10px; border-radius: 8px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.35); z-index: 50; display: none; max-width: 260px }
   .vazio { color: var(--suave) }
 </style>
@@ -73,7 +92,7 @@
 <nav class="nav"><div class="menu">
   <a class="marca" href="/"><img id="logoNav" src="/marca/logo.svg" alt=""><span><span id="casaNav">Parlatório Legis</span><small>Transparência legislativa</small></span></a>
   <span class="esp"></span>
-  <a class="item" href="#projetos">Projetos</a><a class="item" href="#votacoes">Votações</a><a class="item" href="#parlamentares">Parlamentares</a><a class="item" href="#sessoes">Sessões</a>
+  <a class="item" href="#projetos">Projetos</a><a class="item" href="#atuacao">Atuação</a><a class="item" href="#blocos">Situação × oposição</a><a class="item" href="#votacoes">Votações</a><a class="item" href="#parlamentares">Parlamentares</a><a class="item" href="#sessoes">Sessões</a>
 </div></nav>
 
 <main>
@@ -103,6 +122,20 @@
       <h2>Votações por mês<span class="esp"></span><button class="alternar" id="altMes">ver tabela</button></h2>
       <div class="legenda"><span><i style="background:var(--s-aprovada)"></i>Aprovadas</span><span><i style="background:var(--s-rejeitada)"></i>Rejeitadas</span><span><i style="background:var(--s-outras)"></i>Sem quórum / adiadas</span></div>
       <div id="porMes"></div>
+    </section>
+  </div>
+
+  <div class="grade2">
+    <section class="cartao" id="atuacao">
+      <h2>Parlamentares mais atuantes<span class="esp"></span><button class="alternar" id="altAtuacao">ver todos</button></h2>
+      <p class="detalhe" style="margin-top:0">Índice de 0 a 100 com presença, participação nos debates, projetos apresentados (aprovados valem mais) e participação nas votações nominais.
+        Mede a <b>quantidade</b> de atividade registrada nas sessões, não a qualidade do mandato.</p>
+      <div class="legenda" id="legAtuacao"></div>
+      <div id="rankAtuacao"></div>
+    </section>
+    <section class="cartao" id="blocos">
+      <h2>Situação × oposição</h2>
+      <div id="secBlocos"></div>
     </section>
   </div>
 
@@ -180,6 +213,7 @@ function desenhar() {
   ].map(([v, r]) => `<div class="tile"><b>${v}</b><span>${r}</span></div>`).join('');
   if ($('fArea').options.length === 1) $('fArea').innerHTML += Object.entries(D.areas).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
   $('legNota').innerHTML = PARTES.map(k => `<span><i style="background:var(--c-${k})"></i>${NOMES_PARTES[k]}</span>`).join('');
+  desenharAtuacao(); desenharBlocos();
   desenharProjetos(); desenharAreas(); desenharMeses(); desenharParlamentares(); desenharPartidos(); desenharVotacoes(); desenharSessoes();
   $('rodape').textContent = `Dados das sessões encerradas e arquivadas · atualizado em ${new Date(D.geradoEm).toLocaleString('pt-BR')} · Parlatório Legis`;
 }
@@ -210,6 +244,39 @@ function desenharProjetos() {
     </div>`).join('') : '<p class="vazio">Nenhum projeto encontrado.</p>';
 }
 
+const PARTES_ATU = ['presenca', 'debates', 'producao', 'votacoes'];
+const NOMES_ATU = { presenca: 'Presença', debates: 'Debates', producao: 'Projetos', votacoes: 'Votações nominais' };
+const blocoTag = b => `<span class="bloco-tag" style="--cor-bloco:var(--b-${b || ''})">${esc(D.blocosNomes[b || ''])}</span>`;
+let atuacaoTodos = false;
+$('altAtuacao').onclick = () => { atuacaoTodos = !atuacaoTodos; $('altAtuacao').textContent = atuacaoTodos ? 'ver top 10' : 'ver todos'; desenharAtuacao(); };
+function desenharAtuacao() {
+  $('legAtuacao').innerHTML = PARTES_ATU.map(k => `<span><i style="background:var(--a-${k})"></i>${NOMES_ATU[k]} (${D.pesosAtuacao[k]}%)</span>`).join('');
+  const lista = atuacaoTodos ? D.maisAtuantes : D.maisAtuantes.slice(0, 10);
+  $('rankAtuacao').innerHTML = lista.length ? lista.map((a, k) => `<div class="ranking">
+      <span class="pos">${k + 1}º</span><span class="nm">${esc(a.nome)} ${sigla(a.partido)}</span>
+      <div class="b" data-dica="<b>${esc(a.nome)}</b><br>${PARTES_ATU.map(x => `${NOMES_ATU[x]}: ${a.partes[x]}`).join('<br>')}">${PARTES_ATU.map(x => `<i style="width:${a.partes[x]}%;background:var(--a-${x})"></i>`).join('')}</div>
+      <b>${a.nota}</b></div>`).join('') : '<p class="vazio">Sem sessões encerradas ainda.</p>';
+}
+function desenharBlocos() {
+  if (!D.temBlocos) {
+    $('secBlocos').innerHTML = '<p class="vazio">Os blocos de situação e oposição ainda não foram definidos pela presidência.</p>';
+    return;
+  }
+  const v = D.vitoriasBlocos, total = v.situacao + v.oposicao;
+  $('secBlocos').innerHTML = `<div class="blocos">${D.blocos.filter(b => b.bloco).map(b => `<div class="bloco" style="--cor-bloco:var(--b-${b.bloco})">
+      <h3>${esc(b.nome)}</h3><dl>
+      <dt>Parlamentares</dt><dd>${b.membros}</dd>
+      <dt>Presença média</dt><dd>${b.presencaMedia ?? '—'}%</dd>
+      <dt data-dica="Em média, quanto do bloco votou do mesmo lado (sim ou não) nas votações nominais">Coesão nas votações ⓘ</dt><dd>${b.coesao ?? '—'}${b.coesao != null ? '%' : ''}</dd>
+      <dt>Projetos (aprovados)</dt><dd>${b.autoria} (${b.autoriaAprovada})</dd>
+      <dt>Tempo de fala</dt><dd>${dur(b.tempoFala)}</dd></dl></div>`).join('')}</div>
+    <p style="margin:0 0 8px"><b>${total}</b> votação(ões) dividiram situação e oposição${total ? `: a situação venceu <b>${v.situacao}</b> e a oposição <b>${v.oposicao}</b>.` : '.'}</p>
+    ${D.votacoesDivididas.slice(0, 6).map(x => `<div class="vot"><b>${esc(x.numero)}</b> <span class="chip ${x.resultado === 'aprovada' ? 'sim' : 'nao'}" style="font-size:10px;padding:2px 8px">${SIT[x.resultado]}</span>
+      <span class="suave" style="font-size:12px">${data(x.data)} · venceu: ${esc(D.blocosNomes[x.venceu])}</span>
+      <div style="font-size:13px">${esc(x.ementa)}</div>
+      <div class="placar-blocos">${Object.entries(x.placar).filter(([b]) => b).map(([b, c]) => `${blocoTag(b)} ${c.sim} sim · ${c.nao} não${c.abst ? ' · ' + c.abst + ' abst.' : ''}`).join('<span class="suave">|</span>')}</div></div>`).join('')}`;
+}
+
 function desenharAreas() {
   const areas = D.porArea.filter(a => a.beneficiadosAprovados + a.beneficiadosTramitacao > 0);
   const max = Math.max(1, ...areas.map(a => a.beneficiadosAprovados + a.beneficiadosTramitacao));
@@ -236,8 +303,9 @@ function desenharMeses() {
 }
 
 function desenharParlamentares() {
-  const cols = [['nome', 'Parlamentar'], ['partido', 'Partido'], ['presencaPct', 'Presença', 'n'], ['falas', 'Falas', 'n'], ['tempoFala', 'Tempo de fala', 'n'],
-    ['votos', 'Votos nominais', 'n'], ['autoria', 'Projetos (aprovados)', 'n']];
+  const cols = [['nome', 'Parlamentar'], ['partido', 'Partido'], ['bloco', 'Bloco'], ['atuacaoNota', 'Atuação', 'n'], ['presencaPct', 'Presença', 'n'], ['falas', 'Falas', 'n'], ['tempoFala', 'Tempo de fala', 'n'],
+    ['votos', 'Votos nominais', 'n'], ['comSituacaoPct', 'Com a situação', 'n'], ['autoria', 'Projetos (aprovados)', 'n']];
+  D.parlamentares.forEach(p => { p.atuacaoNota = p.atuacao?.nota ?? null; });
   if (D.interno) cols.push(['alinhamentoPct', 'Com o resultado', 'n'], ['ocorrencias', 'Ocorrências', 'n']);
   const lista = [...D.parlamentares].sort((a, b) => {
     const x = a[ordem.col] ?? -1, y = b[ordem.col] ?? -1;
@@ -245,9 +313,11 @@ function desenharParlamentares() {
   });
   $('tabParl').innerHTML = `<tr>${cols.map(([k, t, c]) => `<th class="${c || ''}" onclick="ordenar('${k}')" aria-sort="${ordem.col === k ? (ordem.asc ? 'ascending' : 'descending') : 'none'}">${t}${ordem.col === k ? (ordem.asc ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr>` +
     lista.map(p => `<tr><td>${esc(p.nome)}${p.membro ? '' : ' <small class="suave">(ex-membro)</small>'}</td><td>${sigla(p.partido)}</td>
+      <td>${blocoTag(p.bloco)}</td><td class="n"><b>${p.atuacaoNota ?? '—'}</b></td>
       <td class="n">${p.presencaPct == null ? '—' : p.presencaPct + '%'}<span class="mini"><i style="width:${p.presencaPct || 0}%"></i></span></td>
       <td class="n">${p.falas}</td><td class="n">${dur(p.tempoFala)}</td>
       <td class="n" data-dica="Sim ${p.sim} · Não ${p.nao} · Abstenção ${p.abst}">${p.votos}</td>
+      <td class="n" data-dica="Votou igual à maioria da situação">${p.comSituacaoPct == null ? '—' : p.comSituacaoPct + '%'}</td>
       <td class="n">${p.autoria} (${p.autoriaAprovada})</td>
       ${D.interno ? `<td class="n">${p.alinhamentoPct == null ? '—' : p.alinhamentoPct + '%'}</td><td class="n">${p.ocorrencias}</td>` : ''}</tr>`).join('');
 }
