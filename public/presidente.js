@@ -12,6 +12,7 @@ async function iniciar() {
   const eu = await PL.quemSou('presidente');
   $(eu ? 'app' : 'login').classList.remove('oculto');
   if (!eu) $('pin').focus();
+  if (eu?.deveTrocar) PL.exigirTrocaPin('presidente');
 }
 async function entrar() {
   try { await PL.entrar('presidente', $('pin').value); location.reload(); }
@@ -453,6 +454,7 @@ function carregarConfig() {
   cfgPartidos = Object.entries(S.partidos); desenharPartidos();
   $('sUrl').value = S.sapl.url || ''; $('sAnos').value = new Date().getFullYear();
   carregarRodape();
+  desenharBackup();
   desenharSapl();
   const m = S.mesa;
   $('mDriver').value = m.driver; $('mHost').value = m.host; $('mPorta').value = m.porta; $('mEndereco').value = m.endereco;
@@ -502,7 +504,17 @@ function desenharSapl() {
     ${job.total ? `<div class="barra" style="margin:8px 0"><i style="width:${Math.round(100 * job.feitos / job.total)}%"></i></div><small class="suave">${job.feitos} de ${job.total}</small>` : ''}
     ${job.log.length ? `<details style="margin-top:6px"><summary class="detalhe" style="cursor:pointer">Registro (${job.log.length})</summary><div class="suave tnum" style="font-size:12px;line-height:1.6;max-height:180px;overflow:auto">${job.log.map(esc).join('<br>')}</div></details>` : ''}`;
 }
-PL.aoMudar(() => { if (abaAtual === 'config') desenharSapl(); });
+PL.aoMudar(() => { if (abaAtual === 'config') { desenharSapl(); desenharBackup(); } });
+function desenharBackup() {
+  const b = PL.estado.backup || {};
+  const tam = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
+  $('bkBotao').disabled = !!b.emAndamento;
+  $('bkEstado').innerHTML = b.emAndamento ? '⏳ Fazendo backup…'
+    : b.erro ? `<span style="color:var(--vermelho)">⚠ Falhou: ${esc(b.erro)}</span>`
+    : b.ultimo ? `✓ Último backup: <b>${new Date(b.ultimo).toLocaleString('pt-BR')}</b> · ${esc(b.arquivo)} (${tam(b.tamanho)}) · ${b.copias || 1} cópia(s) guardadas em <code>${esc(b.pasta || '')}</code><br>
+        Nextcloud: ${b.nextcloud === 'enviado' ? '<span class="chip sim">enviado</span>' : b.nextcloud === 'desligado' || !b.nextcloud ? 'não configurado' : `<span class="chip nao">${esc(b.nextcloud)}</span>`}`
+    : 'Nenhum backup ainda.';
+}
 
 function mesaCampos() {
   $('mOsc').classList.toggle('oculto', $('mDriver').value !== 'osc');

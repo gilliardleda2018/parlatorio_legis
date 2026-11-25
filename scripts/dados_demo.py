@@ -135,7 +135,7 @@ os.environ["PARLATORIO_BANCO"] = str(banco)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
 import servidor  # noqa: E402  (cria o estado inicial neste banco)
 servidor.S["parls"] = parls
-servidor.S["_pins"] = {p["id"]: "0000" for p in parls}
+servidor.S["_pins"] = {p["id"]: servidor.seguranca.hash_pin("0000") for p in parls}
 servidor.S["casa"]["titulo"] = "45ª Sessão Ordinária"
 servidor.S["pauta"] = []
 servidor.salvar()

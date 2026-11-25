@@ -54,9 +54,70 @@ const PL = (() => {
     });
     const j = await r.json().catch(() => ({ erro: 'Falha de comunicação.' }));
     if (r.status === 401) { localStorage.removeItem(tokenChave(papel)); location.reload(); }
-    if (!r.ok) { avisar(j.erro, true); throw new Error(j.erro); }
+    if (j.codigo === 'trocarPin') { exigirTrocaPin(papel); throw new Error(j.erro); }
+    if (!r.ok) { avisar(j.erro, true); const e = new Error(j.erro); e.codigo = j.codigo; throw e; }
     return j;
   }
+
+  /* troca de PIN: obrigatória enquanto o PIN for o padrão (0000, 1234…) */
+  async function trocarPin(papel, atual, novo) {
+    const r = await fetch('/api/trocar-pin', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + localStorage.getItem(tokenChave(papel)) },
+      body: JSON.stringify({ atual, novo }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.erro || 'Não foi possível trocar o PIN.');
+  }
+  function exigirTrocaPin(papel, opcional = false) {
+    if (document.getElementById('dlgPin')) return;
+    const minimo = papel === 'presidente' ? 6 : 4;
+    const d = document.createElement('dialog');
+    d.id = 'dlgPin';
+    d.style.cssText = 'background:var(--cartao);color:var(--texto);border:0;border-top:4px solid var(--destaque-suave);border-radius:14px;padding:18px;width:min(400px,92vw)';
+    d.innerHTML = `<form method="dialog" style="display:flex;flex-direction:column;gap:12px">
+      <b style="font-size:18px">${opcional ? 'Trocar meu PIN' : 'Crie seu PIN pessoal'}</b>
+      ${opcional ? '' : '<p style="margin:0;color:var(--suave);font-size:14px">Você entrou com o PIN padrão. Por segurança, crie um PIN só seu antes de continuar.</p>'}
+      <label class="rot">PIN atual<input class="campo" type="password" inputmode="numeric" autocomplete="current-password" id="pinAtual"></label>
+      <label class="rot">Novo PIN (${minimo} a 8 números, sem sequências como 1234)<input class="campo" type="password" inputmode="numeric" autocomplete="new-password" id="pinNovo"></label>
+      <label class="rot">Repita o novo PIN<input class="campo" type="password" inputmode="numeric" autocomplete="new-password" id="pinNovo2"></label>
+      <div id="pinErro" style="color:var(--vermelho);font-size:14px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        ${opcional ? '<button class="botao fantasma" value="cancelar" formnovalidate>Cancelar</button>' : `<button class="botao fantasma" type="button" id="pinSair">Sair</button>`}
+        <button class="botao principal" id="pinOk" type="button">Salvar PIN</button></div></form>`;
+    document.body.append(d);
+    d.addEventListener('cancel', e => { if (!opcional) e.preventDefault(); });
+    d.addEventListener('close', () => d.remove());
+    d.querySelector('#pinSair')?.addEventListener('click', () => sair(papel).then(() => location.reload()));
+    d.querySelector('#pinOk').onclick = async () => {
+      const novo = d.querySelector('#pinNovo').value;
+      if (novo !== d.querySelector('#pinNovo2').value) { d.querySelector('#pinErro').textContent = 'Os dois PINs novos não conferem.'; return; }
+      try { await trocarPin(papel, d.querySelector('#pinAtual').value, novo); d.close(); avisar('PIN trocado.'); if (!opcional) location.reload(); }
+      catch (e) { d.querySelector('#pinErro').textContent = e.message; }
+    };
+    d.showModal();
+  }
+
+  /* confirmação do PIN para votar online; fica guardado só nesta página por 10 minutos */
+  let pinCache = null;
+  function pedirPin(mensagem) {
+    if (pinCache && Date.now() - pinCache.ts < 600000) return Promise.resolve(pinCache.pin);
+    return new Promise(ok => {
+      const d = document.createElement('dialog');
+      d.style.cssText = 'background:var(--cartao);color:var(--texto);border:0;border-top:4px solid var(--ambar);border-radius:14px;padding:18px;width:min(360px,92vw)';
+      d.innerHTML = `<form method="dialog" style="display:flex;flex-direction:column;gap:12px">
+        <b>Confirme com seu PIN</b><span style="color:var(--suave);font-size:14px">${esc(mensagem)}</span>
+        <input class="campo" type="password" inputmode="numeric" autocomplete="current-password" style="font-size:24px;letter-spacing:.3em;text-align:center" id="pinConf">
+        <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--suave)"><input type="checkbox" id="pinLembrar" checked> não pedir de novo por 10 minutos</label>
+        <div style="display:flex;gap:8px;justify-content:flex-end"><button class="botao fantasma" value="">Cancelar</button><button class="botao principal" value="ok">Confirmar</button></div></form>`;
+      document.body.append(d);
+      d.addEventListener('close', () => {
+        const pin = d.returnValue === 'ok' ? d.querySelector('#pinConf').value : null;
+        if (pin && d.querySelector('#pinLembrar').checked) pinCache = { pin, ts: Date.now() };
+        d.remove(); ok(pin);
+      });
+      d.showModal();
+      setTimeout(() => d.querySelector('#pinConf').focus(), 50);
+    });
+  }
+  const esquecerPin = () => { pinCache = null; };
 
   /* ----- formatação ----- */
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -209,6 +270,7 @@ const PL = (() => {
     parl, fase, corPartido, avatar, sigla, TIPOS, SITUACOES, QUORUNS, VOTOS, quorum, usadoNaFase, bipe, avisar, lerImagem,
     MICS, OCORRENCIAS, mic, micChip, gravando, token: papel => localStorage.getItem(tokenChave(papel)),
     video, sincronizarMicrofone, encerrarVideo, temVideo: () => !!jitsi,
+    exigirTrocaPin, pedirPin, esquecerPin,
     get estado() { return estado; },
     aoMudar: f => ouvintes.push(f),
     aoSinal: null

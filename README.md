@@ -37,7 +37,42 @@ Variáveis de ambiente:
 - `PIN_PRESIDENTE`: PIN do painel do presidente (padrão 1234; troque em produção)
 - `PARLATORIO_BANCO`: caminho do banco SQLite (padrão `dados/parlatorio.db`)
 
-Os parlamentares de exemplo começam com PIN `0000`. Troque em **Plenário → Editar**.
+Os parlamentares começam com PIN `0000` e o painel com `1234` (ou o `PIN_PRESIDENTE`). No primeiro acesso o sistema **obriga a troca** por um PIN pessoal.
+
+## Segurança de acesso
+
+- PINs guardados só como hash (PBKDF2-SHA256 com sal), nunca em texto. Bancos antigos são convertidos ao iniciar.
+- Após 5 PINs errados na mesma conta (ou 20 do mesmo endereço), novas tentativas ficam bloqueadas por 15 minutos.
+- PIN padrão ou óbvio (0000, 1234, 1111, sequências) obriga a troca antes de qualquer ação. O PIN do painel deve ter 6 dígitos ou mais.
+- O login expira após 12 h sem uso no painel do presidente e 30 dias no celular, e nunca dura mais de 90 dias. Trocar o PIN encerra os outros acessos daquela conta.
+- Votar ou pedir destaque na sessão virtual exige confirmar o PIN. O app pode lembrar por 10 minutos, só naquela página.
+- Botão **PIN** no painel e no app para trocar quando quiser.
+
+## Backup
+
+- Todo dia às 03:00 (`BACKUP_HORA`; vazio desliga), e também no primeiro início, o servidor grava `dados/backups/parlatorio-AAAAMMDD-HHMMSS.db.gz` com todo o banco: sessões, votos, projetos, imagens e auditoria. Guarda as últimas 14 cópias (`BACKUP_MANTER`) e copia as gravações novas para `dados/backups/gravacoes/`.
+- **Configurações → Backup** mostra o último backup e tem o botão **Fazer backup agora**.
+- **Nextcloud (opcional):** defina `NEXTCLOUD_URL` (ex.: `https://nuvem.exemplo/remote.php/dav/files/usuario`), `NEXTCLOUD_USUARIO`, `NEXTCLOUD_SENHA` (use uma senha de app) e `NEXTCLOUD_PASTA`. Cada backup é enviado por WebDAV. As credenciais ficam só no ambiente do servidor.
+- **Restaurar:** pare o servidor, rode `gunzip -c dados/backups/parlatorio-....db.gz > dados/parlatorio.db` e copie a pasta `gravacoes` de volta para `dados/`.
+
+## Testes
+
+```bash
+cd tests && python3 -m unittest -v
+```
+
+Cada classe de teste sobe um servidor próprio (porta livre, banco temporário) e cobre:
+
+- votação nominal e secreta;
+- tribuna, aparte e congelar;
+- mesa de som por OSC real (UDP);
+- gravação, arquivamento e ata em PDF;
+- sessão virtual com PIN, destaque e apuração;
+- sessão remota;
+- segurança (hash, troca obrigatória, bloqueio, permissões);
+- transparência, recomendações, rodapé e backup.
+
+O GitHub Actions roda tudo a cada push, em Python 3.11, 3.12 e 3.13.
 
 ## HTTPS
 

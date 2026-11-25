@@ -36,6 +36,8 @@ from ata import gerar_ata
 import estatisticas
 import recomendacao
 import sapl as sapl_cli
+import seguranca
+import backup as backup_mod
 from mesa import CFG_PADRAO, PRESETS, Mesa
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -49,7 +51,15 @@ HTTPS_ATIVO = False
 LIMITE_PARTE = 32 * 1024 * 1024
 TIPOS_AUDIO = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a"}
 PORTA = int(os.environ.get("PORTA", "8090"))
-PIN_PRESIDENTE = os.environ.get("PIN_PRESIDENTE", "1234")
+PIN_PRESIDENTE = os.environ.get("PIN_PRESIDENTE", "1234")  # PIN inicial; depois da troca vale o salvo (com hash)
+OCIOSO_PRESIDENTE = 12 * 3600_000      # login do painel expira após 12 h sem uso
+OCIOSO_PARLAMENTAR = 30 * 86400_000    # no celular, após 30 dias sem uso
+VALIDADE_MAXIMA = 90 * 86400_000       # nenhum login dura mais que 90 dias
+ACOES_COM_PIN = {"virtualVotar", "virtualDestaque"}  # confirmação do próprio PIN
+bloqueio = seguranca.Bloqueio()
+BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", BANCO.parent / "backups"))
+BACKUP_HORA = os.environ.get("BACKUP_HORA", "03:00")   # backup diário automático (vazio desliga)
+BACKUP_MANTER = int(os.environ.get("BACKUP_MANTER", "14"))
 LIMITE_CORPO = 4 * 1024 * 1024
 TIPOS_IMAGEM = {"image/png", "image/jpeg", "image/webp"}
 
@@ -198,7 +208,7 @@ def estado_inicial() -> dict:
         "votacoes": [],
         "hist": [],
         "sinal": {"n": 0, "tipo": ""},
-        "_pins": {p["id"]: "0000" for p in parls},
+        "_pins": {p["id"]: seguranca.hash_pin("0000") for p in parls},
         "_tokens": {},
         **NOVOS_CAMPOS(),
     }
@@ -231,6 +241,8 @@ def NOVOS_CAMPOS() -> dict:
         "remoto": {"ativo": False, "servidor": "https://meet.jit.si"},  # sessão híbrida por videoconferência
         "presencaModo": {},     # pid -> "remoto" quando a presença foi registrada pela videoconferência
         "_remoto": {"sala": ""},  # nome da sala: nunca vai para as telas públicas
+        "_pinPresidente": None,   # hash do PIN do painel depois da primeira troca
+        "backup": {"ultimo": None, "arquivo": None, "tamanho": 0, "nextcloud": None, "erro": None, "emAndamento": False},
         "mesa": dict(CFG_PADRAO),
     }
 
@@ -246,6 +258,12 @@ def carregar() -> dict:
         estado["mesa"].setdefault(k, v)
     for p in estado["parls"]:
         p.setdefault("canal", 0)
+    for pid, pin in list(estado["_pins"].items()):
+        if not seguranca.e_hash(pin):
+            estado["_pins"][pid] = seguranca.hash_pin(pin)
+    for t, a in list(estado["_tokens"].items()):
+        a.setdefault("criado", agora())
+        a.setdefault("uso", agora())
     for k, v in {"url": "", "casa": None, "tipos": [], "sessoes": [], "job": None}.items():
         estado["sapl"].setdefault(k, v)
     if estado["sapl"].get("job") and not estado["sapl"]["job"].get("fim"):  # servidor reiniciou no meio de uma importação
@@ -1145,9 +1163,9 @@ def parlSalvar(ator, nome, partido, lider=False, pin=None, id=None, canal=0, blo
         p = {"id": uid(), "nome": nome.strip(), "partido": partido.strip().upper(), "lider": bool(lider), "fotoV": 0,
              "canal": canal}
         S["parls"].append(p)
-        S["_pins"][p["id"]] = "0000"
+        S["_pins"][p["id"]] = seguranca.hash_pin("0000")
     if pin:
-        S["_pins"][p["id"]] = str(pin)
+        S["_pins"][p["id"]] = seguranca.hash_pin(str(pin))
         S["_tokens"] = {t: a for t, a in S["_tokens"].items() if a.get("pid") != p["id"]}
     if bloco is not None:
         p["bloco"] = bloco
@@ -1295,7 +1313,7 @@ def _sapl_parlamentares(cli, atualizar_fotos: bool, capitalizar: bool):
                 p = {"id": uid(), "nome": nome, "partido": partido, "lider": False, "fotoV": 0, "canal": 0, "bloco": "",
                      "saplId": sp["id"]}
                 S["parls"].append(p)
-                S["_pins"][p["id"]] = "0000"
+                S["_pins"][p["id"]] = seguranca.hash_pin("0000")
             p["saplUrl"] = f"{cli.base}/parlamentar/{sp['id']}"
             if partido:
                 S["partidos"].setdefault(partido, "#5b6b86")
@@ -1615,6 +1633,49 @@ def presencaRemota(ator):
     S["presencaModo"][ator["pid"]] = "remoto"
 
 
+# --- backup
+def _rodar_backup(motivo: str):
+    with trava:
+        if S["backup"].get("emAndamento"):
+            return
+        S["backup"]["emAndamento"] = True
+        transmitir(pacote())
+    resultado, erro, nuvem = None, None, None
+    try:
+        resultado = backup_mod.fazer_backup(BANCO, GRAVACOES, BACKUP_DIR, BACKUP_MANTER)
+        try:
+            nuvem = backup_mod.enviar_nextcloud(BACKUP_DIR / resultado["arquivo"])
+        except Exception as e:  # nuvem fora do ar não invalida a cópia local
+            nuvem = f"erro: {str(e)[:120]}"
+    except Exception as e:
+        erro = str(e)[:300]
+    with trava:
+        S["backup"].update(emAndamento=False, erro=erro, nextcloud=nuvem, motivo=motivo,
+                           **({"ultimo": agora(), "arquivo": resultado["arquivo"], "tamanho": resultado["tamanho"],
+                               "copias": resultado["copias"], "pasta": str(BACKUP_DIR)} if resultado else {}))
+        registrar("sistema", "backup", {"motivo": motivo, "ok": not erro, "nextcloud": nuvem})
+        confirmar()
+
+
+@acao("presidente")
+def backupAgora(ator):
+    if S["backup"].get("emAndamento"):
+        raise Erro("Já há um backup em andamento.")
+    threading.Thread(target=_rodar_backup, args=("manual",), daemon=True).start()
+
+
+def agendador_backup():
+    """Backup diário no horário BACKUP_HORA (e um na partida se nunca houve)."""
+    if not BACKUP_HORA:
+        return
+    if not S["backup"].get("ultimo"):
+        _rodar_backup("primeiro")
+    while True:
+        time.sleep(30)
+        if time.strftime("%H:%M") == BACKUP_HORA and agora() - (S["backup"].get("ultimo") or 0) > 3600_000:
+            _rodar_backup("diario")
+
+
 # --- sessões: encerrar, arquivar, consultar
 def retrato(fim=None) -> dict:
     """Tudo o que a ata precisa da sessão em andamento (cópia independente do estado)."""
@@ -1891,7 +1952,19 @@ class Manipulador(BaseHTTPRequestHandler):
 
     def _ator(self):
         token = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
-        return S["_tokens"].get(token) if token else None
+        a = S["_tokens"].get(token) if token else None
+        if not a:
+            return None
+        ocioso = OCIOSO_PRESIDENTE if a["papel"] == "presidente" else OCIOSO_PARLAMENTAR
+        if agora() - a.get("uso", 0) > ocioso or agora() - a.get("criado", 0) > VALIDADE_MAXIMA:
+            S["_tokens"].pop(token, None)
+            return None
+        if agora() - a.get("uso", 0) > 300_000:
+            a["uso"] = agora()
+        return a
+
+    def _ip(self) -> str:
+        return self.client_address[0] if self.client_address else "?"
 
     # ----- GET
     def setup(self):
@@ -1946,7 +2019,7 @@ class Manipulador(BaseHTTPRequestHandler):
         if caminho == "/api/eu":
             with trava:
                 a = self._ator()
-            return self._json(200, {"ator": a})
+            return self._json(200, {"ator": {k: a.get(k) for k in ("papel", "pid", "deveTrocar")} if a else None})
         return self._estatico(caminho)
 
     def _estatico(self, caminho):
@@ -2266,35 +2339,95 @@ class Manipulador(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": True})
             if caminho == "/api/acao":
                 return self._acao(corpo)
+            if caminho == "/api/trocar-pin":
+                return self._trocar_pin(corpo)
             return self._json(404, {"erro": "Não encontrado."})
         except Erro as e:
             return self._json(400, {"erro": str(e)})
 
+    def _pin_guardado(self, papel: str, pid) -> str | None:
+        if papel == "presidente":
+            return S.get("_pinPresidente") or PIN_PRESIDENTE
+        return S["_pins"].get(pid)
+
     def _entrar(self, corpo):
-        papel, pin = corpo.get("papel"), str(corpo.get("pin") or "")
+        papel, pin, pid = corpo.get("papel"), str(corpo.get("pin") or ""), corpo.get("pid")
+        if papel not in ("presidente", "parlamentar"):
+            return self._json(400, {"erro": "Acesso inválido."})
+        conta = f"{papel}:{pid or ''}"
+        espera = bloqueio.espera(conta, self._ip())
+        if espera:
+            return self._json(429, {"erro": f"Muitas tentativas erradas. Tente de novo em {max(1, espera // 60)} minuto(s)."})
         with trava:
-            if papel == "presidente" and secrets.compare_digest(pin, PIN_PRESIDENTE):
-                ator = {"papel": "presidente", "pid": None}
-            elif papel == "parlamentar" and corpo.get("pid") in S["_pins"] and \
-                    secrets.compare_digest(pin, S["_pins"][corpo["pid"]]):
-                ator = {"papel": "parlamentar", "pid": corpo["pid"]}
+            guardado = self._pin_guardado(papel, pid)
+        if not guardado or not seguranca.verificar_pin(pin, guardado):  # PBKDF2 fora da trava do plenário
+            bloqueio.falhou(conta, self._ip())
+            time.sleep(0.4)
+            return self._json(403, {"erro": "PIN incorreto."})
+        bloqueio.acertou(conta)
+        with trava:
+            ator = {"papel": papel, "pid": pid if papel == "parlamentar" else None, "criado": agora(), "uso": agora(),
+                    "deveTrocar": seguranca.pin_fraco(pin)}
+            token = secrets.token_urlsafe(24)
+            S["_tokens"][token] = ator
+            registrar(ator["pid"] or "presidente", "entrar", {})
+            salvar()
+        return self._json(200, {"token": token, "ator": {k: ator[k] for k in ("papel", "pid", "deveTrocar")}})
+
+    def _trocar_pin(self, corpo):
+        with trava:
+            token = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+            ator = self._ator()
+            if not ator:
+                return self._json(401, {"erro": "Sessão expirada. Entre novamente."})
+            guardado = self._pin_guardado(ator["papel"], ator["pid"])
+        conta = f"{ator['papel']}:{ator['pid'] or ''}"
+        if bloqueio.espera(conta, self._ip()):
+            return self._json(429, {"erro": "Muitas tentativas erradas. Aguarde alguns minutos."})
+        if not seguranca.verificar_pin(str(corpo.get("atual") or ""), guardado):
+            bloqueio.falhou(conta, self._ip())
+            return self._json(403, {"erro": "PIN atual incorreto."})
+        novo = str(corpo.get("novo") or "")
+        erro = seguranca.validar_novo_pin(novo, 6 if ator["papel"] == "presidente" else 4)
+        if erro:
+            return self._json(400, {"erro": erro})
+        if novo == str(corpo.get("atual")):
+            return self._json(400, {"erro": "O novo PIN deve ser diferente do atual."})
+        h = seguranca.hash_pin(novo)
+        with trava:
+            if ator["papel"] == "presidente":
+                S["_pinPresidente"] = h
             else:
-                ator = None
-            if ator:
-                token = secrets.token_urlsafe(24)
-                S["_tokens"][token] = ator
-                registrar(ator["pid"] or "presidente", "entrar", {})
-                salvar()
-                return self._json(200, {"token": token, "ator": ator})
-        time.sleep(0.6)
-        return self._json(403, {"erro": "PIN incorreto."})
+                S["_pins"][ator["pid"]] = h
+            # encerra os outros acessos desta conta; este continua valendo
+            S["_tokens"] = {t: a for t, a in S["_tokens"].items()
+                            if t == token or not (a["papel"] == ator["papel"] and a.get("pid") == ator["pid"])}
+            S["_tokens"][token]["deveTrocar"] = False
+            registrar(ator["pid"] or "presidente", "trocarPin", {})
+            salvar()
+        return self._json(200, {"ok": True})
 
     def _acao(self, corpo):
-        nome, args = corpo.get("nome"), corpo.get("args") or {}
+        nome, args = corpo.get("nome"), dict(corpo.get("args") or {})
+        if nome in ACOES_COM_PIN:  # confirma o PIN antes, fora da trava (PBKDF2 é lento de propósito)
+            with trava:
+                ator = self._ator()
+                guardado = self._pin_guardado("parlamentar", ator["pid"]) if ator and ator["papel"] == "parlamentar" else None
+            conta = f"parlamentar:{ator['pid'] if ator else ''}"
+            if guardado:
+                if bloqueio.espera(conta, self._ip()):
+                    return self._json(429, {"erro": "Muitas tentativas erradas. Aguarde alguns minutos."})
+                if not seguranca.verificar_pin(str(args.pop("pin", "")), guardado):
+                    bloqueio.falhou(conta, self._ip())
+                    return self._json(403, {"erro": "PIN incorreto: o voto não foi registrado.", "codigo": "pin"})
+                bloqueio.acertou(conta)
+        args.pop("pin", None)
         with trava:
             ator = self._ator()
             if not ator:
                 return self._json(401, {"erro": "Sessão expirada. Entre novamente."})
+            if ator.get("deveTrocar"):
+                return self._json(403, {"erro": "Troque o PIN padrão antes de continuar.", "codigo": "trocarPin"})
             if nome not in ACOES or ator["papel"] not in ACOES[nome][0]:
                 return self._json(403, {"erro": "Ação não permitida."})
             antes = json.dumps(S)
@@ -2350,6 +2483,7 @@ def main():
         return
     global HTTPS_ATIVO
     threading.Thread(target=tique, daemon=True).start()
+    threading.Thread(target=agendador_backup, daemon=True).start()
     par = certificado()
     if par:
         ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)

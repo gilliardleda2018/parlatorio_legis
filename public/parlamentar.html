@@ -97,6 +97,7 @@ async function iniciar() {
   eu = await PL.quemSou('parlamentar');
   (eu ? $('app') : $('login')).classList.remove('oculto');
   if (eu && PL.estado) desenhar();  // o primeiro estado pode ter chegado antes de confirmar o login
+  if (eu?.deveTrocar) PL.exigirTrocaPin('parlamentar');
 }
 async function entrar() {
   try { await PL.entrar('parlamentar', $('lPin').value, $('lParl').value); location.reload(); }
@@ -126,6 +127,7 @@ function desenhar() {
   const bloqueio = S.cfg.exigePresenca && !presente;
 
   let html = `<div class="cartao"><div class="eu">${avatar(p)}<div class="nm"><b>${esc(p.nome)}</b>${sigla(p.partido)}</div>
+    <button class="botao pq fantasma" onclick="PL.exigirTrocaPin('parlamentar', true)">PIN</button>
     <button class="botao pq fantasma" onclick="PL.sair('parlamentar').then(()=>location.reload())">Sair</button></div>
     <div class="status" style="margin-top:12px">
       <div class="grupo">${PL.micChip(eu.pid)}${S.congelado ? '<span class="chip interr"><span class="ponto"></span>Sessão congelada</span>' : ''}</div>
@@ -221,17 +223,29 @@ function desenharVirtualParl() {
           <p style="margin:4px 0 8px;font-size:14px">${esc(it.ementa)}</p>
           ${it.resultado ? `<span class="chip ${it.resultado === 'aprovada' ? 'sim' : it.resultado === 'rejeitada' ? 'nao' : 'ambar'}">${it.resultado === 'destacado' ? 'Destacado para a sessão presencial' : PL.SITUACOES[it.resultado]}</span>`
             : destacado ? `<span class="chip interr">Destacado por ${it.destaques.map(d => esc(parl(d).nome)).join(', ')} — vai à sessão presencial</span>`
-            : v.status === 'aberta' ? `<div class="votar" style="grid-template-columns:1fr 1fr 1fr">${['sim', 'nao', 'abst'].map(x => `<button class="botao ${x} ${meu === x ? 'escolhido' : ''}" style="min-height:52px;font-size:17px" onclick="A('virtualVotar',{vid:'${v.id}',itemId:'${it.id}',valor:'${x}'})">${PL.VOTOS[x]}</button>`).join('')}</div>
+            : v.status === 'aberta' ? `<div class="votar" style="grid-template-columns:1fr 1fr 1fr">${['sim', 'nao', 'abst'].map(x => `<button class="botao ${x} ${meu === x ? 'escolhido' : ''}" style="min-height:52px;font-size:17px" onclick="votarVirtual('${v.id}','${it.id}','${x}','${esc(it.numero)}')">${PL.VOTOS[x]}</button>`).join('')}</div>
               ${meu ? `<p class="detalhe" style="margin:6px 0 0">Seu voto: <b>${PL.VOTOS[meu]}</b></p>` : ''}` : ''}
           ${v.status !== 'agendada' ? `<div class="detalhe tnum" style="margin-top:6px">Parcial: sim ${c.sim} · não ${c.nao} · abst. ${c.abst}</div>` : ''}
           ${it.manifestacoes.length ? `<details style="margin-top:6px;font-size:13px"><summary class="suave" style="cursor:pointer">${it.manifestacoes.length} manifestação(ões)</summary>${it.manifestacoes.map(m => `<p style="margin:6px 0"><b>${esc(m.nome)}</b> <small class="suave">${dtv(m.ts)}</small><br>${esc(m.texto)}</p>`).join('')}</details>` : ''}
           ${v.status === 'aberta' && !destacado && !it.resultado ? `<details style="margin-top:8px"><summary class="suave" style="cursor:pointer;font-size:13px">Manifestar-se ou pedir destaque</summary>
             <textarea class="campo" rows="3" style="margin-top:8px" placeholder="Sua manifestação por escrito (fica pública e vai para a ata)" oninput="rascunhos['${it.id}']=this.value">${esc(rascunhos[it.id] || '')}</textarea>
             <div class="grupo" style="margin-top:6px"><button class="botao pq" onclick="manifestar('${v.id}','${it.id}')">Enviar manifestação</button>
-            <button class="botao pq fantasma" onclick="if(confirm('Pedir destaque? O item sai da sessão virtual e será votado na sessão presencial; os votos já dados são descartados.'))A('virtualDestaque',{vid:'${v.id}',itemId:'${it.id}'})">Pedir destaque</button></div></details>` : ''}
+            <button class="botao pq fantasma" onclick="destacar('${v.id}','${it.id}')">Pedir destaque</button></div></details>` : ''}
         </div>`;
       }).join('') || '<p class="vazio">Sem itens.</p>'}
     </div>`).join('') : '<div class="cartao neutro"><p class="vazio" style="margin:0">Nenhuma sessão virtual no momento.</p></div>';
+}
+async function votarVirtual(vid, itemId, valor, numero) {
+  const pin = await PL.pedirPin(`Voto ${PL.VOTOS[valor]} em ${numero}.`);
+  if (!pin) return;
+  try { await PL.acao('parlamentar', 'virtualVotar', { vid, itemId, valor, pin }); navigator.vibrate?.(30); PL.avisar('Voto registrado.'); }
+  catch (e) { if (e.codigo === 'pin') PL.esquecerPin(); }
+}
+async function destacar(vid, itemId) {
+  if (!confirm('Pedir destaque? O item sai da sessão virtual e será votado na sessão presencial; os votos já dados são descartados.')) return;
+  const pin = await PL.pedirPin('Pedido de destaque.');
+  if (!pin) return;
+  try { await PL.acao('parlamentar', 'virtualDestaque', { vid, itemId, pin }); } catch (e) { if (e.codigo === 'pin') PL.esquecerPin(); }
 }
 async function manifestar(vid, itemId) {
   try { await PL.acao('parlamentar', 'virtualManifestar', { vid, itemId, texto: rascunhos[itemId] || '' }); rascunhos[itemId] = ''; document.activeElement?.blur(); PL.avisar('Manifestação registrada.'); desenharVirtualParl(); } catch {}

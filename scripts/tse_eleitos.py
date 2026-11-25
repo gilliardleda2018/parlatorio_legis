@@ -101,7 +101,7 @@ def main():
         except Exception as erro:
             print(f"  foto de {e['nome']} indisponível ({erro})")
         S["parls"].append(p)
-        S["_pins"][p["id"]] = "0000"
+        S["_pins"][p["id"]] = servidor.seguranca.hash_pin("0000")
         S["partidos"].setdefault(e["partido"], "#5b6b86")
         print(f"  {e['nome']:<28} {e['partido']:<6} nº {e['numero']:<6} {e['votos']:>5} votos  {'foto ✓' if p['fotoV'] else 'sem foto'}")
     servidor.db.commit()

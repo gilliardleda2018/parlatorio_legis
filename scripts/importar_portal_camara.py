@@ -245,7 +245,7 @@ def main():
             p = {"id": servidor.uid(), "nome": v["curto"], "partido": v["partido"], "lider": False, "fotoV": 0, "canal": 0,
                  "bloco": "", **info}
             S["parls"].append(p)
-            S["_pins"][p["id"]] = "0000"
+            S["_pins"][p["id"]] = servidor.seguranca.hash_pin("0000")
             print(f"  + novo em exercício: {v['curto']}")
         else:
             p = ex.get(v["portalId"]) or {"id": servidor.uid(), "fotoV": 0, "portalId": v["portalId"]}

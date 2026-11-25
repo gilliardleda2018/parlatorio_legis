@@ -163,6 +163,7 @@
       <button class="item" id="btSom" title="Som de aviso neste computador"></button>
       <a class="item" href="/transparencia?interno=1" target="estatisticas">Estatísticas ↗</a>
       <a class="item" href="/telao" target="telao">Telão ↗</a>
+      <button class="item" onclick="PL.exigirTrocaPin('presidente', true)" title="Trocar o PIN do painel">PIN</button>
       <button class="item" onclick="PL.sair('presidente').then(() => location.reload())">Sair</button>
     </div>
   </nav>
@@ -387,6 +388,11 @@
           <div class="cartao neutro">
             <h2>Cores dos partidos<span class="esp"></span><button class="botao pq" onclick="cfgPartidos.push(['NOVO PARTIDO','#5b6b86']);desenharPartidos()">+ Partido</button></h2>
             <div id="cPartidos" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px"></div>
+          </div>
+          <div class="cartao neutro" id="cartaoBackup">
+            <h2>Backup<span class="esp"></span><button class="botao pq" id="bkBotao" onclick="A('backupAgora')">Fazer backup agora</button></h2>
+            <div id="bkEstado" class="detalhe"></div>
+            <small class="suave">Cópia automática diária do banco (sessões, votos, projetos, imagens) e das gravações. Para enviar também ao Nextcloud, configure no servidor as variáveis NEXTCLOUD_URL, NEXTCLOUD_USUARIO, NEXTCLOUD_SENHA e NEXTCLOUD_PASTA (veja o README).</small>
           </div>
           <div class="cartao" id="cartaoRodape">
             <h2>Rodapé das páginas públicas</h2>
