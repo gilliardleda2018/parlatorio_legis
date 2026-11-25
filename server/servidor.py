@@ -52,6 +52,8 @@ LIMITE_PARTE = 32 * 1024 * 1024
 TIPOS_AUDIO = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a"}
 PORTA = int(os.environ.get("PORTA", "8090"))
 PIN_PRESIDENTE = os.environ.get("PIN_PRESIDENTE", "1234")  # PIN inicial; depois da troca vale o salvo (com hash)
+# Período de testes: TROCA_PIN=0 deixa entrar com PIN padrão (0000) sem obrigar a troca. Em produção, deixe ligado.
+TROCA_PIN_OBRIGATORIA = os.environ.get("TROCA_PIN", "1") != "0"
 OCIOSO_PRESIDENTE = 12 * 3600_000      # login do painel expira após 12 h sem uso
 OCIOSO_PARLAMENTAR = 30 * 86400_000    # no celular, após 30 dias sem uso
 VALIDADE_MAXIMA = 90 * 86400_000       # nenhum login dura mais que 90 dias
@@ -2367,7 +2369,7 @@ class Manipulador(BaseHTTPRequestHandler):
         bloqueio.acertou(conta)
         with trava:
             ator = {"papel": papel, "pid": pid if papel == "parlamentar" else None, "criado": agora(), "uso": agora(),
-                    "deveTrocar": seguranca.pin_fraco(pin)}
+                    "deveTrocar": TROCA_PIN_OBRIGATORIA and seguranca.pin_fraco(pin)}
             token = secrets.token_urlsafe(24)
             S["_tokens"][token] = ator
             registrar(ator["pid"] or "presidente", "entrar", {})
@@ -2503,6 +2505,8 @@ def main():
     servidor.daemon_threads = True
     servidor.redireciona = bool(par)
     print(f"Parlatório Legis em http://localhost:{PORTA}  (PIN do presidente: variável PIN_PRESIDENTE)", flush=True)
+    if not TROCA_PIN_OBRIGATORIA:
+        print("ATENÇÃO: troca obrigatória de PIN desligada (TROCA_PIN=0) — use só em testes.", flush=True)
     servidor.serve_forever()
 
 

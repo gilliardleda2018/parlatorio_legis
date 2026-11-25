@@ -127,7 +127,7 @@ function desenhar() {
   const bloqueio = S.cfg.exigePresenca && !presente;
 
   let html = `<div class="cartao"><div class="eu">${avatar(p)}<div class="nm"><b>${esc(p.nome)}</b>${sigla(p.partido)}</div>
-    <button class="botao pq fantasma" onclick="PL.exigirTrocaPin('parlamentar', true)">PIN</button>
+    <button class="botao pq fantasma" onclick="PL.exigirTrocaPin('parlamentar', true)" title="Trocar meu PIN">🔑 Trocar PIN</button>
     <button class="botao pq fantasma" onclick="PL.sair('parlamentar').then(()=>location.reload())">Sair</button></div>
     <div class="status" style="margin-top:12px">
       <div class="grupo">${PL.micChip(eu.pid)}${S.congelado ? '<span class="chip interr"><span class="ponto"></span>Sessão congelada</span>' : ''}</div>

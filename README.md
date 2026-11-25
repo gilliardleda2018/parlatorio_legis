@@ -35,6 +35,7 @@ Variáveis de ambiente:
 - `TLS_NOMES`: nomes ou IPs extras para o certificado local, separados por vírgula
 - `TZ`: fuso das atas (o Docker já usa `America/Sao_Paulo`)
 - `PIN_PRESIDENTE`: PIN do painel do presidente (padrão 1234; troque em produção)
+- `TROCA_PIN=0`: período de testes — deixa entrar com o PIN padrão (0000) sem obrigar a troca. Não use em produção.
 - `PARLATORIO_BANCO`: caminho do banco SQLite (padrão `dados/parlatorio.db`)
 
 Os parlamentares começam com PIN `0000` e o painel com `1234` (ou o `PIN_PRESIDENTE`). No primeiro acesso o sistema **obriga a troca** por um PIN pessoal.
