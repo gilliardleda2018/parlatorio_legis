@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<title>Parlamentar — Parlatório Legis</title>
+<link rel="icon" type="image/png" href="/marca/favicon-32x32.png">
+<link rel="apple-touch-icon" href="/marca/icon-192x192.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  body { padding-bottom: env(safe-area-inset-bottom) }
+  main { max-width: 520px; margin: 0 auto; padding: 14px; display: flex; flex-direction: column; gap: 14px }
+  .eu { display: flex; align-items: center; gap: 12px }
+  .eu .av { width: 56px; height: 56px; font-size: 20px }
+  .eu .nm { flex: 1 }
+  .eu .nm b { display: block; font-size: 19px }
+  .acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+  .acoes .botao { min-height: 64px; white-space: normal; text-align: center; font-size: 16px }
+  .acoes .largo { grid-column: 1 / -1 }
+  .tribuna { display: flex; align-items: center; gap: 12px }
+  .tribuna .nm { flex: 1; min-width: 0 }
+  .tribuna .t { font-size: 34px; font-weight: 800 }
+  .eu-fala { text-align: center }
+  .eu-fala .t { font-size: 84px; font-weight: 800; line-height: 1; margin: 8px 0 }
+  .votar { display: grid; gap: 10px }
+  .votar .botao { min-height: 70px; font-size: 22px }
+  .votar .sim { background: var(--sim); color: #fff } .votar .nao { background: var(--nao); color: #fff } .votar .abst { background: var(--abst); color: #fff }
+  .votar .botao.escolhido { outline: 4px solid var(--texto); outline-offset: 2px }
+  .pend { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-top: 1px solid var(--linha) }
+  .login { display: flex; flex-direction: column; gap: 12px; text-align: center }
+  .login img { width: 90px; margin: 10px auto 0 }
+  .pin { font-size: 28px; letter-spacing: .4em; text-align: center }
+  .status { font-size: 15px; display: flex; flex-direction: column; gap: 4px }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img data-logo src="/marca/logo.svg" alt=""><span><span data-casa></span><small data-sessao></small></span></a>
+  <span class="esp"></span><span class="conexao"></span><span class="relogio tnum" id="hora" style="font-size:16px"></span>
+</div></nav>
+
+<main id="login" class="oculto">
+  <form class="cartao login" onsubmit="event.preventDefault(); entrar()">
+    <img data-logo src="/marca/logo.svg" alt="">
+    <h1 style="font-size:21px">Acesso do parlamentar</h1>
+    <select class="campo" id="lParl" aria-label="Seu nome"></select>
+    <input class="campo pin" id="lPin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" aria-label="PIN">
+    <button class="botao principal gr">Entrar</button>
+  </form>
+</main>
+
+<main id="app" class="oculto"></main>
+
+<script src="/comum.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const { esc, avatar, sigla, parl, fase } = PL;
+const A = (nome, args) => PL.acao('parlamentar', nome, args).then(() => navigator.vibrate?.(30)).catch(() => {});
+let eu = null;
+
+async function iniciar() {
+  PL.conectar();
+  eu = await PL.quemSou('parlamentar');
+  (eu ? $('app') : $('login')).classList.remove('oculto');
+}
+async function entrar() {
+  try { await PL.entrar('parlamentar', $('lPin').value, $('lParl').value); location.reload(); }
+  catch (e) { PL.avisar(e.message, true); $('lPin').select(); }
+}
+
+PL.aoMudar(S => {
+  if (!eu) {
+    const sel = $('lParl'), atual = sel.value || localStorage.getItem('parlatorio.ultimo') || '';
+    sel.innerHTML = '<option value="">Selecione seu nome…</option>' + [...S.parls].sort((a, b) => a.nome.localeCompare(b.nome)).map(p => `<option value="${p.id}">${esc(p.nome)} (${esc(p.partido)})</option>`).join('');
+    sel.value = atual;
+    sel.onchange = () => localStorage.setItem('parlatorio.ultimo', sel.value);
+    return;
+  }
+  desenhar();
+});
+
+function desenhar() {
+  const S = PL.estado, p = parl(eu.pid), o = S.orador, i = S.interr, v = S.votacao;
+  const presente = !!S.presenca[eu.pid];
+  const fila = S.filas[S.faseAtual] || [];
+  const pos = fila.findIndex(e => e.pid === eu.pid);
+  const meus = S.pedidos.filter(x => x.pid === eu.pid);
+  const pediu = t => meus.some(x => x.tipo === t);
+  const falando = o?.pid === eu.pid, apartando = i?.pid === eu.pid;
+  const m = S.pauta.find(x => x.id === S.materiaAtual);
+  const bloqueio = S.cfg.exigePresenca && !presente;
+
+  let html = `<div class="cartao"><div class="eu">${avatar(p)}<div class="nm"><b>${esc(p.nome)}</b>${sigla(p.partido)}</div>
+    <button class="botao pq fantasma" onclick="PL.sair('parlamentar').then(()=>location.reload())">Sair</button></div>
+    <div class="status" style="margin-top:12px">
+      ${presente ? '<span class="chip sim">✓ Presença registrada</span>'
+        : S.cfg.presencaCelular ? `<button class="botao ok gr" onclick="A('presenca')">Registrar presença</button>` : '<span class="chip ambar">Presença não registrada — procure a secretaria</span>'}
+    </div></div>`;
+
+  if (falando || apartando) {
+    html += `<div class="cartao eu-fala"><h2 style="justify-content:center">${falando ? 'Você está com a palavra' : PL.TIPOS[i.tipo]}</h2>
+      <div class="t tnum" id="tEu"></div><div class="barra" id="bEu"><i></i></div></div>`;
+  }
+
+  if (v && v.aberta && v.tipo !== 'simbolica') {
+    const meuVoto = v.votos[eu.pid], jaVotou = v.votantes.includes(eu.pid);
+    const travado = v.tipo === 'secreta' && jaVotou;
+    html += `<div class="cartao" style="border-top-color:var(--ambar)"><h2>Votação ${v.tipo === 'secreta' ? 'secreta' : 'nominal'} aberta</h2>
+      <p style="margin:0 0 12px"><b>${esc(v.numero)}</b> — ${esc(v.ementa)}</p>
+      ${travado ? '<p class="chip sim" style="margin:0">✓ Voto registrado</p>'
+        : `<div class="votar">${['sim', 'nao', 'abst'].map(x => `<button class="botao ${x} ${meuVoto === x ? 'escolhido' : ''}" ${bloqueio ? 'disabled' : ''}
+            onclick="votar('${x}')">${PL.VOTOS[x]}</button>`).join('')}</div>
+          ${meuVoto ? `<p class="detalhe">Seu voto: <b>${PL.VOTOS[meuVoto]}</b>. Você pode mudar enquanto a votação estiver aberta.</p>` : ''}
+          ${v.tipo === 'secreta' ? '<p class="detalhe">Votação secreta: o voto não pode ser alterado depois de confirmado.</p>' : ''}`}
+    </div>`;
+  } else if (v && !v.aberta) {
+    html += `<div class="cartao neutro"><h2>Resultado</h2><b>${esc(v.numero)}</b>: <span class="chip ${v.resultado === 'aprovada' ? 'sim' : v.resultado === 'rejeitada' ? 'nao' : 'ambar'}">${PL.SITUACOES[v.resultado]}</span></div>`;
+  }
+
+  html += `<div class="cartao neutro"><h2>Agora no plenário</h2>
+    <div class="detalhe" style="margin-bottom:10px">${esc(fase(S.faseAtual).nome)}${m ? ` · <b>${esc(m.numero)}</b>` : ''}</div>
+    ${o ? `<div class="tribuna">${avatar(parl(o.pid))}<div class="nm"><b>${esc(parl(o.pid).nome)}</b><br>${sigla(parl(o.pid).partido)}</div><span class="t tnum" id="tOrador"></span></div>`
+      : '<p class="vazio" style="margin:0">Tribuna sem orador.</p>'}
+    ${i && !apartando ? `<p class="detalhe">${PL.TIPOS[i.tipo]}: ${esc(parl(i.pid).nome)}</p>` : ''}</div>`;
+
+  html += `<div class="cartao"><h2>Pedir a palavra</h2>
+    ${pos >= 0 ? `<p style="margin:0 0 12px">Você é o <b>${pos + 1}º inscrito</b> em ${esc(fase(S.faseAtual).nome)}.</p>` : ''}
+    <div class="acoes">
+      ${pos >= 0 ? `<button class="botao largo fantasma" onclick="A('sairFila')">Cancelar minha inscrição</button>`
+        : `<button class="botao principal largo" ${bloqueio || pediu('inscricao') || falando ? 'disabled' : ''} onclick="A('pedir',{tipo:'inscricao'})">${pediu('inscricao') ? 'Inscrição solicitada…' : 'Inscrever-me em ' + esc(fase(S.faseAtual).nome)}</button>`}
+      <button class="botao" ${bloqueio || pediu('aparte') || !o?.start || falando ? 'disabled' : ''} onclick="A('pedir',{tipo:'aparte'})">${pediu('aparte') ? 'Aparte solicitado…' : 'Pedir aparte'}</button>
+      <button class="botao" ${bloqueio || pediu('ordem') ? 'disabled' : ''} onclick="A('pedir',{tipo:'ordem'})">${pediu('ordem') ? 'Solicitada…' : 'Questão de ordem'}</button>
+      <button class="botao largo" ${bloqueio || pediu('pelaordem') ? 'disabled' : ''} onclick="A('pedir',{tipo:'pelaordem'})">${pediu('pelaordem') ? 'Pela ordem solicitado…' : 'Pela ordem'}</button>
+    </div>
+    ${bloqueio ? '<p class="detalhe">Registre sua presença para pedir a palavra e votar.</p>' : ''}
+    ${meus.length ? `<div style="margin-top:12px">${meus.map(x => `<div class="pend"><span>${PL.TIPOS[x.tipo]} <small class="suave">· aguardando o presidente</small></span>
+      <button class="botao pq fantasma" onclick="A('cancelarPedido',{id:'${x.id}'})">Cancelar</button></div>`).join('')}</div>` : ''}
+  </div>`;
+
+  $('app').innerHTML = html;
+  relogios();
+}
+function votar(x) {
+  const v = PL.estado.votacao;
+  if (v.tipo === 'secreta' && !confirm(`Confirmar voto “${PL.VOTOS[x]}”? Na votação secreta não é possível alterar.`)) return;
+  A('votar', { valor: x });
+}
+function relogios() {
+  const S = PL.estado; if (!S) return;
+  $('hora').textContent = PL.relogio().slice(0, 5);
+  if (!eu) return;
+  if (S.orador) PL.pintar(S.orador, $('tOrador'));
+  if (S.orador?.pid === eu.pid) PL.pintar(S.orador, $('tEu'), $('bEu'));
+  if (S.interr?.pid === eu.pid) PL.pintar(S.interr, $('tEu'), $('bEu'));
+}
+setInterval(relogios, 250);
+iniciar();
+</script>
+</body>
+</html>

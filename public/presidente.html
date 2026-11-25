@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Painel do Presidente — Parlatório Legis</title>
+<link rel="icon" type="image/png" href="/marca/favicon-32x32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  main { padding: 18px; max-width: 1640px; margin: 0 auto }
+  .aba { display: none }
+  .aba.ativa { display: block }
+  .grade3 { display: grid; grid-template-columns: 330px minmax(0, 1fr) 340px; gap: 16px; align-items: start }
+  .grade2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start }
+  .coluna { display: flex; flex-direction: column; gap: 16px; min-width: 0 }
+  @media (max-width: 1250px) { .grade3 { grid-template-columns: 1fr 1fr } .grade3 > .centro { grid-column: 1 / -1; order: -1 } }
+  @media (max-width: 820px) { .grade3, .grade2 { grid-template-columns: 1fr } }
+
+  /* fases */
+  .fase { padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; display: flex; flex-direction: column; gap: 6px }
+  .fase:hover { background: var(--cartao2) }
+  .fase.ativa { background: var(--cartao2); border-color: var(--destaque-suave) }
+  .fase .t { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600 }
+  .fase .t small { font-weight: 400 }
+  .fase .barra { height: 5px }
+  .conta { font-size: 12px; background: var(--fundo-fundo); padding: 2px 9px; border-radius: 99px; color: var(--suave); font-weight: 700 }
+
+  /* listas */
+  .lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px }
+  .lista li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--cartao2); border-radius: 10px }
+  .lista li .nm { flex: 1; min-width: 0 }
+  .lista li .nm b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600 }
+  .lista li .nm small { color: var(--suave); font-size: 12px }
+  .lista li .ord { width: 18px; color: var(--suave); font-size: 13px; text-align: center }
+  .lista .acoes { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end }
+  #fila li { flex-wrap: wrap } #fila .acoes { width: 100%; padding-left: 28px; justify-content: flex-start }
+
+  /* tribuna */
+  .tribuna { text-align: center; padding: 26px 22px }
+  .tribuna .contexto { color: var(--suave); font-size: 14px; margin-bottom: 14px }
+  .tribuna .quem { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 12px }
+  .tribuna .quem .av { width: 84px; height: 84px; font-size: 28px; box-shadow: 0 0 0 3px var(--cor-partido) }
+  .tribuna .quem .nm { text-align: left }
+  .tribuna .quem .nm b { display: block; font-size: 26px }
+  .tribuna .grande { font-size: clamp(64px, 9vw, 128px); font-weight: 800; line-height: 1; margin: 14px 0 }
+  .tribuna .barra { max-width: 560px; margin: 0 auto 18px; height: 12px }
+  .tribuna .grupo { justify-content: center }
+  .interrupcao { margin-top: 18px; padding: 14px; border-radius: 12px; background: color-mix(in srgb, var(--azul) 12%, transparent); border: 1px solid color-mix(in srgb, var(--azul) 50%, transparent); display: flex; align-items: center; gap: 14px; justify-content: center; flex-wrap: wrap }
+  .interrupcao .t { font-size: 36px; font-weight: 800 }
+  .pedir { margin-top: 18px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center }
+  .pedir select { max-width: 280px }
+  .atalhos { font-size: 12px; color: var(--suave); margin-top: 16px }
+  .atalhos kbd { border: 1px solid var(--cartao3); border-radius: 4px; padding: 0 5px; font-family: inherit }
+  .materia-faixa { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-radius: 12px; background: var(--cartao); border-left: 4px solid var(--ciano) }
+  .materia-faixa .nm { flex: 1; min-width: 0 }
+
+  /* quórum */
+  .quorum { display: flex; align-items: center; gap: 14px }
+  .quorum .num { font-size: 34px; font-weight: 800 }
+  .quorum .barra { flex: 1 }
+
+  /* votação */
+  .placar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0 }
+  .placar div { background: var(--cartao2); border-radius: 12px; padding: 12px; text-align: center }
+  .placar b { display: block; font-size: 34px }
+  .placar .sim b { color: var(--sim) } .placar .nao b { color: var(--nao) } .placar .abst b { color: var(--abst) }
+  .votos { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px }
+  .voto { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--cartao2); border-radius: 10px; font-size: 14px }
+  .voto.ausente { opacity: .45 }
+  .voto .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .voto .av { width: 30px; height: 30px; font-size: 12px }
+  .voto .bts { display: flex; gap: 2px }
+  .voto .bts button { width: 26px; height: 26px; border-radius: 6px; border: 0; cursor: pointer; background: var(--cartao3); font-size: 12px; font-weight: 700 }
+  .voto .bts button.on.sim { background: var(--sim); color: #fff } .voto .bts button.on.nao { background: var(--nao); color: #fff } .voto .bts button.on.abst { background: var(--abst); color: #fff }
+  .resultado { font-size: 28px; font-weight: 800; text-align: center; padding: 14px; border-radius: 12px; margin: 10px 0 }
+  .resultado.aprovada { background: color-mix(in srgb, var(--sim) 20%, transparent); color: var(--sim) }
+  .resultado.rejeitada { background: color-mix(in srgb, var(--nao) 20%, transparent); color: var(--nao) }
+  .resultado.sem_quorum { background: color-mix(in srgb, var(--ambar) 20%, transparent); color: var(--ambar) }
+
+  /* tabelas */
+  table.tab { width: 100%; border-collapse: collapse; font-size: 14px }
+  table.tab th { text-align: left; color: var(--suave); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; padding: 8px }
+  table.tab td { padding: 8px; border-top: 1px solid var(--linha); vertical-align: middle }
+  table.tab td.num { text-align: right }
+  .barras { display: flex; flex-direction: column; gap: 8px }
+  .barras .l { display: grid; grid-template-columns: 120px 1fr 70px; gap: 10px; align-items: center; font-size: 14px }
+  .barras .l .b { height: 14px; border-radius: 4px; background: var(--cor-partido) }
+
+  /* login e diálogo */
+  .tela-login { min-height: 100vh; display: grid; place-items: center; padding: 20px }
+  .tela-login .cartao { width: min(380px, 100%); text-align: center; display: flex; flex-direction: column; gap: 14px }
+  .tela-login img { width: 110px; margin: 0 auto }
+  .pin { font-size: 28px; letter-spacing: .4em; text-align: center }
+  dialog { background: var(--cartao); color: var(--texto); border: 0; border-top: 4px solid var(--destaque-suave); border-radius: var(--raio); padding: 0; width: min(560px, 94vw) }
+  dialog::backdrop { background: rgba(0,0,0,.6) }
+  dialog .cab { padding: 16px 18px 0; display: flex; justify-content: space-between; align-items: center }
+  dialog .corpo { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; max-height: 70vh; overflow: auto }
+  dialog .rodape { padding: 0 18px 16px; display: flex; gap: 8px; justify-content: flex-end }
+  .cores { display: flex; gap: 6px; flex-wrap: wrap }
+  .cores button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer }
+  .cores button.on { border-color: var(--texto) }
+  .fases-cfg td { padding: 4px }
+</style>
+</head>
+<body>
+
+<div id="login" class="tela-login oculto">
+  <form class="cartao" onsubmit="event.preventDefault(); entrar()">
+    <img data-logo src="/marca/logo.svg" alt="">
+    <h1 style="font-size:22px">Painel do Presidente</h1>
+    <p class="detalhe" style="margin:0"><span data-casa></span> · <span data-sessao></span></p>
+    <input id="pin" class="campo pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" aria-label="PIN do presidente" autofocus>
+    <button class="botao principal gr">Entrar</button>
+    <a href="/" class="detalhe">← Voltar</a>
+  </form>
+</div>
+
+<div id="app" class="oculto">
+  <nav class="nav">
+    <div class="menu">
+      <a class="marca" href="/"><img data-logo src="/marca/logo.svg" alt=""><span><span data-casa></span><small data-sessao></small></span></a>
+      <button class="item ativo" data-aba="sessao">Sessão</button>
+      <button class="item" data-aba="pauta">Pauta e votação</button>
+      <button class="item" data-aba="plenario">Plenário <span class="bolha" id="bolhaPresenca"></span></button>
+      <button class="item" data-aba="relatorios">Relatórios</button>
+      <button class="item" data-aba="config">Configurações</button>
+      <span class="esp"></span>
+      <span class="conexao" title="Conectando…"></span>
+      <span class="relogio tnum" id="relogio"></span>
+      <button class="item" id="btSom" title="Som de aviso neste computador"></button>
+      <a class="item" href="/telao" target="telao">Telão ↗</a>
+      <button class="item" onclick="PL.sair('presidente').then(() => location.reload())">Sair</button>
+    </div>
+  </nav>
+
+  <main>
+    <!-- ===== SESSÃO ===== -->
+    <section class="aba ativa" id="aba-sessao">
+      <div class="grade3">
+        <div class="coluna">
+          <div class="cartao neutro"><h2>Fases da sessão</h2><div id="fases"></div></div>
+          <div class="cartao neutro">
+            <h2><span id="filaTitulo">Inscritos</span><span class="esp"></span><span class="conta" id="filaConta"></span></h2>
+            <ol class="lista" id="fila"></ol>
+          </div>
+        </div>
+        <div class="coluna centro">
+          <div id="faixaMateria"></div>
+          <div class="cartao tribuna" id="tribuna"></div>
+        </div>
+        <div class="coluna">
+          <div class="cartao neutro">
+            <h2>Pedidos dos parlamentares<span class="esp"></span><span class="conta" id="pedidosConta"></span></h2>
+            <ul class="lista" id="pedidos"></ul>
+          </div>
+          <div class="cartao neutro">
+            <h2>Quórum</h2>
+            <div id="quorum"></div>
+          </div>
+          <div class="cartao neutro">
+            <h2>Parlamentares</h2>
+            <input class="campo" id="busca" placeholder="Buscar nome ou partido…" style="margin-bottom:10px">
+            <ul class="lista" id="parlsRapido" style="max-height:420px;overflow:auto"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PAUTA E VOTAÇÃO ===== -->
+    <section class="aba" id="aba-pauta">
+      <div class="grade2">
+        <div class="cartao neutro">
+          <h2>Pauta da sessão<span class="esp"></span><button class="botao pq" onclick="editarMateria()">+ Matéria</button></h2>
+          <ul class="lista" id="pauta"></ul>
+        </div>
+        <div class="coluna">
+          <div class="cartao" id="votacao"></div>
+          <div class="cartao neutro"><h2>Votações desta sessão</h2><div id="votacoes"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PLENÁRIO ===== -->
+    <section class="aba" id="aba-plenario">
+      <div class="coluna">
+        <div class="cartao"><h2>Presença e quórum</h2><div id="quorumGrande"></div></div>
+        <div class="cartao neutro">
+          <h2>Parlamentares<span class="esp"></span>
+            <button class="botao pq" onclick="todosPresentes(true)">Marcar todos presentes</button>
+            <button class="botao pq" onclick="todosPresentes(false)">Limpar presença</button>
+            <button class="botao pq principal" onclick="editarParl()">+ Parlamentar</button></h2>
+          <table class="tab"><thead><tr><th></th><th>Nome</th><th>Partido</th><th>Presença</th><th>Chegada</th><th></th></tr></thead><tbody id="tabParls"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== RELATÓRIOS ===== -->
+    <section class="aba" id="aba-relatorios">
+      <div class="grupo" style="margin-bottom:16px">
+        <button class="botao" onclick="csvTempos()">Exportar ata de tempos (CSV)</button>
+        <button class="botao" onclick="csvVotacoes()">Exportar votações (CSV)</button>
+        <button class="botao fantasma" onclick="print()">Imprimir</button>
+      </div>
+      <div class="grade2">
+        <div class="cartao neutro"><h2>Tempo de fala por partido</h2><div class="barras" id="porPartido"></div></div>
+        <div class="cartao neutro"><h2>Tempo de fala por parlamentar</h2><table class="tab" id="porParl"></table></div>
+      </div>
+      <div class="cartao neutro" style="margin-top:16px"><h2>Pronunciamentos</h2><table class="tab" id="pronunciamentos"></table></div>
+    </section>
+
+    <!-- ===== CONFIGURAÇÕES ===== -->
+    <section class="aba" id="aba-config">
+      <div class="grade2">
+        <div class="coluna">
+          <div class="cartao">
+            <h2>Identidade da casa</h2>
+            <div class="coluna" style="gap:12px">
+              <label class="rot">Nome da casa legislativa<input class="campo" id="cNome"></label>
+              <label class="rot">Título da sessão<input class="campo" id="cTitulo"></label>
+              <div class="rot">Cor de destaque
+                <div style="display:flex;gap:10px;align-items:center"><div class="cores" id="cCores"></div><input type="color" id="cDestaque"></div>
+              </div>
+              <label class="linha">Tema do painel e do telão
+                <select class="campo" id="cTema" style="width:auto"><option value="escuro">Escuro</option><option value="claro">Claro</option></select></label>
+              <div class="rot">Brasão ou logo (PNG/JPEG/WebP)
+                <div style="display:flex;gap:10px;align-items:center">
+                  <img data-logo style="width:56px;height:56px;object-fit:contain;background:#fff;border-radius:10px;padding:4px" alt="">
+                  <input type="file" accept="image/png,image/jpeg,image/webp" id="cLogo">
+                  <button class="botao pq" onclick="PL.acao('presidente','imagem',{alvo:'logo'})">Usar logo Aggilli</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="cartao neutro">
+            <h2>Regras</h2>
+            <label class="linha">Aviso amarelo quando restarem (s)<input class="campo" type="number" min="0" id="cAlerta" style="width:100px"></label>
+            <label class="linha">Tempo de aparte (s)<input class="campo" type="number" min="10" id="cAparte" style="width:100px"></label>
+            <label class="linha">Questão de ordem / pela ordem (s)<input class="campo" type="number" min="10" id="cOrdem" style="width:100px"></label>
+            <label class="linha">Aparte desconta do tempo do orador<input type="checkbox" id="cDesconta"></label>
+            <label class="linha">Cortar microfone ao fim do tempo<input type="checkbox" id="cCorte"></label>
+            <label class="linha">Sinal sonoro no telão<input type="checkbox" id="cSom"></label>
+            <label class="linha">Inscrição pelo celular sem aprovação<input type="checkbox" id="cAuto"></label>
+            <label class="linha">Exigir presença para pedir a palavra e votar<input type="checkbox" id="cExige"></label>
+            <label class="linha">Permitir registro de presença pelo celular<input type="checkbox" id="cPresCel"></label>
+          </div>
+        </div>
+        <div class="coluna">
+          <div class="cartao neutro">
+            <h2>Fases e tempos<span class="esp"></span><button class="botao pq" onclick="cfgFases.push({nome:'Nova fase',min:5,totalMin:0});desenharFases()">+ Fase</button></h2>
+            <table class="tab fases-cfg"><thead><tr><th>Fase</th><th>Min/orador</th><th>Total (min, 0 = livre)</th><th></th></tr></thead><tbody id="cFases"></tbody></table>
+          </div>
+          <div class="cartao neutro">
+            <h2>Cores dos partidos<span class="esp"></span><button class="botao pq" onclick="cfgPartidos.push(['NOVO PARTIDO','#5b6b86']);desenharPartidos()">+ Partido</button></h2>
+            <div id="cPartidos" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px"></div>
+          </div>
+          <div class="grupo" style="justify-content:space-between">
+            <button class="botao perigo" onclick="zerar()">Zerar sessão…</button>
+            <span class="grupo"><button class="botao fantasma" onclick="carregarConfig()">Desfazer alterações</button>
+            <button class="botao principal" onclick="salvarConfig()">Salvar configurações</button></span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="dlg"><form method="dialog" onsubmit="return false">
+  <div class="cab"><b id="dlgTitulo"></b><button class="botao pq fantasma" value="x" onclick="dlg.close()">✕</button></div>
+  <div class="corpo" id="dlgCorpo"></div>
+  <div class="rodape"><button class="botao fantasma" onclick="dlg.close()">Cancelar</button><button class="botao principal" id="dlgOk">Salvar</button></div>
+</form></dialog>
+
+<script src="/comum.js"></script>
+<script src="/presidente.js"></script>
+</body>
+</html>
