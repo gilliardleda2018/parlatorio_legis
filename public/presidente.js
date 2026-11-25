@@ -451,6 +451,7 @@ function carregarConfig() {
   cfgFases = S.fases.map(f => ({ ...f })); desenharFases();
   cfgPartidos = Object.entries(S.partidos); desenharPartidos();
   $('sUrl').value = S.sapl.url || ''; $('sAnos').value = new Date().getFullYear();
+  carregarRodape();
   desenharSapl();
   const m = S.mesa;
   $('mDriver').value = m.driver; $('mHost').value = m.host; $('mPorta').value = m.porta; $('mEndereco').value = m.endereco;
@@ -458,6 +459,23 @@ function carregarConfig() {
   $('mUrl').value = m.url; $('mTribuna').value = m.canalTribuna; $('mReenviar').checked = m.reenviar;
   mesaCampos();
 }
+/* ---------------- rodapé público ---------------- */
+const CAMPOS_RODAPE = ['endereco', 'telefone', 'whatsapp', 'email', 'site', 'instagram', 'facebook', 'youtube', 'linkedin'];
+function carregarRodape() {
+  const r = PL.estado.rodape || {};
+  for (const [pref, chave] of [['rc', 'camara'], ['ra', 'aggilli']])
+    for (const k of CAMPOS_RODAPE) $(`${pref}_${k}`).value = r[chave]?.[k] || '';
+}
+async function salvarRodape() {
+  const ler = pref => Object.fromEntries(CAMPOS_RODAPE.map(k => {
+    let v = $(`${pref}_${k}`).value.trim();
+    if (k === 'instagram' && v.startsWith('@')) v = 'https://instagram.com/' + v.slice(1);
+    return [k, v];
+  }));
+  await PL.acao('presidente', 'rodapeSalvar', { camara: ler('rc'), aggilli: ler('ra') }).catch(() => {});
+  carregarRodape(); PL.avisar('Rodapé salvo.');
+}
+
 /* ---------------- SAPL ---------------- */
 async function salvarSapl() {
   await A('saplConfigurar', { url: $('sUrl').value });

@@ -36,6 +36,7 @@
   <h2 style="font-size:18px;margin-top:12px" id="tituloEx" class="oculto">Suplentes e ex-membros desta legislatura</h2>
   <div class="galeria" id="galeriaEx"></div>
 </main>
+<script src="/rodape.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -49,6 +50,7 @@ let D;
   document.documentElement.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
   $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg';
   $('casaNav').textContent = c.nome; document.title = `Parlamentares — ${c.nome}`;
+  Rodape.mostrar(D.rodape, c);
   desenhar();
 })();
 $('busca').oninput = $('ordem').onchange = () => desenhar();

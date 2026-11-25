@@ -60,6 +60,7 @@
 </div></nav>
 <main id="conteudo"><p class="vazio">Carregando…</p></main>
 <div id="dica" role="tooltip"></div>
+<script src="/rodape.js"></script>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -98,6 +99,7 @@ async function carregar() {
   $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg';
   $('casaNav').textContent = c.nome;
   desenhar();
+  Rodape.mostrar(D.rodape, c);
 }
 
 function desenhar() {

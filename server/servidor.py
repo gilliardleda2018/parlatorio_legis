@@ -17,6 +17,7 @@ import json
 import math
 import os
 import queue
+import re
 import secrets
 import ssl
 import shutil
@@ -203,6 +204,15 @@ def estado_inicial() -> dict:
     }
 
 
+CAMPOS_RODAPE = ("endereco", "telefone", "whatsapp", "email", "site", "instagram", "facebook", "youtube", "linkedin")
+
+
+def rodape_padrao() -> dict:
+    return {"camara": {k: "" for k in CAMPOS_RODAPE},
+            "aggilli": {**{k: "" for k in CAMPOS_RODAPE}, "site": "https://www.aggillintelligence.com.br",
+                        "email": "adi@aggillintelligence.com.br", "instagram": "https://instagram.com/aggillisoftware"}}
+
+
 def NOVOS_CAMPOS() -> dict:
     """Campos acrescentados depois da v2; também completam bancos antigos."""
     return {
@@ -216,6 +226,7 @@ def NOVOS_CAMPOS() -> dict:
         "_perfis": {},          # pid -> {areas, temas} declarados na área privada do parlamentar
         "_feedback": {},        # pid -> {prática: "salvo" | "descartado"}
         "sapl": {"url": "", "casa": None, "tipos": [], "sessoes": [], "job": None},  # integração com o SAPL
+        "rodape": rodape_padrao(),  # contatos públicos da câmara e da Aggilli, no rodapé das páginas
         "mesa": dict(CFG_PADRAO),
     }
 
@@ -891,6 +902,28 @@ def retirarProposta(ator, id):
     db.execute("delete from projetos where id = ?", (id,))
     db.commit()
     S["projetosRev"] += 1
+
+
+def _limpar_contato(campo: str, valor) -> str:
+    v = str(valor or "").strip()[:200]
+    if not v:
+        return ""
+    if campo in ("site", "instagram", "facebook", "youtube", "linkedin"):
+        if re.match(r"^[a-z][a-z0-9+.-]*:(?!//)", v, re.I) or (re.match(r"^[a-z][a-z0-9+.-]*://", v, re.I) and not re.match(r"^https?://", v, re.I)):
+            raise Erro(f"Use um endereço http(s) em {campo}.")
+        if not re.match(r"^https?://", v):
+            v = "https://" + v.lstrip("/@")
+        if not re.match(r"^https?://[^\s<>\"']+$", v):
+            raise Erro(f"Endereço inválido em {campo}.")
+    if campo == "email" and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
+        raise Erro("E-mail inválido.")
+    return v
+
+
+@acao("presidente")
+def rodapeSalvar(ator, camara, aggilli):
+    S["rodape"] = {"camara": {k: _limpar_contato(k, camara.get(k)) for k in CAMPOS_RODAPE},
+                   "aggilli": {k: _limpar_contato(k, aggilli.get(k)) for k in CAMPOS_RODAPE}}
 
 
 @acao("presidente")
@@ -1801,6 +1834,8 @@ class Manipulador(BaseHTTPRequestHandler):
             partidos = dict(S["partidos"])
         dados = estatisticas.calcular(sessoes, projetos, parls, rel["populacao"], rel["pesos"], interno, blocos)
         dados["casa"], dados["partidos"] = casa, partidos
+        with trava:
+            dados["rodape"] = json.loads(json.dumps(S["rodape"]))
         return self._json(200, dados)
 
     def _perfil(self, chave):
@@ -1838,8 +1873,11 @@ class Manipulador(BaseHTTPRequestHandler):
         posicao = next((k + 1 for k, a in enumerate(d["maisAtuantes"]) if a["id"] == pid), None)
         membros = [a for a in d["parlamentares"] if a.get("membro") and a.get("sessoes")]
         media = lambda campo: round(sum(a.get(campo) or 0 for a in membros) / len(membros), 1) if membros else None
+        with trava:
+            rodape = json.loads(json.dumps(S["rodape"]))
         return self._json(200, {
             "casa": casa, "partidos": partidos, "blocosNomes": d["blocosNomes"], "pesosAtuacao": d["pesosAtuacao"],
+            "rodape": rodape,
             "areas": d["areas"], "parlamentar": {**eu, "fotoV": base.get("fotoV", 0), "lider": base.get("lider", False),
                                                   "bloco": base.get("bloco", eu.get("bloco", "")),
                                                   "saplUrl": base.get("saplUrl"), "tse": base.get("tse"),

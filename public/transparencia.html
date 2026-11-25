@@ -153,6 +153,7 @@
   <p class="suave" style="text-align:center;font-size:13px" id="rodape"></p>
 </main>
 <div id="dica" role="tooltip"></div>
+<script src="/rodape.js"></script>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -215,6 +216,7 @@ function desenhar() {
   $('legNota').innerHTML = PARTES.map(k => `<span><i style="background:var(--c-${k})"></i>${NOMES_PARTES[k]}</span>`).join('');
   desenharAtuacao(); desenharBlocos();
   desenharProjetos(); desenharAreas(); desenharMeses(); desenharParlamentares(); desenharPartidos(); desenharVotacoes(); desenharSessoes();
+  Rodape.mostrar(D.rodape, D.casa);
   $('rodape').textContent = `Dados das sessões encerradas e arquivadas · atualizado em ${new Date(D.geradoEm).toLocaleString('pt-BR')} · Parlatório Legis`;
 }
 

@@ -9,12 +9,12 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="/aggilli.css">
 <style>
-  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 48px }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 48px }
   .topo { text-align: center; margin-bottom: 32px }
-  .topo img { width: 150px; max-width: 45vw; object-fit: contain }
+  .topo img { width: 200px; max-width: 50vw; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(0,0,0,.35)) }
   .topo h1 { font-size: 30px; margin: 12px 0 6px }
   .sub { color: var(--suave); margin: 0 auto; max-width: 560px; line-height: 1.5 }
-  .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px }
+  .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px }
   .grade .cartao { display: flex; flex-direction: column; gap: 10px }
   .grade h2 { font-size: 21px }
   .grade .botao { margin-top: auto; align-self: flex-start }
@@ -23,7 +23,7 @@
 </head>
 <body>
 <nav class="nav"><div class="menu">
-  <a class="marca" href="/"><img src="/marca/logo.svg" alt="">Parlatório Legis</a>
+  <a class="marca" href="/"><img data-logo src="/marca/logo.svg" alt=""><span><span data-casa>Parlatório Legis</span><small>Parlatório Legis</small></span></a>
   <a class="item ativo" href="/presidente">Painel do presidente</a>
   <a class="item" href="/telao">Telão</a>
   <a class="item" href="/parlamentar">Parlamentar</a>
@@ -68,11 +68,12 @@
       <b>iPhone/iPad:</b> abra o arquivo, instale o perfil em Ajustes e ative em Ajustes → Geral → Sobre → Ajustes de Confiança de Certificados.
       <b>Windows:</b> abra o arquivo → Instalar certificado → Máquina local → “Autoridades de Certificação Raiz Confiáveis”.</p>
   </section>
-  <p class="rodape">Parlatório Legis · software livre · Aggilli Intelligence</p>
 </main>
 <script src="/comum.js"></script>
+<script src="/rodape.js"></script>
 <script>
 PL.conectar();
+PL.aoMudar(S => Rodape.mostrar(S.rodape, S.casa));
 const seguro = location.protocol === 'https:';
 PL.aoMudar(S => {
   document.getElementById('seguranca').classList.toggle('oculto', !S.portaHttps && !seguro);
