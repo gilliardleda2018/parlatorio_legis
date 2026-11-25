@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parlamentar — Parlatório Legis</title>
+<link rel="icon" type="image/png" href="/marca/favicon-32x32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  :root { --a-presenca: #3987e5; --a-debates: #c98500; --a-producao: #d95926; --a-votacoes: #d55181; --s-fala: #3987e5;
+          --b-situacao: #199e70; --b-oposicao: #9085e9; --b-independente: #8a95a8; --b-: #5b6b86; --presente: #2fb36b }
+  [data-tema="claro"] { --a-presenca: #2a78d6; --a-debates: #eda100; --a-producao: #eb6834; --a-votacoes: #e87ba4; --s-fala: #2a78d6;
+          --b-situacao: #1baf7a; --b-oposicao: #6250d6 }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 56px; display: flex; flex-direction: column; gap: 16px }
+  .cabeca { display: flex; gap: 22px; align-items: center; flex-wrap: wrap }
+  .cabeca .av { width: 132px; height: 132px; font-size: 44px; box-shadow: 0 0 0 4px var(--cor-partido), 0 10px 30px rgba(0,0,0,.35) }
+  .cabeca h1 { font-size: 32px }
+  .cabeca .linha { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px }
+  .indice { margin-left: auto; text-align: center; background: var(--cartao); border-radius: var(--raio); padding: 14px 20px; border-top: 4px solid var(--destaque-suave) }
+  .indice b { display: block; font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums }
+  .indice span { color: var(--suave); font-size: 13px }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px }
+  .tile { background: var(--cartao); border-radius: var(--raio); padding: 14px 16px }
+  .tile b { display: block; font-size: 28px; font-variant-numeric: tabular-nums; line-height: 1.1 }
+  .tile span { color: var(--suave); font-size: 13px }
+  .tile small { display: block; color: var(--suave); font-size: 12px; margin-top: 4px }
+  .grade2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px }
+  @media (max-width: 860px) { .grade2 { grid-template-columns: 1fr } .indice { margin-left: 0 } }
+  .barra4 { display: flex; gap: 2px; height: 16px; margin: 8px 0 }
+  .barra4 i { display: block; height: 100% }
+  .barra4 i:last-child { border-radius: 0 4px 4px 0 }
+  .legenda { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--suave) }
+  .legenda span { display: inline-flex; align-items: center; gap: 6px }
+  .legenda i { width: 10px; height: 10px; border-radius: 3px; display: inline-block }
+  .pontos { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 }
+  .pontos i { width: 18px; height: 18px; border-radius: 50%; background: var(--cartao3); display: inline-block }
+  .pontos i.sim { background: var(--presente) }
+  .colunas { display: flex; align-items: flex-end; gap: 6px; height: 140px; border-bottom: 1px solid var(--linha); padding: 0 2px }
+  .colunas .c { flex: 1; display: flex; align-items: flex-end; height: 100% }
+  .colunas .c i { display: block; width: 100%; max-width: 34px; margin: 0 auto; background: var(--s-fala); border-radius: 4px 4px 0 0; min-height: 2px }
+  .rot { display: flex; gap: 6px; font-size: 11px; color: var(--suave); padding-top: 4px }
+  .rot span { flex: 1; text-align: center; overflow: hidden; white-space: nowrap }
+  table.tab { width: 100%; border-collapse: collapse; font-size: 14px }
+  table.tab th { text-align: left; color: var(--suave); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; padding: 8px }
+  table.tab td { padding: 8px; border-top: 1px solid var(--linha); vertical-align: top }
+  .bloco-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 13px }
+  .bloco-tag::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--cor-bloco) }
+  .outros { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px }
+  .outros a { display: flex; flex-direction: column; align-items: center; gap: 6px; text-decoration: none; font-size: 12px; width: 84px; text-align: center; flex: none }
+  .outros a.atual { opacity: .45; pointer-events: none }
+  .vazio { color: var(--suave) }
+  #dica { position: fixed; pointer-events: none; background: var(--cartao2); color: var(--texto); padding: 8px 10px; border-radius: 8px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.35); z-index: 50; display: none; max-width: 260px }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img id="logoNav" src="/marca/logo.svg" alt=""><span><span id="casaNav">Parlatório Legis</span><small>Parlamentares</small></span></a>
+  <span class="esp"></span>
+  <a class="item" href="/parlamentares">Todos os parlamentares</a><a class="item" href="/transparencia">Transparência</a>
+</div></nav>
+<main id="conteudo"><p class="vazio">Carregando…</p></main>
+<div id="dica" role="tooltip"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const num = n => (n ?? 0).toLocaleString('pt-BR');
+const data = ms => new Date(ms).toLocaleDateString('pt-BR');
+function dur(seg) { seg = Math.round(seg || 0); const h = Math.floor(seg / 3600), m = Math.floor(seg % 3600 / 60); return h ? `${h}h${String(m).padStart(2, '0')}` : `${m} min`; }
+const SIT = { em_tramitacao: 'Em tramitação', em_pauta: 'Em pauta', aprovada: 'Aprovado', rejeitada: 'Rejeitado', retirada: 'Retirado', arquivado: 'Arquivado', sem_quorum: 'Sem quórum', adiada: 'Adiada' };
+const VOTO = { sim: 'Sim', nao: 'Não', abst: 'Abstenção' };
+const PARTES = ['presenca', 'debates', 'producao', 'votacoes'];
+const NOMES = { presenca: 'Presença', debates: 'Debates', producao: 'Projetos', votacoes: 'Votações nominais' };
+const iniciais = n => { const p = n.split(' ').filter(w => w.length > 2); return ((p[0] || n)[0] + ((p.at(-1) || '')[0] || '')).toUpperCase(); };
+const slug = n => n.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+let D;
+const cor = s => D.partidos[s] || '#5b6b86';
+const avatar = (p, estilo = '') => `<div class="av" style="--cor-partido:${cor(p.partido)};${p.fotoV ? '' : 'background:' + cor(p.partido) + ';'}${estilo}">${p.fotoV ? `<img src="/imagem/${p.id}?v=${p.fotoV}" alt="">` : esc(iniciais(p.nome))}</div>`;
+const sigla = s => `<span class="sigla" style="--cor-partido:${cor(s)}">${esc(s)}</span>`;
+
+const dica = $('dica');
+addEventListener('pointermove', e => {
+  const alvo = e.target.closest('[data-dica]');
+  if (!alvo) { dica.style.display = 'none'; return; }
+  dica.innerHTML = alvo.dataset.dica; dica.style.display = 'block';
+  dica.style.left = Math.min(e.clientX + 14, innerWidth - dica.offsetWidth - 8) + 'px';
+  dica.style.top = Math.min(e.clientY + 14, innerHeight - dica.offsetHeight - 8) + 'px';
+});
+
+async function carregar() {
+  const chave = location.pathname.split('/').filter(Boolean)[1] || '';
+  const r = await fetch('/api/perfil/' + encodeURIComponent(chave));
+  if (!r.ok) { $('conteudo').innerHTML = '<div class="cartao"><p>Parlamentar não encontrado. <a href="/parlamentares">Ver todos</a></p></div>'; return; }
+  D = await r.json();
+  const c = D.casa, raiz = document.documentElement;
+  raiz.style.setProperty('--destaque', c.destaque || '#d66060');
+  raiz.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
+  $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg';
+  $('casaNav').textContent = c.nome;
+  desenhar();
+}
+
+function desenhar() {
+  const p = D.parlamentar, m = D.mediaCasa, at = p.atuacao;
+  document.title = `${p.nome} — ${D.casa.nome}`;
+  const comMedia = (v, media, fmt = x => x) => media == null ? '' : `<small>média da casa: ${fmt(media)}</small>`;
+  const presentes = D.linhaDoTempo.filter(s => s.presente).length;
+  const maxFala = Math.max(1, ...D.linhaDoTempo.map(s => s.tempoFala));
+  $('conteudo').innerHTML = `
+    <section class="cabeca">
+      ${avatar(p)}
+      <div><h1>${esc(p.nome)}</h1>${p.nomeCivil && p.nomeCivil !== p.nome ? `<div class="suave">${esc(p.nomeCivil)}</div>` : ''}
+        <div class="linha">${sigla(p.partido)}${p.bloco ? `<span class="bloco-tag" style="--cor-bloco:var(--b-${p.bloco})">${esc(D.blocosNomes[p.bloco])}</span>` : ''}
+          ${p.cargoMesa ? `<span class="chip sim">${esc(p.cargoMesa)} da Mesa Diretora</span>` : ''}
+          ${p.lider ? '<span class="chip">Líder de bancada</span>' : ''}${p.suplente ? '<span class="chip">Suplente (mandato temporário)</span>' : p.membro === false ? '<span class="chip">Ex-membro</span>' : ''}
+          ${p.portal ? `<a class="botao pq fantasma" href="${esc(p.portal.url)}" target="_blank" rel="noopener noreferrer">Página no portal da Câmara ↗</a>` : ''}
+          ${p.tse ? `<span class="suave" style="font-size:13px">Eleito(a) em 2024 com ${num(p.tse.votos)} votos · nº ${esc(p.tse.numero)}</span>` : ''}
+          ${p.saplUrl ? `<a class="botao pq fantasma" href="${esc(p.saplUrl)}" target="_blank" rel="noopener noreferrer">Ficha no SAPL ↗</a>` : ''}</div></div>
+      ${at ? `<div class="indice" data-dica="${PARTES.map(k => `${NOMES[k]}: <b>${at.partes[k]}</b>`).join('<br>')}"><b>${at.nota}</b><span>índice de atuação<br>${D.posicaoAtuacao ? `${D.posicaoAtuacao}º de ${D.totalRanking}` : ''}</span></div>` : ''}
+    </section>
+    ${!p.sessoes ? '<div class="cartao neutro"><p class="vazio" style="margin:0">Ainda não há sessões encerradas com este parlamentar.</p></div>' : `
+    <div class="tiles">
+      <div class="tile"><b>${p.presencaPct ?? '—'}%</b><span>presença nas sessões em que estava em exercício (${p.presencas} de ${p.sessoes})</span>${comMedia(p.presencaPct, m.presencaPct, x => x + '%')}</div>
+      ${D.semHorario && !p.falas ? '' : `<div class="tile"><b>${p.falas}</b><span>pronunciamentos</span>${comMedia(p.falas, m.falas)}</div>
+      <div class="tile"><b>${dur(p.tempoFala)}</b><span>tempo de fala</span>${comMedia(p.tempoFala, m.tempoFala, dur)}</div>`}
+      <div class="tile"><b>${p.autoria} <small style="display:inline;font-size:16px">(${p.autoriaAprovada} aprov.)</small></b><span>projetos apresentados</span>${comMedia(p.autoria, m.autoria)}</div>
+      ${p.votos ? `<div class="tile"><b>${p.votos}</b><span>votos nominais</span><small>sim ${p.sim} · não ${p.nao} · abst. ${p.abst}</small></div>` : ''}
+      ${p.comSituacaoPct != null ? `<div class="tile"><b>${p.comSituacaoPct}%</b><span>votou com a situação</span></div>` : ''}
+      ${p.portal?.presencaPct != null ? `<div class="tile"><b>${String(p.portal.presencaPct).replace('.', ',')}%</b><span>presença segundo o portal da Câmara</span><small>${p.portal.presencas} sessões, sobre todas as sessões do período · ${p.portal.materias} matérias</small></div>` : ''}
+    </div>
+    <div class="grade2">
+      <section class="cartao neutro"><h2>Índice de atuação</h2>
+        <div class="barra4">${PARTES.map(k => `<i style="width:${at.partes[k]}%;background:var(--a-${k})" data-dica="${NOMES[k]}: <b>${at.partes[k]}</b> de ${D.pesosAtuacao[k]}"></i>`).join('')}</div>
+        <div class="legenda">${PARTES.filter(k => D.pesosAtuacao[k]).map(k => `<span><i style="background:var(--a-${k})"></i>${NOMES[k]} ${at.partes[k]}/${D.pesosAtuacao[k]}</span>`).join('')}</div>
+        <p class="detalhe">Mede a quantidade de atividade registrada nas sessões (presença, falas, projetos e votações), não a qualidade do mandato.</p></section>
+      <section class="cartao neutro"><h2>Presença por sessão</h2>
+        <div class="pontos">${D.linhaDoTempo.map(s => `<i class="${s.presente ? 'sim' : ''}" data-dica="<b>${esc(s.titulo)}</b><br>${data(s.data)} · ${s.presente ? 'presente' : 'ausente'}" aria-label="${esc(s.titulo)}: ${s.presente ? 'presente' : 'ausente'}"></i>`).join('')}</div>
+        <div class="legenda"><span><i style="background:var(--presente)"></i>Presente (${presentes})</span><span><i style="background:var(--cartao3)"></i>Ausente (${D.linhaDoTempo.length - presentes})</span></div></section>
+    </div>
+    ${D.semHorario && !p.falas ? `<p class="detalhe" style="margin:0">O portal da Câmara publica a chamada e a pauta de cada sessão, mas não os pronunciamentos nem os votos nominais: esses números aparecem quando as sessões forem conduzidas pelo Parlatório.</p>` : `<section class="cartao neutro"><h2>Tempo de fala por sessão</h2>
+      <div class="colunas">${D.linhaDoTempo.map(s => `<div class="c" data-dica="<b>${esc(s.titulo)}</b><br>${data(s.data)}<br>${s.falas} fala(s) · ${dur(s.tempoFala)}"><i style="height:${s.tempoFala / maxFala * 100}%"></i></div>`).join('')}</div>
+      <div class="rot">${D.linhaDoTempo.map(s => `<span>${new Date(s.data).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</span>`).join('')}</div></section>`}`}
+    <div class="grade2">
+      <section class="cartao neutro"><h2>Projetos de autoria</h2>
+        ${D.projetos.length ? `<table class="tab">${D.projetos.map(x => `<tr><td><b>${esc(x.numero)}</b><div style="font-size:13px">${esc(x.ementa)}</div></td>
+          <td style="white-space:nowrap"><span class="chip ${x.situacao === 'aprovada' ? 'sim' : x.situacao === 'rejeitada' ? 'nao' : ''}" style="font-size:10px;padding:2px 8px">${SIT[x.situacao] || x.situacao}</span>
+          ${x.relevancia ? `<div class="suave" style="font-size:12px;margin-top:4px">relevância ${x.relevancia.nota}</div>` : ''}</td></tr>`).join('')}</table>` : '<p class="vazio">Nenhum projeto de autoria registrado.</p>'}</section>
+      <section class="cartao neutro"><h2>Votos recentes</h2>
+        ${D.votos.length ? `<table class="tab"><tr><th>Matéria</th><th>Voto</th><th>Resultado</th></tr>${D.votos.slice(0, 12).map(v => `<tr><td><b>${esc(v.numero)}</b> <span class="suave" style="font-size:12px">${data(v.data)}</span><div style="font-size:13px">${esc(v.ementa)}</div></td>
+          <td><b>${VOTO[v.voto] || '—'}</b></td><td>${SIT[v.resultado] || v.resultado}</td></tr>`).join('')}</table>` : '<p class="vazio">Nenhum voto nominal registrado.</p>'}</section>
+    </div>
+    <section class="cartao neutro"><h2>Outros parlamentares</h2>
+      <div class="outros">${D.outros.map(o => `<a href="/parlamentares/${o.id}-${slug(o.nome)}" class="${o.id === p.id ? 'atual' : ''}">${avatar(o, 'width:56px;height:56px;font-size:18px')}${esc(o.nome)}</a>`).join('')}</div></section>
+    <p class="suave" style="text-align:center;font-size:13px">Dados das sessões encerradas e arquivadas no Parlatório Legis.</p>`;
+}
+carregar();
+</script>
+</body>
+</html>

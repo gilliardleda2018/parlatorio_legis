@@ -354,6 +354,33 @@
             <h2>Cores dos partidos<span class="esp"></span><button class="botao pq" onclick="cfgPartidos.push(['NOVO PARTIDO','#5b6b86']);desenharPartidos()">+ Partido</button></h2>
             <div id="cPartidos" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px"></div>
           </div>
+          <div class="cartao" id="cartaoSapl">
+            <h2>Integração com o SAPL<span class="esp"></span><span id="saplCasa"></span></h2>
+            <p class="detalhe" style="margin-top:0">Importa do SAPL da sua câmara (Interlegis) os parlamentares, as matérias em tramitação e a pauta das sessões. Somente leitura: nada é alterado no SAPL.</p>
+            <div class="grupo" style="align-items:center">
+              <input class="campo" id="sUrl" placeholder="https://sapl.suacidade.uf.leg.br" style="flex:1;min-width:220px">
+              <button class="botao pq" onclick="salvarSapl()">Salvar e testar</button>
+            </div>
+            <div id="sAcoes" class="coluna" style="gap:12px;margin-top:12px">
+              <div class="grupo" style="align-items:center">
+                <button class="botao" onclick="A('saplImportarParlamentares',{atualizarFotos:$('sFotos').checked,capitalizar:$('sCap').checked})">Importar parlamentares</button>
+                <label class="detalhe" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="sFotos"> substituir fotos</label>
+                <label class="detalhe" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="sCap" checked> nomes em MAIÚSCULAS → Nome Próprio</label>
+              </div>
+              <div class="grupo" style="align-items:center">
+                <button class="botao" onclick="importarMaterias()">Importar matérias em tramitação</button>
+                <input class="campo" id="sAnos" style="width:120px" title="Anos, separados por vírgula">
+                <select class="campo" id="sTipos" multiple size="3" style="width:220px" title="Tipos de matéria (nenhum = todos)"></select>
+                <label class="detalhe" style="display:inline-flex;gap:6px;align-items:center">até <input class="campo" type="number" id="sLimite" value="100" min="1" max="500" style="width:80px"></label>
+              </div>
+              <div class="grupo" style="align-items:center">
+                <button class="botao" onclick="A('saplImportarPauta',{sessaoId:+$('sSessao').value,substituir:$('sSubst').checked})">Importar pauta da sessão</button>
+                <select class="campo" id="sSessao" style="flex:1;min-width:220px"></select>
+                <label class="detalhe" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="sSubst"> substituir a pauta atual</label>
+              </div>
+            </div>
+            <div id="sJob" style="margin-top:12px"></div>
+          </div>
           <div class="cartao">
             <h2>Mesa de som</h2>
             <div class="coluna" style="gap:10px">

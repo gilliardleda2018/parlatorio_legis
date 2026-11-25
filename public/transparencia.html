@@ -92,7 +92,7 @@
 <nav class="nav"><div class="menu">
   <a class="marca" href="/"><img id="logoNav" src="/marca/logo.svg" alt=""><span><span id="casaNav">Parlatório Legis</span><small>Transparência legislativa</small></span></a>
   <span class="esp"></span>
-  <a class="item" href="#projetos">Projetos</a><a class="item" href="#atuacao">Atuação</a><a class="item" href="#blocos">Situação × oposição</a><a class="item" href="#votacoes">Votações</a><a class="item" href="#parlamentares">Parlamentares</a><a class="item" href="#sessoes">Sessões</a>
+  <a class="item" href="#projetos">Projetos</a><a class="item" href="#atuacao">Atuação</a><a class="item" href="#blocos">Situação × oposição</a><a class="item" href="#votacoes">Votações</a><a class="item" href="/parlamentares">Parlamentares</a><a class="item" href="#sessoes">Sessões</a>
 </div></nav>
 
 <main>
@@ -207,7 +207,7 @@ function desenhar() {
   if (D.interno) { $('avisoInterno').classList.remove('oculto'); $('avisoInterno').innerHTML = '<b>Visão interna</b> — inclui propostas ainda não protocoladas, alinhamento com o resultado das votações e ocorrências por parlamentar. Não compartilhe este endereço logado.'; }
   const t = D.totais;
   $('tiles').innerHTML = [
-    [num(t.sessoes), 'sessões realizadas'], [String(t.horas).replace('.', ','), 'horas de sessão'],
+    [num(t.sessoes), 'sessões realizadas'], t.horas == null ? [num(t.materiasEmPauta), 'matérias levadas à pauta'] : [String(t.horas).replace('.', ','), 'horas de sessão'],
     [t.presencaMedia == null ? '—' : t.presencaMedia + '%', 'presença média'], [num(t.votacoes), `votações (${num(t.aprovadas)} aprovadas)`],
     [num(t.projetos), 'projetos cadastrados'], [num(t.beneficiadosAprovados), 'pessoas em projetos aprovados'],
   ].map(([v, r]) => `<div class="tile"><b>${v}</b><span>${r}</span></div>`).join('');
@@ -238,6 +238,7 @@ function desenharProjetos() {
         <details><summary>Detalhes</summary>
           ${p.autor ? 'Autoria: ' + esc(p.autor) + '<br>' : ''}${p.abrangencia ? 'Abrangência: ' + esc(D.abrangenciaNomes[p.abrangencia]) + '<br>' : ''}${p.urgencia ? 'Urgência: ' + esc(D.urgenciaNomes[p.urgencia]) + '<br>' : ''}
           ${p.fonte ? 'Fonte da estimativa: ' + esc(p.fonte) + '<br>' : ''}
+          ${p.textoUrl ? `<a href="${esc(p.textoUrl)}" target="_blank" rel="noopener noreferrer">Texto original</a> · ` : ''}${p.saplUrl ? `<a href="${esc(p.saplUrl)}" target="_blank" rel="noopener noreferrer">Tramitação no SAPL</a><br>` : ''}
           ${(p.historico || []).map(h => `${data(h.ts)} · ${esc(h.sessao)} · ${h.evento === 'votacao' ? 'votação: ' + (SIT[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim} sim, ${h.contagem.nao} não)` : '') : 'pauta'}`).join('<br>')}
         </details></div>
       <div class="lado">${barraNota(p.relevancia)}<div class="suave" style="font-size:12px;margin-top:4px">${p.beneficiados ? num(p.beneficiados) + ' pessoas beneficiadas' : ''}</div></div>
@@ -250,10 +251,10 @@ const blocoTag = b => `<span class="bloco-tag" style="--cor-bloco:var(--b-${b ||
 let atuacaoTodos = false;
 $('altAtuacao').onclick = () => { atuacaoTodos = !atuacaoTodos; $('altAtuacao').textContent = atuacaoTodos ? 'ver top 10' : 'ver todos'; desenharAtuacao(); };
 function desenharAtuacao() {
-  $('legAtuacao').innerHTML = PARTES_ATU.map(k => `<span><i style="background:var(--a-${k})"></i>${NOMES_ATU[k]} (${D.pesosAtuacao[k]}%)</span>`).join('');
+  $('legAtuacao').innerHTML = PARTES_ATU.filter(k => D.pesosAtuacao[k]).map(k => `<span><i style="background:var(--a-${k})"></i>${NOMES_ATU[k]} (${D.pesosAtuacao[k]}%)</span>`).join('');
   const lista = atuacaoTodos ? D.maisAtuantes : D.maisAtuantes.slice(0, 10);
   $('rankAtuacao').innerHTML = lista.length ? lista.map((a, k) => `<div class="ranking">
-      <span class="pos">${k + 1}º</span><span class="nm">${esc(a.nome)} ${sigla(a.partido)}</span>
+      <span class="pos">${k + 1}º</span><span class="nm"><a href="/parlamentares/${a.id}" style="color:var(--texto)">${esc(a.nome)}</a> ${sigla(a.partido)}${a.membro ? '' : ' <small class="suave">(suplente/ex)</small>'}</span>
       <div class="b" data-dica="<b>${esc(a.nome)}</b><br>${PARTES_ATU.map(x => `${NOMES_ATU[x]}: ${a.partes[x]}`).join('<br>')}">${PARTES_ATU.map(x => `<i style="width:${a.partes[x]}%;background:var(--a-${x})"></i>`).join('')}</div>
       <b>${a.nota}</b></div>`).join('') : '<p class="vazio">Sem sessões encerradas ainda.</p>';
 }
@@ -303,7 +304,7 @@ function desenharMeses() {
 }
 
 function desenharParlamentares() {
-  const cols = [['nome', 'Parlamentar'], ['partido', 'Partido'], ['bloco', 'Bloco'], ['atuacaoNota', 'Atuação', 'n'], ['presencaPct', 'Presença', 'n'], ['falas', 'Falas', 'n'], ['tempoFala', 'Tempo de fala', 'n'],
+  const cols = [['nome', 'Parlamentar'], ['partido', 'Partido'], ['bloco', 'Bloco'], ['atuacaoNota', 'Atuação', 'n'], ['presencaPct', 'Presença em exercício', 'n'], ['falas', 'Falas', 'n'], ['tempoFala', 'Tempo de fala', 'n'],
     ['votos', 'Votos nominais', 'n'], ['comSituacaoPct', 'Com a situação', 'n'], ['autoria', 'Projetos (aprovados)', 'n']];
   D.parlamentares.forEach(p => { p.atuacaoNota = p.atuacao?.nota ?? null; });
   if (D.interno) cols.push(['alinhamentoPct', 'Com o resultado', 'n'], ['ocorrencias', 'Ocorrências', 'n']);
@@ -312,11 +313,11 @@ function desenharParlamentares() {
     return (typeof x === 'string' ? x.localeCompare(y) : x - y) * (ordem.asc ? 1 : -1);
   });
   $('tabParl').innerHTML = `<tr>${cols.map(([k, t, c]) => `<th class="${c || ''}" onclick="ordenar('${k}')" aria-sort="${ordem.col === k ? (ordem.asc ? 'ascending' : 'descending') : 'none'}">${t}${ordem.col === k ? (ordem.asc ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr>` +
-    lista.map(p => `<tr><td>${esc(p.nome)}${p.membro ? '' : ' <small class="suave">(ex-membro)</small>'}</td><td>${sigla(p.partido)}</td>
+    lista.map(p => `<tr><td><a href="/parlamentares/${p.id}" style="color:var(--texto)">${esc(p.nome)}</a>${p.membro ? '' : ' <small class="suave">(ex-membro)</small>'}</td><td>${sigla(p.partido)}</td>
       <td>${blocoTag(p.bloco)}</td><td class="n"><b>${p.atuacaoNota ?? '—'}</b></td>
       <td class="n">${p.presencaPct == null ? '—' : p.presencaPct + '%'}<span class="mini"><i style="width:${p.presencaPct || 0}%"></i></span></td>
-      <td class="n">${p.falas}</td><td class="n">${dur(p.tempoFala)}</td>
-      <td class="n" data-dica="Sim ${p.sim} · Não ${p.nao} · Abstenção ${p.abst}">${p.votos}</td>
+      <td class="n">${D.totais.falas ? p.falas : '—'}</td><td class="n">${D.totais.falas ? dur(p.tempoFala) : '—'}</td>
+      <td class="n" data-dica="Sim ${p.sim} · Não ${p.nao} · Abstenção ${p.abst}">${D.totais.votacoes ? p.votos : '—'}</td>
       <td class="n" data-dica="Votou igual à maioria da situação">${p.comSituacaoPct == null ? '—' : p.comSituacaoPct + '%'}</td>
       <td class="n">${p.autoria} (${p.autoriaAprovada})</td>
       ${D.interno ? `<td class="n">${p.alinhamentoPct == null ? '—' : p.alinhamentoPct + '%'}</td><td class="n">${p.ocorrencias}</td>` : ''}</tr>`).join('');
@@ -342,7 +343,7 @@ function desenharVotacoes() {
 
 function desenharSessoes() {
   $('tabSessoes').innerHTML = D.sessoes.length ? '<tr><th>Data</th><th>Sessão</th><th class="n">Duração</th><th class="n">Presentes</th><th class="n">Pronunciamentos</th><th class="n">Votações</th></tr>' +
-    D.sessoes.map(s => `<tr><td>${data(s.inicio)}</td><td>${esc(s.titulo)}</td><td class="n">${dur(s.duracao)}</td><td class="n">${s.presentes}/${s.membros}</td><td class="n">${s.falas}</td><td class="n">${s.votacoes}</td></tr>`).join('')
+    D.sessoes.map(s => `<tr><td>${data(s.inicio)}</td><td>${s.fonte ? `<a href="${esc(s.fonte)}" target="_blank" rel="noopener noreferrer" style="color:var(--texto)">${esc(s.titulo)}</a>` : esc(s.titulo)}</td><td class="n">${s.semHorario ? '—' : dur(s.duracao)}</td><td class="n">${s.membros ? s.presentes + '/' + s.membros : '—'}</td><td class="n">${s.semHorario ? (s.pauta + ' na pauta') : s.falas}</td><td class="n">${s.votacoes || '—'}</td></tr>`).join('')
     : '<tr><td class="vazio">Nenhuma sessão encerrada ainda.</td></tr>';
 }
 

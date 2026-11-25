@@ -34,6 +34,7 @@ import tls
 from ata import gerar_ata
 import estatisticas
 import recomendacao
+import sapl as sapl_cli
 from mesa import CFG_PADRAO, PRESETS, Mesa
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -214,6 +215,7 @@ def NOVOS_CAMPOS() -> dict:
         "projetosRev": 0,       # muda quando o banco de projetos muda (as telas recarregam a lista)
         "_perfis": {},          # pid -> {areas, temas} declarados na área privada do parlamentar
         "_feedback": {},        # pid -> {prática: "salvo" | "descartado"}
+        "sapl": {"url": "", "casa": None, "tipos": [], "sessoes": [], "job": None},  # integração com o SAPL
         "mesa": dict(CFG_PADRAO),
     }
 
@@ -229,6 +231,10 @@ def carregar() -> dict:
         estado["mesa"].setdefault(k, v)
     for p in estado["parls"]:
         p.setdefault("canal", 0)
+    for k, v in {"url": "", "casa": None, "tipos": [], "sessoes": [], "job": None}.items():
+        estado["sapl"].setdefault(k, v)
+    if estado["sapl"].get("job") and not estado["sapl"]["job"].get("fim"):  # servidor reiniciou no meio de uma importação
+        estado["sapl"]["job"].update(fim=agora(), erro="Interrompida porque o servidor reiniciou.")
     for pid, perfil in list(estado["_perfis"].items()):  # perfis antigos eram só a lista de áreas
         if isinstance(perfil, list):
             estado["_perfis"][pid] = {"areas": perfil, "temas": ""}
@@ -1191,6 +1197,196 @@ def sessaoZerar(ator, manterPauta=True):
     S["projetosRev"] += 1
 
 
+# --- integração com o SAPL (somente leitura; cada tarefa roda numa thread para não travar o plenário)
+def _sapl_job(tipo: str, funcao, *args):
+    if S["sapl"]["job"] and not S["sapl"]["job"].get("fim"):
+        raise Erro("Já há uma importação do SAPL em andamento.")
+    if not S["sapl"]["url"]:
+        raise Erro("Informe e salve o endereço do SAPL antes.")
+    S["sapl"]["job"] = {"tipo": tipo, "inicio": agora(), "fim": None, "feitos": 0, "total": 0, "mensagem": "Conectando…",
+                        "erro": None, "log": []}
+    url = S["sapl"]["url"]
+
+    def rodar():
+        cli = sapl_cli.Sapl(url)
+        try:
+            funcao(cli, *args)
+            _sapl_atualiza(fim=agora())
+        except Exception as e:  # rede, SAPL fora do ar, formato inesperado
+            _sapl_atualiza(fim=agora(), erro=str(e)[:300], mensagem="Falhou.")
+    threading.Thread(target=rodar, daemon=True).start()
+
+
+def _sapl_atualiza(log: str | None = None, **campos):
+    with trava:
+        job = S["sapl"]["job"]
+        job.update(campos)
+        if log:
+            job["log"] = ([f"{time.strftime('%H:%M:%S')} {log}"] + job["log"])[:40]
+        confirmar()
+
+
+def _sapl_testar(cli):
+    casa = cli.casa()
+    tipos = cli.tipos_materia()
+    sessoes = cli.sessoes_recentes()
+    with trava:
+        S["sapl"]["casa"] = {"nome": casa.get("nome"), "municipio": casa.get("municipio"), "uf": casa.get("uf")}
+        S["sapl"]["tipos"] = tipos
+        S["sapl"]["sessoes"] = sessoes
+    _sapl_atualiza(mensagem=f"Conectado a {casa.get('nome')}: {len(tipos)} tipos de matéria, {len(sessoes)} sessões recentes.")
+
+
+def _sapl_parlamentares(cli, atualizar_fotos: bool, capitalizar: bool):
+    partidos = cli.partidos()
+    lista = cli.parlamentares_ativos()
+    _sapl_atualiza(total=len(lista), mensagem=f"{len(lista)} parlamentares ativos no SAPL.")
+    novos = atualizados = 0
+    for k, sp in enumerate(lista, 1):
+        nome = sp.get("nome_parlamentar") or sp.get("nome_completo") or ""
+        nome = sapl_cli.nome_bonito(nome) if capitalizar else nome
+        partido = cli.partido_atual(sp["id"], partidos)
+        foto = cli.imagem(sp.get("fotografia")) if sp.get("fotografia") else None
+        with trava:
+            p = next((x for x in S["parls"] if x.get("saplId") == sp["id"]), None) or \
+                next((x for x in S["parls"] if not x.get("saplId") and sapl_cli.chave_nome(x["nome"]) == sapl_cli.chave_nome(nome)), None)
+            if p:
+                atualizados += 1
+                p.update(nome=nome, saplId=sp["id"], **({"partido": partido} if partido else {}))
+            else:
+                novos += 1
+                p = {"id": uid(), "nome": nome, "partido": partido, "lider": False, "fotoV": 0, "canal": 0, "bloco": "",
+                     "saplId": sp["id"]}
+                S["parls"].append(p)
+                S["_pins"][p["id"]] = "0000"
+            p["saplUrl"] = f"{cli.base}/parlamentar/{sp['id']}"
+            if partido:
+                S["partidos"].setdefault(partido, "#5b6b86")
+            if foto and (atualizar_fotos or not p.get("fotoV")):
+                db.execute("insert or replace into imagens (chave, mime, dados) values (?, ?, ?)", (p["id"], foto[0], foto[1]))
+                p["fotoV"] = agora()
+        _sapl_atualiza(feitos=k, log=f"{nome} ({partido or 'sem partido'})")
+    ids = {sp["id"] for sp in lista}
+    fora = [x["nome"] for x in S["parls"] if not x.get("saplId") or x["saplId"] not in ids]
+    _sapl_atualiza(mensagem=f"Pronto: {novos} novo(s), {atualizados} atualizado(s)."
+                            + (f" {len(fora)} parlamentar(es) daqui não estão ativos no SAPL e foram mantidos: {', '.join(fora[:5])}"
+                               + ("…" if len(fora) > 5 else "") + "." if fora else ""))
+
+
+def _numero_materia(m: dict, siglas: dict) -> str:
+    return f"{siglas.get(m['tipo'], 'MAT')} {m['numero']}/{m['ano']}"
+
+
+def _sapl_salvar_materia(cli, m: dict, siglas: dict, nomes_parl: dict) -> dict:
+    autores = cli.autores(m["id"])
+    autor = ""
+    if autores:
+        a = autores[0]
+        autor = nomes_parl.get(a["objeto"]) or sapl_cli.nome_bonito(a["nome"])
+    resultado = (m.get("resultado") or "").lower()
+    situacao = "em_tramitacao" if m.get("em_tramitacao") else \
+        "aprovada" if "aprovad" in resultado else "rejeitada" if "rejeitad" in resultado else "arquivado"
+    with trava:
+        p = next((x for x in proj_todos() if x.get("saplId") == m["id"]), None)
+        novo = p is None
+        p = p or proj_novo(situacao=situacao)
+        if not novo and p["situacao"] != "em_pauta" and situacao != "em_tramitacao":
+            p["situacao"] = situacao  # o SAPL já registrou o desfecho da matéria
+        p.update(numero=_numero_materia(m, siglas), ementa=(m.get("ementa") or "").strip(), autor=autor, saplId=m["id"],
+                 saplUrl=f"{cli.base}/materia/{m['id']}", textoUrl=m.get("texto_original") or "")
+        proj_salvar(p)
+        S["projetosRev"] += 1
+    return p
+
+
+def _sapl_materias(cli, anos: list, tipos: list, limite: int):
+    siglas = {t["id"]: t["sigla"] for t in cli.tipos_materia()}
+    with trava:
+        nomes_parl = {x["saplId"]: x["nome"] for x in S["parls"] if x.get("saplId")}
+    lista = []
+    for ano in anos:
+        for tipo in (tipos or [None]):
+            lista += cli.materias(int(ano), tipo, limite)
+    lista = lista[:limite]
+    _sapl_atualiza(total=len(lista), mensagem=f"{len(lista)} matéria(s) em tramitação encontradas.")
+    for k, m in enumerate(lista, 1):
+        p = _sapl_salvar_materia(cli, m, siglas, nomes_parl)
+        _sapl_atualiza(feitos=k, log=f"{p['numero']} — {p['autor'] or 'sem autor'}")
+    _sapl_atualiza(mensagem=f"Pronto: {len(lista)} matéria(s) no banco de projetos. Preencha a ficha social na aba Projetos.")
+
+
+def _sapl_pauta(cli, sessao_id: int, substituir: bool):
+    siglas = {t["id"]: t["sigla"] for t in cli.tipos_materia()}
+    with trava:
+        nomes_parl = {x["saplId"]: x["nome"] for x in S["parls"] if x.get("saplId")}
+    itens = cli.itens_pauta(sessao_id)
+    _sapl_atualiza(total=len(itens), mensagem=f"{len(itens)} item(ns) de pauta na sessão do SAPL.")
+    projetos = []
+    for k, it in enumerate(itens, 1):
+        projetos.append(_sapl_salvar_materia(cli, cli.materia(it["materia"]), siglas, nomes_parl))
+        _sapl_atualiza(feitos=k, log=f"{projetos[-1]['numero']} ({'expediente' if it['origem'] == 'expediente' else 'ordem do dia'})")
+    with trava:
+        if S["votacao"] and S["votacao"]["aberta"]:
+            raise sapl_cli.ErroSapl("Há votação aberta: a pauta não foi alterada.")
+        if substituir:
+            for m in S["pauta"]:
+                p = proj_obter(m["id"])
+                if p and p["situacao"] == "em_pauta":
+                    p["situacao"] = "em_tramitacao"
+                    proj_salvar(p)
+            S["pauta"] = [] if not S["materiaAtual"] else [m for m in S["pauta"] if m["id"] == S["materiaAtual"]]
+        ja = {m["id"] for m in S["pauta"]}
+        for p in projetos:
+            if p["id"] not in ja:
+                S["pauta"].append({"id": p["id"], "numero": p["numero"], "ementa": p["ementa"], "autor": p["autor"],
+                                   "situacao": "pendente"})
+                ja.add(p["id"])
+                if p["situacao"] in ("em_tramitacao", "proposta"):
+                    p["situacao"] = "em_pauta"
+                    proj_salvar(p)
+        S["projetosRev"] += 1
+    _sapl_atualiza(mensagem=f"Pauta importada: {len(projetos)} matéria(s).")
+
+
+@acao("presidente")
+def saplConfigurar(ator, url):
+    try:
+        S["sapl"]["url"] = sapl_cli.normalizar_url(url) if url else ""
+    except sapl_cli.ErroSapl as e:
+        raise Erro(str(e))
+    S["sapl"].update(casa=None, tipos=[], sessoes=[])
+
+
+@acao("presidente")
+def saplTestar(ator):
+    _sapl_job("testar", _sapl_testar)
+
+
+@acao("presidente")
+def saplImportarParlamentares(ator, atualizarFotos=False, capitalizar=True):
+    _sapl_job("parlamentares", _sapl_parlamentares, bool(atualizarFotos), bool(capitalizar))
+
+
+@acao("presidente")
+def saplImportarMaterias(ator, anos, tipos=None, limite=100):
+    try:
+        anos = sorted({int(a) for a in anos})[:5]
+        tipos = [int(t) for t in (tipos or [])][:10]
+        limite = max(1, min(500, int(limite)))
+    except (TypeError, ValueError):
+        raise Erro("Anos, tipos ou limite inválidos.")
+    if not anos:
+        raise Erro("Informe ao menos um ano.")
+    _sapl_job("materias", _sapl_materias, anos, tipos, limite)
+
+
+@acao("presidente")
+def saplImportarPauta(ator, sessaoId, substituir=False):
+    if S["votacao"] and S["votacao"]["aberta"]:
+        raise Erro("Encerre a votação aberta antes.")
+    _sapl_job("pauta", _sapl_pauta, int(sessaoId), bool(substituir))
+
+
 # --- sessões: encerrar, arquivar, consultar
 def retrato(fim=None) -> dict:
     """Tudo o que a ata precisa da sessão em andamento (cópia independente do estado)."""
@@ -1498,6 +1694,8 @@ class Manipulador(BaseHTTPRequestHandler):
             return self._transparencia()
         if caminho == "/api/recomendacoes":
             return self._recomendacoes()
+        if caminho.startswith("/api/perfil/"):
+            return self._perfil(caminho.rsplit("/", 1)[1])
         if caminho == "/eventos":
             return self._eventos()
         if caminho.startswith("/imagem/"):
@@ -1513,6 +1711,8 @@ class Manipulador(BaseHTTPRequestHandler):
     def _estatico(self, caminho):
         if caminho in ("", "/"):
             caminho = "/index.html"
+        if caminho.startswith("/parlamentares/"):  # página pública de cada parlamentar
+            caminho = "/perfil.html"
         alvo = (PUBLICO / caminho.lstrip("/")).resolve()
         if PUBLICO not in alvo.parents or not alvo.is_file():
             alvo = (PUBLICO / (caminho.lstrip("/") + ".html")).resolve()
@@ -1602,6 +1802,57 @@ class Manipulador(BaseHTTPRequestHandler):
         dados = estatisticas.calcular(sessoes, projetos, parls, rel["populacao"], rel["pesos"], interno, blocos)
         dados["casa"], dados["partidos"] = casa, partidos
         return self._json(200, dados)
+
+    def _perfil(self, chave):
+        """Página pública de um parlamentar: números das sessões encerradas, linha do tempo, projetos e votos."""
+        pid = chave.split("-", 1)[0]
+        with trava:
+            sessoes = [json.loads(x[0]) for x in db.execute("select json from sessoes order by fim").fetchall()]
+            projetos = [p for p in proj_todos() if p["situacao"] != "proposta"]
+            parls = json.loads(json.dumps(S["parls"]))
+            ex = json.loads(json.dumps(S.get("exParls", [])))
+            rel = dict(S["relevancia"])
+            blocos = {p["id"]: p.get("bloco", "") for p in S["parls"]}
+            casa = {k: S["casa"][k] for k in ("nome", "titulo", "logoV", "destaque", "tema")}
+            partidos = dict(S["partidos"])
+        d = estatisticas.calcular(sessoes, projetos, parls, rel["populacao"], rel["pesos"], False, blocos)
+        eu = next((a for a in d["parlamentares"] if a["id"] == pid), None)
+        atual = next((p for p in parls if p["id"] == pid), None) or next((p for p in ex if p["id"] == pid), None)
+        if not eu and not atual:
+            return self._json(404, {"erro": "Parlamentar não encontrado."})
+        if not eu:  # membro sem sessões encerradas ainda
+            eu = {"id": pid, "nome": atual["nome"], "partido": atual["partido"], "membro": True, "sessoes": 0}
+        base = atual or {}
+        linha = []
+        for r in sessoes:
+            if not any(p["id"] == pid for p in r["parls"]):
+                continue
+            falas = [h for h in r["hist"] if h["pid"] == pid]
+            votos = [{"numero": v["numero"], "voto": v["votos"].get(pid)} for v in r["votacoes"] if v.get("votos")]
+            linha.append({"titulo": r["titulo"], "data": r["inicio"], "presente": pid in r["presenca"],
+                          "falas": len(falas), "tempoFala": sum(h["usado"] for h in falas), "votos": votos})
+        votos = [{"numero": v["numero"], "ementa": v["ementa"], "data": v["data"], "resultado": v["resultado"],
+                  "voto": next((x["voto"] for x in v["votos"] if x["pid"] == pid), None)}
+                 for v in d["votacoes"] if any(x["pid"] == pid for x in v["votos"])]
+        meus = [p for p in d["projetos"] if p.get("autor") == eu["nome"]]
+        posicao = next((k + 1 for k, a in enumerate(d["maisAtuantes"]) if a["id"] == pid), None)
+        membros = [a for a in d["parlamentares"] if a.get("membro") and a.get("sessoes")]
+        media = lambda campo: round(sum(a.get(campo) or 0 for a in membros) / len(membros), 1) if membros else None
+        return self._json(200, {
+            "casa": casa, "partidos": partidos, "blocosNomes": d["blocosNomes"], "pesosAtuacao": d["pesosAtuacao"],
+            "areas": d["areas"], "parlamentar": {**eu, "fotoV": base.get("fotoV", 0), "lider": base.get("lider", False),
+                                                  "bloco": base.get("bloco", eu.get("bloco", "")),
+                                                  "saplUrl": base.get("saplUrl"), "tse": base.get("tse"),
+                                                  "nomeCivil": base.get("nomeCivil"), "cargoMesa": base.get("cargoMesa"),
+                                                  "portal": base.get("portal"), "suplente": base.get("suplente", False)},
+            "posicaoAtuacao": posicao, "totalRanking": len(d["maisAtuantes"]),
+            "mediaCasa": {"presencaPct": media("presencaPct"), "falas": media("falas"), "tempoFala": media("tempoFala"),
+                          "autoria": media("autoria")},
+            "linhaDoTempo": linha, "votos": votos, "projetos": meus,
+            "outros": [{"id": p["id"], "nome": p["nome"], "partido": p["partido"], "fotoV": p.get("fotoV", 0),
+                        "bloco": p.get("bloco", "")} for p in parls],
+            "semHorario": any(r.get("semHorario") for r in sessoes),
+        })
 
     def _recomendacoes(self):
         """Área privada do parlamentar: boas práticas recomendadas e suas propostas."""

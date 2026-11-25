@@ -96,6 +96,56 @@ O catálogo foi pesquisado em novembro de 2026. Revise as fontes e atualize-o pe
 - **Índice de atuação (0 a 100)** por parlamentar, com presença, participação nos debates (falas por sessão), projetos apresentados (aprovados valem 3) e participação nas votações nominais. Mede a quantidade de atividade registrada, não a qualidade do mandato.
 - **Blocos**: a presidência classifica cada parlamentar como situação, oposição ou independente (um a um ou por partido, na aba Plenário). A transparência mostra por bloco: presença, tempo de fala, projetos e aprovações, **coesão** nas votações, **votações que dividiram situação e oposição** com o placar por bloco e quem venceu, e quanto cada parlamentar **votou com a situação**. Na visão interna, o sistema sugere o bloco a partir dos votos (≥70% com a situação: situação; ≤30%: oposição).
 
+## Página pública de cada parlamentar
+
+- `/parlamentares` lista todos (foto, partido, bloco, presença, índice de atuação), com busca e ordenação.
+- `/parlamentares/<id>-<nome>` mostra o perfil:
+  - índice de atuação e posição no ranking;
+  - presença, falas, tempo de fala, projetos e votos, sempre comparados à média da casa;
+  - presença e tempo de fala sessão a sessão;
+  - projetos de autoria e votos recentes;
+  - link para a ficha no SAPL, quando importado.
+- Os nomes na transparência levam ao perfil. Nada interno (ocorrências, propostas não protocoladas, sugestão de bloco) aparece no perfil público.
+
+## Integração com o SAPL
+
+Em **Configurações → Integração com o SAPL**, informe o endereço do SAPL da câmara (ex.: `https://sapl.suacidade.uf.leg.br`) e clique em **Salvar e testar**. A integração é **somente leitura**, pela API pública do SAPL:
+
+- **Importar parlamentares:** parlamentares ativos, com partido (filiação atual) e foto. Quem já existe é reconhecido pelo nome e atualizado; quem não está ativo no SAPL é mantido e listado.
+- **Importar matérias em tramitação:** por ano e tipo (PL, PLC…), com autoria. As matérias entram no banco de projetos com link para a tramitação e o texto original. A ficha social continua a ser preenchida aqui.
+- **Importar pauta da sessão:** escolha uma sessão recente do SAPL. O expediente e a ordem do dia entram na pauta, na mesma ordem.
+
+As importações rodam em segundo plano, com barra de progresso e registro. O servidor espera um pouco entre os pedidos para não sobrecarregar o SAPL da câmara. Reimportar não duplica nada.
+
+Testado com o SAPL público de Campina Grande (PB). Ainda **não envia** resultados de votação ao SAPL: isso exige um usuário com permissão de escrita e testes num SAPL de homologação.
+
+## Começar com os vereadores eleitos (TSE)
+
+Para criar o banco de uma câmara com os vereadores eleitos em 2024 (nome de urna, partido, número, votos e foto oficial do TSE) e a população do Censo 2022 (IBGE):
+
+```bash
+python3 scripts/tse_eleitos.py MA "Tuntum" dados/tuntum.db
+PARLATORIO_BANCO=dados/tuntum.db python3 server/servidor.py
+```
+
+O banco nasce sem sessões, votos ou projetos: nada é inventado sobre pessoas reais. Ajuste no painel os suplentes que assumiram, as mudanças de partido e os nomes parlamentares. Se a câmara tiver SAPL, a importação de lá é mais completa e atualizada.
+
+## Importar do portal legislativo da câmara
+
+Muitas câmaras do Maranhão e de outros estados usam a plataforma `legislativomunicipal.com`. Para trazer os dados oficiais de lá (com o servidor parado):
+
+```bash
+python3 scripts/importar_portal_camara.py https://www.cmtuntum.legislativomunicipal.com dados/tuntum.db
+```
+
+O script importa:
+
+- **Vereadores:** nome civil, cargo na Mesa, partido atual, presença e número de matérias oficiais. Quem já veio do TSE é reconhecido; suplentes que exerceram mandato entram como ex-membros e não alteram o quórum.
+- **Matérias de autoria:** requerimentos, projetos de lei e de resolução, indicações e moções, com fase, situação e link. As áreas são sugeridas por palavras-chave e marcadas como automáticas.
+- **Sessões encerradas:** a chamada nominal (presença) e a pauta com a situação de cada matéria. O portal não publica votos nominais, falas nem horários, então esses indicadores ficam como "—" e o índice de atuação usa só presença e projetos.
+
+Atas, ofícios e pareceres ficam fora do banco de projetos. O script pode ser rodado de novo para atualizar, sem duplicar nada.
+
 ## Demonstração
 
 Para apresentar o sistema com dados fictícios (16 projetos e 8 sessões arquivadas):

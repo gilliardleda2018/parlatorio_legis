@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parlamentares — Parlatório Legis</title>
+<link rel="icon" type="image/png" href="/marca/favicon-32x32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  :root { --b-situacao: #199e70; --b-oposicao: #9085e9; --b-independente: #8a95a8; --b-: #5b6b86 }
+  [data-tema="claro"] { --b-situacao: #1baf7a; --b-oposicao: #6250d6 }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 56px; display: flex; flex-direction: column; gap: 16px }
+  .filtros { display: flex; flex-wrap: wrap; gap: 8px }
+  .filtros .campo { width: auto }
+  .galeria { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px }
+  .card { background: var(--cartao); border-radius: var(--raio); padding: 18px 14px; text-align: center; text-decoration: none; display: flex; flex-direction: column; align-items: center; gap: 8px; border-top: 4px solid var(--cor-bloco); transition: transform .15s }
+  .card:hover { transform: translateY(-2px) }
+  .card .av { width: 86px; height: 86px; font-size: 28px }
+  .card b { font-size: 16px }
+  .card .n { display: flex; gap: 14px; font-size: 12px; color: var(--suave) }
+  .card .n strong { display: block; font-size: 18px; color: var(--texto); font-variant-numeric: tabular-nums }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img id="logoNav" src="/marca/logo.svg" alt=""><span><span id="casaNav">Parlatório Legis</span><small>Parlamentares</small></span></a>
+  <span class="esp"></span><a class="item" href="/transparencia">Transparência</a>
+</div></nav>
+<main>
+  <h1 style="font-size:26px">Parlamentares</h1>
+  <div class="filtros">
+    <input class="campo" id="busca" placeholder="Buscar nome ou partido…" style="flex:1;min-width:200px" aria-label="Buscar">
+    <select class="campo" id="ordem" aria-label="Ordenar"><option value="nome">Ordem alfabética</option><option value="atuacao">Mais atuantes</option><option value="presenca">Maior presença</option></select>
+  </div>
+  <div class="galeria" id="galeria"></div>
+  <h2 style="font-size:18px;margin-top:12px" id="tituloEx" class="oculto">Suplentes e ex-membros desta legislatura</h2>
+  <div class="galeria" id="galeriaEx"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const iniciais = n => { const p = n.split(' ').filter(w => w.length > 2); return ((p[0] || n)[0] + ((p.at(-1) || '')[0] || '')).toUpperCase(); };
+const slug = n => n.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+let D;
+(async () => {
+  D = await (await fetch('/api/transparencia')).json();
+  const c = D.casa;
+  document.documentElement.style.setProperty('--destaque', c.destaque || '#d66060');
+  document.documentElement.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
+  $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg';
+  $('casaNav').textContent = c.nome; document.title = `Parlamentares — ${c.nome}`;
+  desenhar();
+})();
+$('busca').oninput = $('ordem').onchange = () => desenhar();
+function desenhar() {
+  const q = $('busca').value.toLowerCase(), o = $('ordem').value;
+  const lista = D.parlamentares.filter(p => p.membro && (p.nome + ' ' + p.partido).toLowerCase().includes(q)).sort((a, b) =>
+    o === 'atuacao' ? (b.atuacao?.nota ?? -1) - (a.atuacao?.nota ?? -1) : o === 'presenca' ? (b.presencaPct ?? -1) - (a.presencaPct ?? -1) : a.nome.localeCompare(b.nome));
+  const cor = s => D.partidos[s] || '#5b6b86';
+  const ex = D.parlamentares.filter(p => !p.membro && (p.sessoes || p.autoria) && (p.nome + ' ' + p.partido).toLowerCase().includes(q));
+  $('tituloEx').classList.toggle('oculto', !ex.length);
+  $('galeriaEx').innerHTML = ex.map(p => cartao(p, cor)).join('');
+  $('galeria').innerHTML = lista.map(p => cartao(p, cor)).join('') || '<p class="suave">Ninguém encontrado.</p>';
+}
+function cartao(p, cor) {
+  return `<a class="card" href="/parlamentares/${p.id}-${slug(p.nome)}" style="--cor-bloco:var(--b-${p.bloco || ''})">
+      <div class="av" style="--cor-partido:${cor(p.partido)};${p.fotoV ? '' : 'background:' + cor(p.partido)}">${p.fotoV ? `<img src="/imagem/${p.id}?v=${p.fotoV}" alt="">` : esc(iniciais(p.nome))}</div>
+      <b>${esc(p.nome)}</b><span class="sigla" style="--cor-partido:${cor(p.partido)}">${esc(p.partido)}</span>
+      <span class="suave" style="font-size:12px">${esc(D.blocosNomes[p.bloco || ''])}</span>
+      <div class="n"><span><strong>${p.presencaPct ?? '—'}${p.presencaPct != null ? '%' : ''}</strong>presença</span><span><strong>${p.atuacao?.nota ?? '—'}</strong>atuação</span><span><strong>${p.autoria}</strong>projetos</span></div>
+    </a>`;
+}
+</script>
+</body>
+</html>

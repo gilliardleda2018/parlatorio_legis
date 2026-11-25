@@ -51,7 +51,7 @@ def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict]
              interno: bool = False, blocos: dict | None = None) -> dict:
     """sessoes: retratos arquivados (mais antigo primeiro); projetos: banco de projetos."""
     nomes = {p["id"]: {"nome": p["nome"], "partido": p["partido"]} for s in sessoes for p in s["parls"]}
-    nomes.update({p["id"]: {"nome": p["nome"], "partido": p["partido"]} for p in parls_atuais})
+    nomes.update({p["id"]: {"nome": p["nome"], "partido": p["partido"], "fotoV": p.get("fotoV", 0)} for p in parls_atuais})
     por_parl = {pid: {"id": pid, **info, "membro": False, "sessoes": 0, "presencas": 0, "falas": 0, "tempoFala": 0,
                       "votos": 0, "sim": 0, "nao": 0, "abst": 0, "autoria": 0, "autoriaAprovada": 0,
                       "comMaioria": 0, "nominais": 0, "ocorrencias": 0, "nominaisPossiveis": 0}
@@ -70,8 +70,9 @@ def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict]
         total_pres += len(s["presenca"])
         total_membros += len(s["parls"])
         lista_sessoes.append({"id": s["id"], "titulo": s["titulo"], "inicio": s["inicio"], "duracao": dur,
+                              "semHorario": bool(s.get("semHorario")), "fonte": s.get("fonte"),
                               "presentes": len(s["presenca"]), "membros": len(s["parls"]), "falas": len(s["hist"]),
-                              "votacoes": len(s["votacoes"])})
+                              "votacoes": len(s["votacoes"]), "pauta": len(s.get("pauta") or [])})
         for p in s["parls"]:
             por_parl[p["id"]]["sessoes"] += 1
             if p["id"] in s["presenca"]:
@@ -142,7 +143,7 @@ def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict]
             elif p.get("situacao") in ("em_tramitacao", "em_pauta", "adiada", "pendente", "em_discussao"):
                 pa["beneficiadosTramitacao"] += int(p.get("beneficiados") or 0)
         item = {k: p.get(k) for k in ("id", "numero", "ementa", "autor", "areas", "beneficiados", "abrangencia",
-                                       "vulneraveis", "urgencia", "fonte", "situacao", "historico", "criado",
+                                       "vulneraveis", "urgencia", "fonte", "situacao", "historico", "criado", "saplUrl", "textoUrl",
                                        *(("origem", "justificativa", "instrumento") if interno else ()))}
         item["relevancia"] = r
         lista_proj.append(item)
@@ -161,7 +162,7 @@ def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict]
                 a.pop(k, None)
         parlamentares.append(a)
     parlamentares.sort(key=lambda a: a["nome"])
-    _atuacao(parlamentares)
+    pesos_atuacao = _atuacao(parlamentares)
     situacao_oposicao = _blocos(parlamentares, ultimas_votacoes, interno)
 
     return {
@@ -169,7 +170,8 @@ def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict]
         "areas": AREAS, "vulneraveisNomes": VULNERAVEIS,
         "abrangenciaNomes": {k: v[0] for k, v in ABRANGENCIA.items()}, "urgenciaNomes": {k: v[0] for k, v in URGENCIA.items()},
         "totais": {
-            "sessoes": len(sessoes), "horas": round(total_seg / 3600, 1),
+            "sessoes": len(sessoes), "horas": round(total_seg / 3600, 1) if total_seg else None,
+            "materiasEmPauta": sum(len(s.get("pauta") or []) for s in sessoes),
             "presencaMedia": round(100 * total_pres / total_membros) if total_membros else None,
             "votacoes": votacoes, "aprovadas": aprovadas, "rejeitadas": rejeitadas,
             "projetos": len(projetos), "beneficiadosAprovados": beneficiados_aprovados,
@@ -182,29 +184,37 @@ def calcular(sessoes: list[dict], projetos: list[dict], parls_atuais: list[dict]
         "porPartido": sorted(por_partido.values(), key=lambda p: -p["tempoFala"]),
         "parlamentares": parlamentares,
         "votacoes": list(reversed(ultimas_votacoes))[:30],
-        "blocosNomes": BLOCOS, "pesosAtuacao": PESOS_ATUACAO,
-        "maisAtuantes": [{"id": a["id"], "nome": a["nome"], "partido": a["partido"], "bloco": a["bloco"], **a["atuacao"]}
+        "blocosNomes": BLOCOS, "pesosAtuacao": pesos_atuacao,
+        "maisAtuantes": [{"id": a["id"], "nome": a["nome"], "partido": a["partido"], "bloco": a["bloco"], "membro": a["membro"],
+                          **a["atuacao"]}
                          for a in sorted((a for a in parlamentares if a.get("atuacao")), key=lambda a: -a["atuacao"]["nota"])],
         **situacao_oposicao,
     }
 
 
-def _atuacao(parlamentares: list[dict]):
-    """Índice 0–100: presença, falas por sessão, projetos (aprovados valem 3) e participação nas votações nominais."""
+def _atuacao(parlamentares: list[dict]) -> dict:
+    """Índice 0–100: presença, falas por sessão, projetos (aprovados valem 3) e participação nas votações nominais.
+    Componente que a fonte não registra para ninguém (ex.: sessões importadas sem falas nem votos nominais)
+    sai do cálculo e o peso é redistribuído; devolve os pesos efetivamente usados."""
     ativos = [a for a in parlamentares if a["sessoes"]]
     falas = {a["id"]: a["falas"] / max(a["presencas"], 1) for a in ativos}
     producao = {a["id"]: a["autoria"] + 2 * a["autoriaAprovada"] for a in ativos}
-    max_falas = max(falas.values(), default=0) or 1
-    max_prod = max(producao.values(), default=0) or 1
+    max_falas = max(falas.values(), default=0)
+    max_prod = max(producao.values(), default=0)
+    medidos = {"presenca": bool(ativos), "debates": max_falas > 0, "producao": max_prod > 0,
+               "votacoes": any(a["nominaisPossiveis"] for a in ativos)}
+    soma = sum(PESOS_ATUACAO[k] for k, ok in medidos.items() if ok) or 1
+    pesos = {k: round(100 * PESOS_ATUACAO[k] / soma, 1) if ok else 0 for k, ok in medidos.items()}
     for a in parlamentares:
         if not a["sessoes"]:
             a["atuacao"] = None
             continue
-        comp = {"presenca": (a["presencaPct"] or 0) / 100, "debates": falas[a["id"]] / max_falas,
-                "producao": producao[a["id"]] / max_prod,
+        comp = {"presenca": (a["presencaPct"] or 0) / 100, "debates": falas[a["id"]] / max_falas if max_falas else 0.0,
+                "producao": producao[a["id"]] / max_prod if max_prod else 0.0,
                 "votacoes": min(1.0, a["votos"] / a["nominaisPossiveis"]) if a["nominaisPossiveis"] else 0.0}
-        partes = {k: round(PESOS_ATUACAO[k] * v, 1) for k, v in comp.items()}
+        partes = {k: round(pesos[k] * v, 1) for k, v in comp.items()}
         a["atuacao"] = {"nota": round(sum(partes.values())), "partes": partes}
+    return pesos
 
 
 def _blocos(parlamentares: list[dict], votacoes: list[dict], interno: bool) -> dict:

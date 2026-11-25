@@ -450,12 +450,41 @@ function carregarConfig() {
   $('cAuto').checked = c.autoInscricao; $('cExige').checked = c.exigePresenca; $('cPresCel').checked = c.presencaCelular;
   cfgFases = S.fases.map(f => ({ ...f })); desenharFases();
   cfgPartidos = Object.entries(S.partidos); desenharPartidos();
+  $('sUrl').value = S.sapl.url || ''; $('sAnos').value = new Date().getFullYear();
+  desenharSapl();
   const m = S.mesa;
   $('mDriver').value = m.driver; $('mHost').value = m.host; $('mPorta').value = m.porta; $('mEndereco').value = m.endereco;
   $('mAberto').value = m.valorAberto; $('mFechado').value = m.valorFechado; $('mTipo').value = m.tipoValor;
   $('mUrl').value = m.url; $('mTribuna').value = m.canalTribuna; $('mReenviar').checked = m.reenviar;
   mesaCampos();
 }
+/* ---------------- SAPL ---------------- */
+async function salvarSapl() {
+  await A('saplConfigurar', { url: $('sUrl').value });
+  if (PL.estado.sapl.url) A('saplTestar');
+}
+function importarMaterias() {
+  const anos = $('sAnos').value.split(/[,; ]+/).map(Number).filter(Boolean);
+  const tipos = [...$('sTipos').selectedOptions].map(o => +o.value);
+  A('saplImportarMaterias', { anos, tipos, limite: +$('sLimite').value });
+}
+function desenharSapl() {
+  const sp = PL.estado.sapl, job = sp.job;
+  $('saplCasa').innerHTML = sp.casa ? `<span class="chip sim">${esc(sp.casa.nome)}</span>` : sp.url ? '<span class="chip">não testado</span>' : '';
+  $('sAcoes').classList.toggle('oculto', !sp.casa);
+  if ($('sTipos').options.length !== sp.tipos.length)
+    $('sTipos').innerHTML = sp.tipos.map(t => `<option value="${t.id}" ${['PL', 'PLO', 'PLC', 'PLL'].includes(t.sigla) ? 'selected' : ''}>${esc(t.sigla)} — ${esc(t.descricao)}</option>`).join('');
+  if ($('sSessao').options.length !== sp.sessoes.length)
+    $('sSessao').innerHTML = sp.sessoes.map(x => `<option value="${x.id}">${x.data ? new Date(x.data + 'T12:00').toLocaleDateString('pt-BR') + ' · ' : ''}${esc(x.nome)}</option>`).join('');
+  const rodando = job && !job.fim;
+  document.querySelectorAll('#cartaoSapl button').forEach(b => { b.disabled = rodando; });
+  $('sJob').innerHTML = !job ? '' : `
+    <div class="detalhe" style="color:${job.erro ? 'var(--vermelho)' : 'var(--texto)'}">${rodando ? '⏳ ' : job.erro ? '⚠ ' : '✓ '}${esc(job.erro || job.mensagem)}</div>
+    ${job.total ? `<div class="barra" style="margin:8px 0"><i style="width:${Math.round(100 * job.feitos / job.total)}%"></i></div><small class="suave">${job.feitos} de ${job.total}</small>` : ''}
+    ${job.log.length ? `<details style="margin-top:6px"><summary class="detalhe" style="cursor:pointer">Registro (${job.log.length})</summary><div class="suave tnum" style="font-size:12px;line-height:1.6;max-height:180px;overflow:auto">${job.log.map(esc).join('<br>')}</div></details>` : ''}`;
+}
+PL.aoMudar(() => { if (abaAtual === 'config') desenharSapl(); });
+
 function mesaCampos() {
   $('mOsc').classList.toggle('oculto', $('mDriver').value !== 'osc');
   $('mHttp').classList.toggle('oculto', $('mDriver').value !== 'http');
@@ -693,6 +722,7 @@ function editarProjeto(id) {
     <div class="rot">Grupos vulneráveis atendidos${opcoes('fVuln', d.vulneraveisNomes, p.vulneraveis || [])}</div>
     ${!naPauta ? `<label class="linha">Situação<select class="campo" id="fSit" style="width:auto">${[...(p.situacao === 'proposta' ? ['proposta'] : []), 'em_tramitacao', 'aprovada', 'rejeitada', 'retirada', 'arquivado'].map(k => `<option value="${k}" ${p.situacao === k ? 'selected' : ''}>${SIT_PROJ[k]}</option>`).join('')}</select></label>` : '<p class="detalhe" style="margin:0">Na pauta da sessão: a situação muda pela votação.</p>'}
     <div class="previa-nota" id="fPrevia"></div>
+    ${p.saplUrl ? `<p class="detalhe" style="margin:0">Importado do SAPL · <a href="${esc(p.saplUrl)}" target="_blank" rel="noopener noreferrer">abrir no SAPL ↗</a>${p.textoUrl ? ` · <a href="${esc(p.textoUrl)}" target="_blank" rel="noopener noreferrer">texto original ↗</a>` : ''}</p>` : ''}
     ${p.situacao === 'proposta' ? `<div class="rot">Proposta de parlamentar${p.instrumento ? ' · instrumento sugerido: ' + esc(p.instrumento) : ''}
       ${p.justificativa ? `<div style="color:var(--texto);font-size:13px;white-space:pre-wrap">${esc(p.justificativa)}</div>` : ''}
       <small>Para protocolar, informe o número oficial e mude a situação para “Em tramitação”.</small></div>` : ''}
