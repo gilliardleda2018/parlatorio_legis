@@ -14,7 +14,7 @@ A estação é só das sessões, separada de qualquer outra rádio: quem quiser 
 ## 1. Grupos de segurança (EC2 → Security Groups)
 
 - **`parlatorio-alb`** (do balanceador): entrada **80** e **443** de qualquer lugar (`0.0.0.0/0`).
-- **`parlatorio-ec2`** (da instância): entrada **80 só do grupo `parlatorio-alb`** (escolha o grupo como origem, não um IP) e **22** (SSH) só do seu IP.
+- **`parlatorio-ec2`** (da instância): entrada **80 só do grupo `parlatorio-alb`** (escolha o grupo como origem, não um IP). Só se for administrar por SSH, abra também a **22** só do seu IP; com o Session Manager (seção 2) nenhuma outra porta é necessária.
 
 A porta 80 da instância não pode ficar aberta para a internet: é por ela que o ALB informa o IP real de cada visitante, que o bloqueio de PIN usa.
 
@@ -25,6 +25,7 @@ A porta 80 da instância não pode ficar aberta para a internet: é por ela que 
 - **Tipo:** `t3.small` (2 GB) basta para o plenário e a estação. Com a transcrição local dos discursos, use `t3.medium` (4 GB).
 - **Disco:** 30 GB gp3 (gravações das falas ocupam ~0,7 MB por minuto).
 - **Rede:** sub-rede pública com IP público automático (a instância precisa sair para a internet para instalar pacotes, atualizar e mandar backups); grupo de segurança `parlatorio-ec2`.
+- **Acesso para administrar:** o mais simples é o **Session Manager** (sem SSH, sem chave e sem porta aberta). Em *Advanced details → IAM instance profile*, escolha um perfil cuja função tenha a política `AmazonSSMManagedInstanceCore`. A imagem oficial do Debian não traz o agente do Session Manager; o instalador o instala sozinho quando roda numa EC2 (`SSM=0` desliga). Quem preferir SSH escolhe um par de chaves aqui e abre a porta 22 (seção 1).
 - **Dados do usuário (user data):** cole o arquivo `instalar.sh` desta pasta e, logo abaixo da linha `set -euo pipefail`, acrescente:
 
   ```bash
@@ -34,7 +35,7 @@ A porta 80 da instância não pode ficar aberta para a internet: é por ela que 
 
   (com `t3.medium`, acrescente também `TRANSCRICAO=1` para instalar a transcrição.)
 
-Ou, numa instância já criada, por SSH:
+Ou, numa instância já criada (pelo Session Manager ou por SSH):
 
 ```bash
 sudo CERTIFICADO=alb DOMINIO=legis.aggillintelligence.com.br bash instalar.sh
@@ -60,17 +61,41 @@ Em alguns minutos `https://legis.aggillintelligence.com.br` abre o Parlatório c
 
 ## 5. Levar os dados de Tuntum
 
-No computador onde o Parlatório roda hoje:
+No computador onde o Parlatório roda hoje, faça uma cópia consistente do banco e empacote as gravações:
 
 ```bash
 python3 -c "import sqlite3; s=sqlite3.connect('dados/tuntum.db'); d=sqlite3.connect('/tmp/parlatorio.db'); s.backup(d)"
-scp /tmp/parlatorio.db admin@IP-PUBLICO-DA-INSTANCIA:/tmp/
-scp -r dados/gravacoes admin@IP-PUBLICO-DA-INSTANCIA:/tmp/
+tar -czf /tmp/gravacoes.tar.gz -C dados gravacoes
 ```
+
+Depois leve os dois arquivos para o `/tmp` do servidor:
+
+- **Com SSH:**
+
+  ```bash
+  scp /tmp/parlatorio.db /tmp/gravacoes.tar.gz admin@IP-PUBLICO-DA-INSTANCIA:/tmp/
+  ```
+
+- **Só com o Session Manager** (o `scp` não funciona sem SSH): passe por um bucket S3 seu com links temporários, assim a instância não precisa de permissão no S3. No computador (com a AWS CLI e acesso ao bucket):
+
+  ```bash
+  aws s3 cp /tmp/parlatorio.db s3://SEU-BUCKET/migracao/
+  aws s3 cp /tmp/gravacoes.tar.gz s3://SEU-BUCKET/migracao/
+  aws s3 presign s3://SEU-BUCKET/migracao/parlatorio.db --expires-in 3600
+  aws s3 presign s3://SEU-BUCKET/migracao/gravacoes.tar.gz --expires-in 3600
+  ```
+
+  No servidor, baixe pelos dois links que o `presign` mostrou (entre aspas) e, ao final, apague os arquivos do bucket:
+
+  ```bash
+  curl -fo /tmp/parlatorio.db "LINK-DO-BANCO"
+  curl -fo /tmp/gravacoes.tar.gz "LINK-DAS-GRAVACOES"
+  ```
 
 No servidor:
 
 ```bash
+sudo tar -xzf /tmp/gravacoes.tar.gz -C /tmp
 sudo systemctl stop parlatorio
 sudo install -o parlatorio -g parlatorio -m 600 /tmp/parlatorio.db /var/lib/parlatorio/parlatorio.db
 sudo cp -r /tmp/gravacoes /var/lib/parlatorio/ && sudo chown -R parlatorio: /var/lib/parlatorio/gravacoes
@@ -106,6 +131,23 @@ sudo bash /opt/parlatorio_legis/deploy/aws/instalar.sh
 ```
 
 Baixa a versão nova do GitHub e reinicia os serviços. Dados, PINs, senhas da estação, domínio e modo do certificado são mantidos (o instalador lembra o que foi usado na instalação).
+
+## Entrar no servidor
+
+- **Session Manager, pelo navegador:** EC2 → Instâncias → marque a instância → **Conectar** → aba **Session Manager** → **Conectar**. Abre um terminal; ali o `sudo` não pede senha.
+- **Session Manager, pelo terminal** (AWS CLI e o *session-manager-plugin* instalados, com um usuário que tenha `ssm:StartSession` nesta instância):
+
+  ```bash
+  aws ssm start-session --region sa-east-1 --target ID-DA-INSTANCIA
+  ```
+
+- **SSH:** `ssh admin@IP-PUBLICO-DA-INSTANCIA`, se a instância tiver par de chaves e a porta 22 liberada.
+
+PIN inicial do presidente (rode no servidor, não no seu computador):
+
+```bash
+sudo grep PIN_PRESIDENTE /etc/parlatorio.env
+```
 
 ## Comandos úteis
 

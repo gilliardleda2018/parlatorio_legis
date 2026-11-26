@@ -16,6 +16,8 @@
 #   ESTACAO=0            não instala a estação própria das sessões (Icecast)
 #   ESTACAO_OUVINTES     limite de ouvintes ao mesmo tempo (padrão 300)
 #   REPO, RAMO           de onde baixar o código (padrão: GitHub, ramo main)
+#   SSM=0                não instala o agente do Session Manager da AWS (padrão: instala quando a
+#                        máquina é uma EC2; SSM=1 avisa se não conseguir)
 set -euo pipefail
 
 # numa atualização, vale o que foi usado na instalação (guardado em /etc/parlatorio.env)
@@ -30,10 +32,39 @@ CERTIFICADO="${CERTIFICADO:-letsencrypt}"
 case "$CERTIFICADO" in letsencrypt|alb) ;; *) echo "CERTIFICADO deve ser letsencrypt ou alb"; exit 1 ;; esac
 ESTACAO="${ESTACAO:-1}"
 ESTACAO_OUVINTES="${ESTACAO_OUVINTES:-300}"
+SSM="${SSM:-auto}"
 APP=/opt/parlatorio_legis
 DADOS=/var/lib/parlatorio
 
 export DEBIAN_FRONTEND=noninteractive
+
+# acesso pelo Session Manager da AWS (sem SSH): a imagem oficial do Debian não traz o agente SSM.
+# Vem antes do resto para a máquina ficar acessível mesmo se outra etapa falhar. Fora da EC2
+# (o serviço de metadados não responde) não faz nada; se falhar, só avisa e a instalação segue.
+instalar_agente_ssm() {
+  systemctl is-active -q amazon-ssm-agent && return 0
+  command -v curl >/dev/null || { apt-get update -q && apt-get install -y -q curl; } || return 1
+  local imds=http://169.254.169.254/latest token regiao arquitetura
+  token="$(curl -fsS -m 3 -X PUT "$imds/api/token" -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')" || {
+    [ "$SSM" = "1" ] && return 1  # pedido explicitamente, mas não é uma EC2
+    return 0
+  }
+  regiao="$(curl -fsS -m 3 -H "X-aws-ec2-metadata-token: $token" "$imds/meta-data/placement/region")" || return 1
+  case "$(dpkg --print-architecture)" in
+    amd64) arquitetura=debian_amd64 ;;
+    arm64) arquitetura=debian_arm64 ;;
+    *) return 1 ;;
+  esac
+  curl -fsSL --retry 5 -o /tmp/amazon-ssm-agent.deb \
+      "https://s3.$regiao.amazonaws.com/amazon-ssm-$regiao/latest/$arquitetura/amazon-ssm-agent.deb" \
+    && dpkg -i /tmp/amazon-ssm-agent.deb \
+    && rm -f /tmp/amazon-ssm-agent.deb \
+    && systemctl enable --now amazon-ssm-agent
+}
+if [ "$SSM" != "0" ]; then
+  instalar_agente_ssm || echo "AVISO: o agente do Session Manager (SSM) não foi instalado; a instalação continua"
+fi
+
 apt-get update -q
 apt-get install -y -q python3 python3-venv ffmpeg git caddy tzdata unattended-upgrades
 if [ "$ESTACAO" = "1" ]; then
