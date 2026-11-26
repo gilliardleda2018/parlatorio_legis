@@ -457,28 +457,26 @@
           <div class="cartao">
             <h2>Mesa de som</h2>
             <div class="coluna" style="gap:10px">
-              <label class="linha">Integração
-                <select class="campo" id="mDriver" style="width:auto" onchange="mesaCampos()">
-                  <option value="simulado">Simulada (sem equipamento)</option>
-                  <option value="osc">Mesa digital por rede (OSC)</option>
-                  <option value="http">Ponte HTTP (webhook)</option>
-                </select></label>
+              <label class="rot">Modelo da mesa ou sistema de microfones
+                <select class="campo" id="mModelo" onchange="mesaPreset(this.value)"></select></label>
+              <small class="suave" id="mAjuda"></small>
+              <div id="mRede" style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px">
+                <label class="rot">IP da mesa<input class="campo" id="mHost" placeholder="192.168.0.50"></label>
+                <label class="rot">Porta<input class="campo" type="number" id="mPorta"></label>
+                <label class="rot" id="mMidi">Canal MIDI<input class="campo" type="number" min="1" max="16" id="mMidiCanal"></label>
+              </div>
               <div id="mOsc" class="coluna" style="gap:10px">
-                <div class="grupo"><span class="detalhe">Modelos:</span>
-                  <button class="botao pq" onclick="mesaPreset('x32')">Behringer X32 / Midas M32</button>
-                  <button class="botao pq" onclick="mesaPreset('xair')">Behringer X Air (XR)</button></div>
-                <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
-                  <label class="rot">IP da mesa<input class="campo" id="mHost" placeholder="192.168.0.50"></label>
-                  <label class="rot">Porta UDP<input class="campo" type="number" id="mPorta"></label>
-                </div>
-                <label class="rot">Endereço OSC do canal ({canal:02d} = número com 2 dígitos)<input class="campo" id="mEndereco"></label>
+                <label class="rot">Endereço OSC do canal ({canal} = número; {canal:02d} = com 2 dígitos)<input class="campo" id="mEndereco"></label>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
                   <label class="rot">Valor aberto<input class="campo" id="mAberto"></label>
                   <label class="rot">Valor fechado<input class="campo" id="mFechado"></label>
                   <label class="rot">Tipo<select class="campo" id="mTipo"><option value="i">Inteiro</option><option value="f">Decimal</option></select></label>
                 </div>
               </div>
-              <label class="rot" id="mHttp">URL da ponte (recebe POST JSON {canais:[{canal, aberto}]})<input class="campo" id="mUrl" placeholder="http://192.168.0.20:1880/microfones"></label>
+              <div id="mHttp" class="coluna" style="gap:10px">
+                <label class="rot" id="mUrlRot">URL<input class="campo" id="mUrl"></label>
+                <label class="rot" id="mMetodoRot">Método<select class="campo" id="mMetodo" style="width:auto"><option>GET</option><option>POST</option></select></label>
+              </div>
               <label class="linha">Canal do microfone da tribuna (0 = orador fala da bancada)<input class="campo" type="number" min="0" id="mTribuna" style="width:100px"></label>
               <label class="linha">Reenviar o estado a cada 5 s (corrige mexidas manuais na mesa)<input type="checkbox" id="mReenviar"></label>
               <div class="grupo" style="align-items:center">

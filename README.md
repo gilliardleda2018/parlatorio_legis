@@ -217,6 +217,8 @@ PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 
 ## Publicar na internet
 
+Para rodar **dentro da Câmara** (on-premise, servidor Debian na rede do plenário, controlando a mesa de som), veja [deploy/local/README.md](deploy/local/README.md). Mesas suportadas: Behringer X32/M32, X Air, WING; Yamaha TF/DM3/DM7/QL/CL/Rivage; Allen & Heath Qu/dLive/Avantis/SQ; Soundcraft Ui; qualquer mesa OSC; Bitfocus Companion ou Node-RED por ponte HTTP; relés e centrais de conferência com URL por canal.
+
 O roteiro para a AWS (EC2 em São Paulo, HTTPS automático com Caddy no domínio da câmara) está em [deploy/aws/README.md](deploy/aws/README.md), com o instalador `deploy/aws/instalar.sh`, que serve para qualquer servidor Ubuntu.
 
 ## Transmissão ao vivo (rádio)

@@ -41,7 +41,7 @@ import backup as backup_mod
 import transcricao
 import transmissao
 from texto import _sem_acento
-from mesa import CFG_PADRAO, PRESETS, Mesa
+from mesa import CFG_PADRAO, DRIVERS as DRIVERS_MESA, PRESETS, Mesa
 
 RAIZ = Path(__file__).resolve().parent.parent
 PUBLICO = RAIZ / "public"
@@ -702,16 +702,29 @@ def mesaSalvar(ator, cfg):
         v = cfg[k]
         if isinstance(padrao, bool):
             novo[k] = bool(v)
-        elif k in ("porta", "canalTribuna"):
-            novo[k] = int(v or 0)
+        elif k in ("porta", "canalTribuna", "midiCanal"):
+            try:
+                novo[k] = int(v or 0)
+            except (TypeError, ValueError):
+                raise Erro("Número inválido em " + k + ".")
         elif k in ("valorAberto", "valorFechado"):
             novo[k] = v
         else:
             novo[k] = str(v).strip()
     for k in ("valorAberto", "valorFechado"):
         novo[k] = float(novo[k]) if novo.get("tipoValor") == "f" else int(float(novo[k]))
-    if novo["driver"] not in ("simulado", "osc", "http"):
+    if novo["driver"] not in DRIVERS_MESA:
         raise Erro("Driver inválido.")
+    if novo["modelo"] and novo["modelo"] not in PRESETS:
+        raise Erro("Modelo de mesa desconhecido.")
+    if novo["driver"] != "simulado" and novo["driver"] not in ("http", "http_modelo") and not novo["host"]:
+        raise Erro("Informe o IP da mesa.")
+    if not 0 <= novo["porta"] <= 65535 or not 1 <= (novo["midiCanal"] or 1) <= 16:
+        raise Erro("Porta ou canal MIDI inválido.")
+    if novo["driver"] in ("http", "http_modelo") and novo["url"] and not re.match(r"^https?://", novo["url"]):
+        raise Erro("A URL deve começar com http:// ou https://.")
+    if novo["driver"] == "http_modelo" and "{canal}" not in novo["url"]:
+        raise Erro("A URL precisa conter {canal}.")
     if novo["driver"] == "osc" and "{canal" not in novo["endereco"]:
         raise Erro("O endereço OSC precisa conter {canal}, por exemplo /ch/{canal:02d}/mix/on.")
     try:

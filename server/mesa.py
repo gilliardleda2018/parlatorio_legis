@@ -9,30 +9,58 @@ o plenário se a mesa não responder.
 
 Drivers:
   * simulado: só registra no painel (para treinar e testar sem equipamento)
-  * osc: mensagens OSC por UDP (Behringer X32/M32, X Air, e outras mesas digitais)
+  * osc: mensagens OSC por UDP (Behringer X32/M32, X Air, WING, Midas e outras)
+  * yamaha: protocolo de texto da Yamaha por TCP, porta 49280 (TF, DM3, DM7, QL, CL, Rivage)
+  * allenheath_qu: MIDI por TCP, mudo por Note On (Allen & Heath Qu, dLive, Avantis)
+  * allenheath_sq: MIDI por TCP, mudo por NRPN (Allen & Heath SQ)
+  * soundcraft: WebSocket das mesas Soundcraft Ui (Ui12, Ui16, Ui24R)
   * http: POST JSON para um endereço (ponte para sistemas de conferência,
-    Node-RED, Companion, controladores próprios)
+    Node-RED, Bitfocus Companion, controladores próprios)
+  * http_modelo: uma URL por canal, com {canal}, {acao} (on/off) e {valor} (1/0):
+    módulos de relé (Shelly, ESP32), centrais de conferência com API simples
+
+Em todos, "aberto" é o canal ligado (sem mudo). Os protocolos de Yamaha, Allen & Heath e
+Soundcraft seguem a documentação dos fabricantes e devem ser validados no equipamento.
 
 A cada 5 s o estado completo é reenviado (opcional), para corrigir a mesa
 se alguém mexer nela à mão.
 """
+import base64
 import json
+import os
 import queue
 import socket
 import struct
 import threading
 import time
+import urllib.parse
 import urllib.request
 
+# Modelos que o painel oferece: cada um escolhe o driver e preenche porta/endereço/valores.
 PRESETS = {
-    "x32": {"porta": 10023, "endereco": "/ch/{canal:02d}/mix/on", "valorAberto": 1, "valorFechado": 0, "tipoValor": "i"},
-    "xair": {"porta": 10024, "endereco": "/ch/{canal:02d}/mix/on", "valorAberto": 1, "valorFechado": 0, "tipoValor": "i"},
+    "x32": {"nome": "Behringer X32 / Midas M32", "driver": "osc", "porta": 10023, "endereco": "/ch/{canal:02d}/mix/on",
+            "valorAberto": 1, "valorFechado": 0, "tipoValor": "i"},
+    "xair": {"nome": "Behringer X Air (XR12/16/18) / Midas MR", "driver": "osc", "porta": 10024,
+             "endereco": "/ch/{canal:02d}/mix/on", "valorAberto": 1, "valorFechado": 0, "tipoValor": "i"},
+    "wing": {"nome": "Behringer WING", "driver": "osc", "porta": 2223, "endereco": "/ch/{canal}/mute",
+             "valorAberto": 0, "valorFechado": 1, "tipoValor": "i"},
+    "yamaha": {"nome": "Yamaha TF / DM3 / DM7 / QL / CL / Rivage", "driver": "yamaha", "porta": 49280},
+    "allenheath_qu": {"nome": "Allen & Heath Qu / dLive / Avantis", "driver": "allenheath_qu", "porta": 51325},
+    "allenheath_sq": {"nome": "Allen & Heath SQ", "driver": "allenheath_sq", "porta": 51325},
+    "soundcraft": {"nome": "Soundcraft Ui12 / Ui16 / Ui24R", "driver": "soundcraft", "porta": 80},
+    "osc": {"nome": "Outra mesa digital com OSC", "driver": "osc", "porta": 10023, "endereco": "/ch/{canal:02d}/mix/on",
+            "valorAberto": 1, "valorFechado": 0, "tipoValor": "i"},
+    "http": {"nome": "Ponte HTTP (Companion, Node-RED, sistema de conferência)", "driver": "http"},
+    "http_modelo": {"nome": "Relés ou central com URL por canal (Shelly, ESP32)", "driver": "http_modelo"},
 }
+DRIVERS = ("simulado", "osc", "yamaha", "allenheath_qu", "allenheath_sq", "soundcraft", "http", "http_modelo")
 
 CFG_PADRAO = {
-    "driver": "simulado", "host": "192.168.0.50", "porta": 10023, "endereco": "/ch/{canal:02d}/mix/on",
-    "valorAberto": 1, "valorFechado": 0, "tipoValor": "i", "url": "", "canalTribuna": 0, "reenviar": True,
+    "driver": "simulado", "modelo": "", "host": "192.168.0.50", "porta": 10023, "endereco": "/ch/{canal:02d}/mix/on",
+    "valorAberto": 1, "valorFechado": 0, "tipoValor": "i", "url": "", "metodo": "GET", "midiCanal": 1,
+    "canalTribuna": 0, "reenviar": True,
 }
+_CHAVES_CONEXAO = ("driver", "host", "porta", "endereco", "url", "metodo", "midiCanal", "tipoValor", "valorAberto", "valorFechado")
 
 
 def osc_mensagem(endereco: str, valor, tipo: str) -> bytes:
@@ -80,7 +108,7 @@ class Mesa:
                     teste = item
                 else:
                     _, cfg, canais = item
-                    if any(cfg.get(k) != self.cfg.get(k) for k in ("driver", "host", "porta", "endereco", "url", "tipoValor", "valorAberto", "valorFechado")):
+                    if any(cfg.get(k) != self.cfg.get(k) for k in _CHAVES_CONEXAO):
                         self.enviado = {}
                     self.cfg, self.desejado = cfg, canais
                 try:
@@ -101,18 +129,8 @@ class Mesa:
         driver = cfg.get("driver", "simulado")
         antes = (self.status["ok"], self.status["erro"])
         try:
-            if driver == "osc":
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                    destino = (cfg["host"], int(cfg["porta"]))
-                    for canal, aberto in canais.items():
-                        valor = cfg["valorAberto"] if aberto else cfg["valorFechado"]
-                        s.sendto(osc_mensagem(cfg["endereco"].format(canal=canal), valor, cfg.get("tipoValor", "i")), destino)
-            elif driver == "http":
-                if not cfg.get("url"):
-                    raise ValueError("Informe o endereço HTTP da ponte.")
-                corpo = json.dumps({"canais": [{"canal": c, "aberto": a} for c, a in canais.items()], "motivo": motivo}).encode()
-                req = urllib.request.Request(cfg["url"], corpo, {"Content-Type": "application/json"})
-                urllib.request.urlopen(req, timeout=2).read()
+            if driver != "simulado":
+                ENVIOS[driver](cfg, canais, motivo)
             if motivo != "teste":
                 self.enviado.update(canais)
             self.status.update(ok=True, erro=None, ultimo=int(time.time() * 1000))
@@ -125,3 +143,111 @@ class Mesa:
             self.status.update(ok=False, erro=f"{type(e).__name__}: {e}"[:200])
         if motivo != "reenvio" or (self.status["ok"], self.status["erro"]) != antes:
             self.aviso()
+
+
+# ---------------------------------------------------------------- protocolos
+def _osc(cfg, canais, motivo):
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        destino = (cfg["host"], int(cfg["porta"]))
+        for canal, aberto in canais.items():
+            valor = cfg["valorAberto"] if aberto else cfg["valorFechado"]
+            s.sendto(osc_mensagem(cfg["endereco"].format(canal=canal), valor, cfg.get("tipoValor", "i")), destino)
+
+
+def _tcp(cfg, dados: bytes, ler=False) -> bytes:
+    with socket.create_connection((cfg["host"], int(cfg["porta"])), timeout=2) as s:
+        s.sendall(dados)
+        if not ler:
+            return b""
+        s.settimeout(0.6)
+        resposta = b""
+        try:
+            while len(resposta) < 65536:
+                parte = s.recv(4096)
+                if not parte:
+                    break
+                resposta += parte
+        except socket.timeout:
+            pass
+        return resposta
+
+
+def _yamaha(cfg, canais, motivo):
+    """Protocolo de controle remoto da Yamaha (TCP 49280): liga/desliga o botão ON do canal de entrada."""
+    linhas = "".join(f"set MIXER:Current/InCh/Fader/On {c - 1} 0 {1 if a else 0}\n" for c, a in canais.items())
+    resposta = _tcp(cfg, linhas.encode(), ler=True).decode(errors="replace")
+    erros = [l for l in resposta.splitlines() if l.startswith("ERROR")]
+    if erros:
+        raise RuntimeError("a mesa Yamaha respondeu " + erros[0][:120])
+
+
+def _midi_canal(cfg) -> int:
+    return max(0, min(15, int(cfg.get("midiCanal") or 1) - 1))
+
+
+def _allenheath_qu(cfg, canais, motivo):
+    """Qu / dLive / Avantis: mudo do canal de entrada por Note On (velocidade > 0x40 liga o mudo)."""
+    n = 0x90 | _midi_canal(cfg)
+    dados = b"".join(bytes([n, c - 1, 0x3F if a else 0x7F, n, c - 1, 0x00]) for c, a in canais.items())
+    _tcp(cfg, dados)
+
+
+def _allenheath_sq(cfg, canais, motivo):
+    """SQ: mudo do canal de entrada por NRPN (MSB 0x00, LSB = canal - 1, valor 1 = mudo)."""
+    b = 0xB0 | _midi_canal(cfg)
+    dados = b"".join(bytes([b, 0x63, 0x00, b, 0x62, c - 1, b, 0x06, 0x00, b, 0x26, 0 if a else 1]) for c, a in canais.items())
+    _tcp(cfg, dados)
+
+
+def _ws_quadro(texto: str) -> bytes:
+    """Quadro de texto WebSocket mascarado (cliente → servidor)."""
+    dados = texto.encode()
+    mascara = os.urandom(4)
+    n = len(dados)
+    cab = bytes([0x81]) + (bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + struct.pack(">H", n))
+    return cab + mascara + bytes(x ^ mascara[i % 4] for i, x in enumerate(dados))
+
+
+def _soundcraft(cfg, canais, motivo):
+    """Soundcraft Ui: WebSocket na porta 80, comando SETD^i.<canal-1>.mute^<1|0>."""
+    host, porta = cfg["host"], int(cfg.get("porta") or 80)
+    with socket.create_connection((host, porta), timeout=2) as s:
+        chave = base64.b64encode(os.urandom(16)).decode()
+        s.sendall((f"GET / HTTP/1.1\r\nHost: {host}:{porta}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                   f"Sec-WebSocket-Key: {chave}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+        resposta = b""
+        while b"\r\n\r\n" not in resposta and len(resposta) < 8192:
+            parte = s.recv(1024)
+            if not parte:
+                break
+            resposta += parte
+        if b" 101 " not in resposta.split(b"\r\n", 1)[0]:
+            raise RuntimeError("a mesa Soundcraft não aceitou a conexão WebSocket")
+        for c, a in canais.items():
+            s.sendall(_ws_quadro(f"3:::SETD^i.{c - 1}.mute^{0 if a else 1}"))
+
+
+def _http(cfg, canais, motivo):
+    if not cfg.get("url"):
+        raise ValueError("Informe o endereço HTTP da ponte.")
+    corpo = json.dumps({"canais": [{"canal": c, "aberto": a} for c, a in canais.items()], "motivo": motivo}).encode()
+    req = urllib.request.Request(cfg["url"], corpo, {"Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=2).read()
+
+
+def montar_url(modelo: str, canal: int, aberto: bool) -> str:
+    return (modelo.replace("{canal}", str(canal)).replace("{acao}", "on" if aberto else "off")
+            .replace("{valor}", "1" if aberto else "0").replace("{aberto}", "true" if aberto else "false"))
+
+
+def _http_modelo(cfg, canais, motivo):
+    if "{canal}" not in (cfg.get("url") or ""):
+        raise ValueError("A URL precisa conter {canal}, por exemplo http://192.168.0.60/relay/{canal}?turn={acao}.")
+    metodo = "POST" if str(cfg.get("metodo")).upper() == "POST" else "GET"
+    for c, a in canais.items():
+        req = urllib.request.Request(montar_url(cfg["url"], c, a), b"" if metodo == "POST" else None, method=metodo)
+        urllib.request.urlopen(req, timeout=2).read()
+
+
+ENVIOS = {"osc": _osc, "yamaha": _yamaha, "allenheath_qu": _allenheath_qu, "allenheath_sq": _allenheath_sq,
+          "soundcraft": _soundcraft, "http": _http, "http_modelo": _http_modelo}

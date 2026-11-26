@@ -460,7 +460,10 @@ function carregarConfig() {
   desenharBackup();
   desenharSapl();
   const m = S.mesa;
-  $('mDriver').value = m.driver; $('mHost').value = m.host; $('mPorta').value = m.porta; $('mEndereco').value = m.endereco;
+  mesaOpcoes();
+  $('mModelo').value = m.modelo || (m.driver === 'osc' ? 'osc' : m.driver === 'http' ? 'http' : '');
+  $('mHost').value = m.host; $('mPorta').value = m.porta; $('mEndereco').value = m.endereco;
+  $('mMidiCanal').value = m.midiCanal || 1; $('mMetodo').value = m.metodo || 'GET';
   $('mAberto').value = m.valorAberto; $('mFechado').value = m.valorFechado; $('mTipo').value = m.tipoValor;
   $('mUrl').value = m.url; $('mTribuna').value = m.canalTribuna; $('mReenviar').checked = m.reenviar;
   mesaCampos();
@@ -519,22 +522,46 @@ function desenharBackup() {
     : 'Nenhum backup ainda.';
 }
 
+const MESA_AJUDA = {
+  simulado: 'Sem equipamento: o painel só mostra o que abriria e fecharia. Bom para treinar.',
+  osc: 'Ligue a mesa na mesma rede do servidor e informe o IP dela (veja no menu de rede/setup da mesa).',
+  yamaha: 'Na mesa: ative o controle remoto por rede (porta 49280). O painel liga e desliga o botão ON de cada canal de entrada.',
+  allenheath_qu: 'MIDI por rede (TCP). Qu e Avantis usam a porta 51325; dLive usa 51328. Confira o canal MIDI configurado na mesa.',
+  allenheath_sq: 'MIDI por rede (TCP 51325). Confira o canal MIDI configurado na mesa (Utility → MIDI).',
+  soundcraft: 'Use o IP da mesa Ui (o mesmo que abre a tela de controle no navegador).',
+  http: 'O painel envia POST com JSON {canais:[{canal, aberto}]} a cada mudança. Serve para o Bitfocus Companion (que controla centenas de mesas), Node-RED ou a API de um sistema de conferência.',
+  http_modelo: 'Uma chamada por canal. Use {canal}, {acao} (on/off), {valor} (1/0) ou {aberto} (true/false). Ex.: Shelly: http://192.168.0.60/relay/{canal}?turn={acao}',
+};
+function mesaOpcoes() {
+  const P = PL.estado.mesaPresets || {};
+  $('mModelo').innerHTML = '<option value="">Simulada (sem equipamento)</option>' +
+    Object.entries(P).map(([k, p]) => `<option value="${k}">${esc(p.nome)}</option>`).join('');
+}
 function mesaCampos() {
-  $('mOsc').classList.toggle('oculto', $('mDriver').value !== 'osc');
-  $('mHttp').classList.toggle('oculto', $('mDriver').value !== 'http');
+  const p = (PL.estado.mesaPresets || {})[$('mModelo').value], d = p ? p.driver : 'simulado';
+  $('mRede').classList.toggle('oculto', ['simulado', 'http', 'http_modelo'].includes(d));
+  $('mMidi').classList.toggle('oculto', !d.startsWith('allenheath'));
+  $('mOsc').classList.toggle('oculto', d !== 'osc');
+  $('mHttp').classList.toggle('oculto', !d.startsWith('http'));
+  $('mMetodoRot').classList.toggle('oculto', d !== 'http_modelo');
+  $('mUrl').placeholder = d === 'http' ? 'http://192.168.0.20:1880/microfones' : 'http://192.168.0.60/relay/{canal}?turn={acao}';
+  $('mAjuda').textContent = MESA_AJUDA[d] + (p && !['osc', 'http', 'http_modelo'].includes(d) ? ' Protocolo do fabricante: teste os canais antes da primeira sessão.' : '');
 }
 function mesaPreset(nome) {
-  const p = PL.estado.mesaPresets[nome];
-  $('mDriver').value = 'osc'; $('mPorta').value = p.porta; $('mEndereco').value = p.endereco;
-  $('mAberto').value = p.valorAberto; $('mFechado').value = p.valorFechado; $('mTipo').value = p.tipoValor;
+  const p = (PL.estado.mesaPresets || {})[nome];
+  if (p) {
+    if (p.porta) $('mPorta').value = p.porta;
+    if (p.endereco) { $('mEndereco').value = p.endereco; $('mAberto').value = p.valorAberto; $('mFechado').value = p.valorFechado; $('mTipo').value = p.tipoValor; }
+  }
   mesaCampos();
 }
 async function salvarMesa() {
+  const p = (PL.estado.mesaPresets || {})[$('mModelo').value];
   await PL.acao('presidente', 'mesaSalvar', { cfg: {
-    driver: $('mDriver').value, host: $('mHost').value, porta: +$('mPorta').value, endereco: $('mEndereco').value,
-    valorAberto: $('mAberto').value, valorFechado: $('mFechado').value, tipoValor: $('mTipo').value,
-    url: $('mUrl').value, canalTribuna: +$('mTribuna').value, reenviar: $('mReenviar').checked } }).catch(() => {});
-  PL.avisar('Mesa de som salva.');
+    driver: p ? p.driver : 'simulado', modelo: $('mModelo').value, host: $('mHost').value, porta: +$('mPorta').value,
+    endereco: $('mEndereco').value, valorAberto: $('mAberto').value, valorFechado: $('mFechado').value, tipoValor: $('mTipo').value,
+    url: $('mUrl').value, metodo: $('mMetodo').value, midiCanal: +$('mMidiCanal').value || 1,
+    canalTribuna: +$('mTribuna').value, reenviar: $('mReenviar').checked } }).then(() => PL.avisar('Mesa de som salva.')).catch(() => {});
 }
 
 /* ---------------- mesa de som (status) e gravação ---------------- */
