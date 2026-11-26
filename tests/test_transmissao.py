@@ -8,18 +8,18 @@ import time
 import unittest
 from pathlib import Path
 
-from apoio import Servidor, TesteComServidor
+from apoio import TesteComServidor
 
 
 class IcecastFalso:
     """Aceita uma conexão source (PUT) como o Icecast e guarda cabeçalhos e bytes recebidos."""
 
-    def __init__(self, senha_certa="segredo", usuario="dj"):
+    def __init__(self, senha_certa="segredo"):
         self.sock = socket.socket()
         self.sock.bind(("127.0.0.1", 0))
         self.sock.listen(4)
         self.porta = self.sock.getsockname()[1]
-        self.senha_certa, self.usuario = senha_certa, usuario
+        self.senha_certa = senha_certa
         self.cabecalhos, self.recebido = [], 0
         threading.Thread(target=self._servir, daemon=True).start()
 
@@ -42,7 +42,7 @@ class IcecastFalso:
             cab, resto = dados.split(b"\r\n\r\n", 1)
             texto = cab.decode(errors="replace")
             self.cabecalhos.append(texto)
-            esperado = "Basic " + base64.b64encode(f"{self.usuario}:{self.senha_certa}".encode()).decode()
+            esperado = "Basic " + base64.b64encode(f"dj:{self.senha_certa}".encode()).decode()
             if esperado not in texto:
                 c.sendall(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
                 return
@@ -138,79 +138,6 @@ class Transmissao(TesteComServidor):
         finally:
             s.acao(P, "transmissaoDesligar")
             ice.fechar()
-
-    def test_estacao_propria_sem_instalar(self):
-        """Sem ESTACAO_SENHA no ambiente, a estação própria não aparece nem pode ser escolhida."""
-        s, P = self.s, self.P
-        self.assertNotIn("propria", s.req("/api/transmissao", token=P)["presets"])
-        self.erro(s.acao(P, "transmissaoConfigurar", preset="propria"), 400, "estação própria")
-
-
-@unittest.skipUnless(shutil.which("ffmpeg"), "precisa do ffmpeg")
-class EstacaoPropria(Transmissao.__base__):
-    """Icecast instalado no mesmo servidor (deploy/aws/instalar.sh): endereço e senha vêm do ambiente."""
-    SENHA = "senha-da-estacao-no-ambiente"
-
-    @classmethod
-    def setUpClass(cls):
-        cls.ice = IcecastFalso(senha_certa=cls.SENHA, usuario="source")
-        cls.servidor = Servidor(ESTACAO_SENHA=cls.SENHA, ESTACAO_PORTA=str(cls.ice.porta), ESTACAO_MOUNT="/sessao",
-                                ESTACAO_PUBLICO="https://camara.exemplo.br/aovivo")
-        cls.s = cls.servidor
-        cls.P = cls.s.entrar("presidente")
-        cls.tmp = tempfile.TemporaryDirectory()
-        cls.audio = Path(cls.tmp.name) / "teste.webm"
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=6", "-c:a", "libopus",
-                        "-f", "webm", str(cls.audio)], check=True)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.ice.fechar()
-        cls.tmp.cleanup()
-        super().tearDownClass()
-
-    esperar, enviar_audio = Transmissao.esperar, Transmissao.enviar_audio
-
-    def test_ja_vem_configurada_e_sem_senha_nas_telas(self):
-        s, P = self.s, self.P
-        estado = s.estado()
-        self.assertTrue(estado["transmissao"]["configurada"])
-        self.assertEqual(estado["transmissao"]["publico"], "https://camara.exemplo.br/aovivo")
-        self.assertNotIn(self.SENHA, str(estado))
-        cfg = s.req("/api/transmissao", token=P)
-        self.assertEqual((cfg["preset"], cfg["host"], cfg["mount"], cfg["bitrate"]), ("propria", "127.0.0.1", "/sessao", 96))
-        self.assertTrue(cfg["estacaoPropria"] and cfg["temSenha"])
-        self.assertEqual(next(iter(cfg["presets"])), "propria")
-        self.assertNotIn(self.SENHA, str(cfg))
-
-    def test_transmite_para_a_estacao(self):
-        s, P = self.s, self.P
-        antes = self.ice.recebido
-        self.ok(s.acao(P, "transmissaoLigar"))
-        try:
-            self.esperar(lambda st: st["ativa"])
-            self.enviar_audio()
-            for _ in range(50):
-                if self.ice.recebido > antes + 1000:
-                    break
-                time.sleep(0.1)
-            self.assertGreater(self.ice.recebido, antes + 1000)
-            self.assertTrue(self.ice.cabecalhos[-1].startswith("SOURCE /sessao "))
-            self.assertTrue(s.req("/api/aovivo")["ativa"])
-        finally:
-            self.ok(s.acao(P, "transmissaoDesligar"))
-
-    def test_troca_para_outra_radio_e_volta(self):
-        s, P = self.s, self.P
-        self.ok(s.acao(P, "transmissaoConfigurar", preset="azuracast", host="radio.exemplo.br", porta=8005, mount="/",
-                       usuario="dj", senha="da-outra-radio", publico="https://radio.exemplo.br/listen/x/radio.mp3"))
-        self.assertEqual(s.req("/api/transmissao", token=P)["host"], "radio.exemplo.br")
-        self.ok(s.acao(P, "transmissaoConfigurar", preset="propria", bitrate=64))  # endereço para ouvir volta ao padrão
-        cfg = s.req("/api/transmissao", token=P)
-        self.assertEqual((cfg["preset"], cfg["host"], cfg["porta"], cfg["publico"]),
-                         ("propria", "127.0.0.1", self.ice.porta, "https://camara.exemplo.br/aovivo"))
-        self.assertEqual((cfg["outra"]["host"], cfg["outra"]["usuario"], cfg["temSenhaOutra"]), ("radio.exemplo.br", "dj", True))
-        self.assertNotIn("da-outra-radio", str(cfg))
 
 
 if __name__ == "__main__":

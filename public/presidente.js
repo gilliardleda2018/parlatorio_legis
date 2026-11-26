@@ -619,36 +619,16 @@ let trPresets = {};
 async function carregarTransmissao() {
   let c;
   try { c = await (await apiGet('/api/transmissao')).json(); } catch { return; }
-  trPresets = c.presets; trEstacao = c;
-  $('trPreset').innerHTML = Object.entries(c.presets).map(([k, p]) => `<option value="${k}">${PL.esc(p.nome)}</option>`).join('');
-  $('trBitrate').innerHTML = c.bitrates.map(b => `<option value="${b}">${b} kbps${b === (c.preset === 'propria' ? 96 : 128) ? ' (recomendado)' : ''}</option>`).join('');
+  trPresets = c.presets;
+  $('trBitrate').innerHTML = c.bitrates.map(b => `<option value="${b}">${b} kbps${b === 128 ? ' (recomendado)' : ''}</option>`).join('');
   $('trPreset').value = c.preset; $('trHost').value = c.host; $('trPorta').value = c.porta; $('trMount').value = c.mount;
   $('trUsuario').value = c.usuario; $('trSenha').value = ''; $('trSenha').placeholder = c.temSenha ? '•••••• (mantida; digite para trocar)' : '';
   $('trBitrate').value = c.bitrate; $('trPublico').value = c.publico; $('trNome').value = c.nome; $('trTls').checked = c.tls;
-  if (c.preset === 'propria') {  // os campos escondidos guardam a outra rádio, caso a presidência troque de destino
-    const o = c.outra || {};
-    $('trHost').value = o.host || ''; $('trPorta').value = o.porta || 8005; $('trMount').value = o.mount || '/';
-    $('trUsuario').value = o.usuario || ''; $('trTls').checked = !!o.tls;
-    $('trSenha').placeholder = c.temSenhaOutra ? '•••••• (mantida; digite para trocar)' : '';
-  }
-  trCampos();
   if (!c.ffmpeg) $('trCfgEstado').innerHTML = '<span class="chip nao">servidor sem ffmpeg</span>';
-}
-let trEstacao = {};
-/* Estação própria: endereço, porta e senha vêm do servidor; só sobram qualidade, nome e endereço para ouvir. */
-function trCampos() {
-  const propria = $('trPreset').value === 'propria';
-  ['trHost', 'trPorta', 'trMount', 'trUsuario', 'trSenha', 'trTls'].forEach(id => { $(id).closest('label').style.display = propria ? 'none' : ''; });
-  $('trCfgAjuda').textContent = propria
-    ? 'A estação própria das sessões roda neste mesmo servidor (Icecast), separada de qualquer outra rádio. Já vem configurada pelo instalador: é só escolher a qualidade e transmitir.'
-    : 'Envia o áudio da sessão para um servidor de rádio Icecast ou AzuraCast. No AzuraCast, ative “Streamers/DJs” na estação, crie uma conta de DJ para a câmara e use aqui o usuário e a senha dela (porta 8005, montagem /).';
-  $('trPublico').placeholder = propria && trEstacao.estacaoPublico ? trEstacao.estacaoPublico : 'https://radio.suacamara.leg.br/listen/camara/radio.mp3';
 }
 function trPreset() {
   const p = trPresets[$('trPreset').value]; if (!p) return;
-  if ($('trPreset').value === 'propria') { if (!$('trPublico').value) $('trPublico').value = trEstacao.estacaoPublico || ''; }
-  else { $('trPorta').value = p.porta; $('trMount').value = p.mount; if (p.usuario) $('trUsuario').value = p.usuario; }
-  trCampos();
+  $('trPorta').value = p.porta; $('trMount').value = p.mount; if (p.usuario) $('trUsuario').value = p.usuario;
 }
 async function trSalvar() {
   await PL.acao('presidente', 'transmissaoConfigurar', { preset: $('trPreset').value, host: $('trHost').value, porta: +$('trPorta').value,

@@ -217,21 +217,17 @@ PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 
 ## Publicar na internet
 
-O roteiro para a AWS (instância Debian em São Paulo, HTTPS no Load Balancer com o certificado do ACM ou automático pelo Caddy, e a estação própria das sessões) está em [deploy/aws/README.md](deploy/aws/README.md), com o instalador `deploy/aws/instalar.sh`, que serve para qualquer servidor Debian 12/13 ou Ubuntu 24.04.
+O roteiro para a AWS (EC2 em São Paulo, HTTPS automático com Caddy no domínio da câmara) está em [deploy/aws/README.md](deploy/aws/README.md), com o instalador `deploy/aws/instalar.sh`, que serve para qualquer servidor Ubuntu.
 
-## Transmissão ao vivo (estação das sessões)
+## Transmissão ao vivo (rádio)
 
-O painel transmite o áudio da sessão ao vivo. O computador da mesa capta a saída da mesa de som (a mesma entrada da gravação) e manda o áudio ao Parlatório, que converte para MP3 com o ffmpeg e publica num servidor **Icecast** pelo protocolo *source*.
+O painel transmite o áudio da sessão para um servidor de rádio **Icecast** ou **AzuraCast** (como o do projeto [streaming_radio](https://github.com/gilliardleda2018/streaming_radio)). O computador da mesa capta a saída da mesa de som (a mesma entrada da gravação) e manda o áudio ao Parlatório, que converte para MP3 com o ffmpeg e publica no servidor de rádio pelo protocolo *source* do Icecast.
 
-**Estação própria (recomendado):** o instalador da AWS ([deploy/aws](deploy/aws/README.md)) põe um Icecast só para as sessões na mesma máquina, ouvido em `https://SEU-DOMINIO/aovivo`, separado de qualquer outra rádio. O Parlatório já sai configurado para ela: em **Configurações → Transmissão ao vivo** aparece “Estação própria das sessões”, sem endereço nem senha para digitar. Variáveis lidas pelo servidor (o instalador preenche):
+1. No AzuraCast: na estação, ative **Streamers/DJs**, crie uma conta para a câmara e anote usuário e senha. A conexão é na porta 8005, montagem `/`.
+2. No painel: **Configurações → Transmissão ao vivo**, preencha o endereço do servidor, usuário, senha e o endereço público para ouvir (o link da estação, por exemplo `https://radio.exemplo.br/listen/camara/radio.mp3`).
+3. Na aba **Sessão**, clique em **Transmitir a sessão ao vivo**.
 
-- `ESTACAO_SENHA`: senha de envio do Icecast (só no ambiente; nunca no banco nem nas telas). Sem ela, a estação própria não aparece.
-- `ESTACAO_HOST`, `ESTACAO_PORTA`, `ESTACAO_MOUNT`: onde o Icecast escuta (padrão `127.0.0.1`, `8000`, `/sessao`).
-- `ESTACAO_PUBLICO`: endereço para ouvir, mostrado nas páginas públicas (por exemplo `https://legis.exemplo.br/aovivo`).
-
-**Outra rádio:** também dá para mandar para um Icecast ou AzuraCast de fora. No AzuraCast, ative **Streamers/DJs** na estação, crie uma conta para a câmara e use usuário e senha dela no painel (porta 8005, montagem `/`), com o endereço público da estação.
-
-Na aba **Sessão**, clique em **Transmitir a sessão ao vivo**. Enquanto estiver no ar, a tela inicial e a transparência mostram a faixa **Ao vivo** com o player e o nome de quem está na tribuna. Senhas ficam só no servidor. Precisa do `ffmpeg` no servidor (o Docker e o instalador já trazem).
+Enquanto estiver no ar, a tela inicial e a transparência mostram a faixa **Ao vivo** com o player e o nome de quem está na tribuna. A senha do servidor de rádio fica só no servidor (nunca vai para as telas). Precisa do `ffmpeg` no servidor (o Docker já traz).
 
 ## Transcrição dos discursos
 
