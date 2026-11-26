@@ -8,6 +8,8 @@ Pacote para Debian 12/13 (e Ubuntu 24.04). Instala o LEGIS como serviço do sist
 sudo apt install ./legis_<versão>_all.deb
 ```
 
+Instale **pelo terminal**, como acima. Abrir o arquivo com clique duplo (instalador gráfico) instala sem fazer as perguntas: o LEGIS começa com dados de exemplo e avisa. Nesse caso, rode depois `sudo dpkg-reconfigure legis`. As perguntas são feitas e os vereadores do município entram no lugar dos de exemplo; o banco de exemplo fica guardado em `/var/lib/legis/legis.db.exemplo-<data>`.
+
 O `apt` pergunta:
 
 | Pergunta | Para quê |
@@ -26,6 +28,7 @@ cat <<'EOF' | sudo debconf-set-selections
 legis legis/uf string ma
 legis legis/municipio string Tuntum
 legis legis/nome string tuntum
+legis legis/radio boolean true
 legis legis/transcricao boolean true
 legis legis/ia boolean true
 legis legis/tailscale_chave password tskey-auth-...

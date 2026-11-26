@@ -58,14 +58,27 @@ TRANSCRICAO=$TRANSCRICAO
 IA=$IA
 EOF
 
-# vereadores eleitos (TSE) e população (IBGE): só num banco novo
+# vereadores eleitos (TSE) e população (IBGE): só num banco novo — ou no banco de exemplo
+# criado quando a instalação foi feita sem o município (ex.: instalador gráfico, que não pergunta nada)
+if [ -n "$UF" ] && [ -n "$MUNICIPIO" ] && [ -f "$DADOS/legis.db" ] && [ -f "$DADOS/.sem-municipio" ]; then
+  if [ -d /run/systemd/system ]; then systemctl stop legis.service || true; fi
+  ANTES="$DADOS/legis.db.exemplo-$(date +%Y%m%d%H%M%S)"
+  mv "$DADOS/legis.db" "$ANTES"
+  rm -f "$DADOS/legis.db-wal" "$DADOS/legis.db-shm"
+  echo "LEGIS: o banco de exemplo foi guardado em $ANTES"
+fi
 if [ -n "$UF" ] && [ -n "$MUNICIPIO" ] && [ ! -f "$DADOS/legis.db" ]; then
   echo "LEGIS: buscando os vereadores eleitos de $MUNICIPIO/${UF^^} no TSE..."
   if ! runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 \
        python3 "$APP/scripts/tse_eleitos.py" "$UF" "$MUNICIPIO" "$DADOS/legis.db"; then
     rm -f "$DADOS/legis.db"
-    echo "LEGIS: não foi possível importar agora (internet?). Depois rode: sudo legis importar-tse $UF \"$MUNICIPIO\""
+    echo "LEGIS: não foi possível importar agora (internet?). Depois rode: sudo dpkg-reconfigure legis"
+    touch "$DADOS/.sem-municipio"
+  else
+    rm -f "$DADOS/.sem-municipio"
   fi
+elif [ ! -f "$DADOS/legis.db" ]; then
+  touch "$DADOS/.sem-municipio"   # sem município: começa com dados de exemplo; reconfigurar depois troca
 fi
 
 # rádio da Câmara (Liquidsoap): programação + sessão ao vivo, servida pelo próprio LEGIS em /radio.mp3

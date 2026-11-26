@@ -35,6 +35,14 @@ resumo() {
  Certificado:     instale em cada aparelho: http://$ip:${http:-80}/certificado
  Checklist:       /usr/share/doc/legis/README.md
 EOF
+  if [ -f "$DADOS/.sem-municipio" ]; then
+    cat <<EOF
+
+ ATENÇÃO: a Câmara ainda não foi configurada (estado e município).
+ Rode no terminal:  sudo dpkg-reconfigure legis
+ (busca os vereadores no TSE e faz as demais perguntas)
+EOF
+  fi
 }
 
 estado() {
