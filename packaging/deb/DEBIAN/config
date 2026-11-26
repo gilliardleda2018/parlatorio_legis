@@ -7,6 +7,7 @@ set -e
 db_input high legis/uf || true
 db_input high legis/municipio || true
 db_input medium legis/nome || true
+db_input medium legis/radio || true
 db_input medium legis/transcricao || true
 db_input medium legis/ia || true
 db_input medium legis/tailscale_chave || true

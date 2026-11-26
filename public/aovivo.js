@@ -16,6 +16,14 @@
   let url = '';
   async function atualizar() {
     const d = await fetch('/api/aovivo').then(r => r.json()).catch(() => null);
+    if (d && !d.ativa && d.radio) {  // fora da sessão: a rádio da Câmara com a programação
+      faixa.hidden = false;
+      if (url !== d.radio + '#prog') {
+        url = d.radio + '#prog';
+        faixa.innerHTML = `<span class="sinal" style="letter-spacing:.04em">📻 Rádio da Câmara</span><span class="info">${esc(d.casa)} — programação</span><audio controls preload="none" src="${esc(d.radio)}"></audio>`;
+      }
+      return;
+    }
     if (!d || !d.ativa || !d.publico) { faixa.hidden = true; return; }
     faixa.hidden = false;
     const info = `<b>${esc(d.nome || d.casa)}</b> · ${esc(d.titulo)}${d.falando ? ` · na tribuna: <b>${esc(d.falando.nome)}</b> (${esc(d.falando.partido)})` : ''}`;

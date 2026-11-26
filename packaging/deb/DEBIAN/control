@@ -6,13 +6,13 @@ Architecture: all
 Maintainer: Aggilli Intelligence <adi@aggillintelligence.com.br>
 Homepage: https://github.com/gilliardleda2018/parlatorio_legis
 Depends: python3 (>= 3.11), ffmpeg, openssl, ca-certificates, debconf (>= 0.5) | debconf-2.0, adduser, curl
-Recommends: avahi-daemon, python3-venv, docker.io
+Recommends: avahi-daemon, python3-venv, liquidsoap, docker.io
 Description: LEGIS — Sistema de Gestão Parlamentar para Câmaras Municipais
  Conduz as sessões do plenário: tempo de fala, inscrições, apartes, presença,
  quórum, votação nominal e secreta, controle da mesa de som, gravação e
  transcrição dos discursos, ata em PDF, transmissão ao vivo para rádio,
- sessão híbrida por vídeo, transparência, consulta pública, dados abertos e
- assistente do cidadão.
+ sessão híbrida por vídeo, rádio da Câmara (programação e sessões ao vivo),
+ transparência, consulta pública, dados abertos e assistente do cidadão.
  .
  Na instalação pergunta o município e já importa os vereadores eleitos do TSE
  (com fotos) e a população do IBGE. Opcionais: transcrição e legendas ao vivo,

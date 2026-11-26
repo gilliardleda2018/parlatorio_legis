@@ -13,6 +13,7 @@ ENVF=$ETC/legis.env
 db_get legis/uf;            UF=$(echo "$RET" | tr 'A-Z' 'a-z' | tr -cd 'a-z')
 db_get legis/municipio;     MUNICIPIO="$RET"
 db_get legis/nome;          NOME="$RET"
+db_get legis/radio;         RADIO="$RET"
 db_get legis/transcricao;   TRANSCRICAO="$RET"
 db_get legis/ia;            IA="$RET"
 db_get legis/tailscale_chave; CHAVE="$RET"
@@ -67,6 +68,21 @@ if [ -n "$UF" ] && [ -n "$MUNICIPIO" ] && [ ! -f "$DADOS/legis.db" ]; then
   fi
 fi
 
+# rádio da Câmara (Liquidsoap): programação + sessão ao vivo, servida pelo próprio LEGIS em /radio.mp3
+if [ "$RADIO" = "true" ]; then
+  if command -v liquidsoap >/dev/null; then
+    mkdir -p "$DADOS/radio/programacao"
+    HTTP_LEGIS=$(grep '^PORTA=' "$ENVF" | cut -d= -f2)
+    sed -e "s|@DIR@|$DADOS/radio/programacao|" -e "s|@PORTA@|${HTTP_LEGIS:-80}|" -e "s|@RADIO_PORTA@|8001|" \
+      "$APP/deploy/radio/radio.liq" > "$DADOS/radio/radio.liq"
+    chown -R legis:legis "$DADOS/radio"
+    grep -q '^RADIO_LOCAL=' "$ENVF" || printf 'RADIO_LOCAL=1\nRADIO_PORTA=8001\nRADIO_DIR=%s\n' "$DADOS/radio/programacao" >> "$ENVF"
+    RADIO_OK=1
+  else
+    echo "LEGIS: o Liquidsoap não está instalado; a rádio fica desligada (sudo apt install liquidsoap && sudo dpkg-reconfigure legis)."
+  fi
+fi
+
 if [ -n "$CHAVE" ]; then
   umask 077; printf %s "$CHAVE" > "$DADOS/.tailscale-chave"; umask 022
 fi
@@ -76,6 +92,10 @@ if [ -d /run/systemd/system ]; then
   systemctl daemon-reload
   systemctl enable legis.service >/dev/null 2>&1 || true
   systemctl restart legis.service
+  if [ "${RADIO_OK:-0}" = 1 ]; then
+    systemctl enable legis-radio.service >/dev/null 2>&1 || true
+    systemctl restart legis-radio.service || true
+  fi
   systemctl enable avahi-daemon >/dev/null 2>&1 || true
   if [ "$TRANSCRICAO" = "true" ] || [ "$IA" = "true" ] || [ -f "$DADOS/.tailscale-chave" ]; then
     systemd-run --unit=legis-extras --collect --quiet /usr/sbin/legis extras || true

@@ -84,6 +84,13 @@ OCIOSO_PRESIDENTE = 12 * 3600_000      # login do painel expira após 12 h sem u
 OCIOSO_PARLAMENTAR = 30 * 86400_000    # no celular, após 30 dias sem uso
 VALIDADE_MAXIMA = 90 * 86400_000       # nenhum login dura mais que 90 dias
 ACOES_COM_PIN = {"virtualVotar", "virtualDestaque"}  # confirmação do próprio PIN
+# Rádio da Câmara no próprio servidor (pacote .deb: Liquidsoap toca a programação e entra com a sessão)
+RADIO_LOCAL = os.environ.get("RADIO_LOCAL", "0") == "1"
+RADIO_PORTA = int(os.environ.get("RADIO_PORTA", "8001"))
+RADIO_DIR = Path(os.environ.get("RADIO_DIR", str(BANCO.parent / "radio" / "programacao")))
+RADIO_MAX_OUVINTES = int(os.environ.get("RADIO_MAX_OUVINTES", "200"))
+RADIO_FORMATOS = {".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".wav": "audio/wav", ".flac": "audio/flac"}
+radio_ouvintes = 0
 # Jitsi próprio da Câmara (deploy/local/jitsi.sh): só entra quem tem o token emitido pelo Parlatório
 JITSI_URL = os.environ.get("JITSI_URL", "").strip().rstrip("/")
 JITSI_APP_ID = os.environ.get("JITSI_APP_ID", "parlatorio")
@@ -320,6 +327,9 @@ def carregar() -> dict:
 
 
 S = carregar()
+if RADIO_LOCAL and not S["transmissao"].get("configurada"):  # banco novo ou antigo: a rádio local já vem configurada
+    S["transmissao"].update(configurada=True, local=True, publico="/radio.mp3", nome=f"{S['casa']['nome']} — Rádio")
+    S["_transmissao"]["preset"] = "local"
 
 
 def migrar_projetos():
@@ -1920,6 +1930,7 @@ def pacote() -> str:
     pub["transcricaoMotor"] = transcritor.descricao()
     pub["transmissaoStatus"] = transmissor.status() if "transmissor" in globals() else {"ativa": False}
     pub["iaMotor"] = ia.descricao()
+    pub["radioLocal"] = RADIO_LOCAL
     pub["legendasLigadas"] = bool(getattr(globals().get("legendador"), "ligado", False))  # a mesa avisa antes de tudo carregar
     pub["portaHttps"] = PORTA_HTTPS if HTTPS_ATIVO else None
     pub["virtuais"] = [{**v, "status": _status_virtual(v)} for v in S["virtuais"][:20]]
@@ -2215,7 +2226,8 @@ def ao_vivo() -> dict:
         falando = p and {"nome": p["nome"], "partido": p["partido"]}
     return {"ativa": transmissor.ativa and bool(S["transmissao"]["publico"]), "publico": S["transmissao"]["publico"],
             "nome": S["transmissao"]["nome"], "casa": S["casa"]["nome"], "titulo": S["casa"]["titulo"], "falando": falando,
-            "desde": transmissor.desde if transmissor.ativa else None}
+            "desde": transmissor.desde if transmissor.ativa else None,
+            "radio": "/radio.mp3" if RADIO_LOCAL else None}
 
 
 # ---------------------------------------------------------------- pacote 2026: IA, legendas, participação, vídeo, dados abertos
@@ -2422,6 +2434,15 @@ def sessao_publica(r: dict) -> dict:
             "presentes": len(r.get("presenca") or {}), "membros": len(r.get("parls") or [])}
 
 
+# --- programação da rádio local
+@acao("presidente")
+def radioRemover(ator, nome):
+    alvo = (RADIO_DIR / Path(str(nome)).name)
+    if alvo.parent != RADIO_DIR or not alvo.is_file():
+        raise Erro("Arquivo não encontrado.")
+    alvo.unlink()
+
+
 # --- anexos das matérias (PDF), vistos no celular dos vereadores e no público
 @acao("presidente")
 def materiaAnexo(ator, id, nome="", dataUrl=""):
@@ -2585,7 +2606,7 @@ class Manipulador(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         caminho = urlparse(self.path).path
         if host in ("localhost", "127.0.0.1", "::1", "") or caminho in ("/certificado", "/certificado.crt") \
-                or caminho.startswith("/.well-known/acme-challenge/") or caminho == "/aovivo":
+                or caminho.startswith("/.well-known/acme-challenge/") or caminho in ("/aovivo", "/radio.mp3"):
             return False
         self.send_response(308 if self.command == "POST" else 301)
         self.send_header("Location", f"https://{host}:{PORTA_HTTPS}{self.path}")
@@ -2844,7 +2865,7 @@ class Manipulador(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "audio/mpeg")
         self.send_header("Cache-Control", "no-cache, no-store")
-        self.send_header("icy-name", S["transmissao"].get("nome") or S["casa"]["nome"])
+        self.send_header("icy-name", (S["transmissao"].get("nome") or S["casa"]["nome"]).replace("—", "-").encode("latin-1", "replace").decode("latin-1"))
         self.end_headers()
         try:
             for bloco in blocos:
@@ -2855,6 +2876,70 @@ class Manipulador(BaseHTTPRequestHandler):
         finally:
             blocos.close()
         self.close_connection = True
+
+    def _radio_audio(self):
+        """GET /radio.mp3: repassa a rádio da Câmara (Liquidsoap local) no mesmo endereço e certificado do LEGIS."""
+        global radio_ouvintes
+        if not RADIO_LOCAL:
+            return self._json(404, {"erro": "Esta Câmara não tem rádio local."})
+        if radio_ouvintes >= RADIO_MAX_OUVINTES:
+            return self._json(503, {"erro": "Rádio lotada no momento. Tente de novo em instantes."})
+        try:
+            origem = urllib.request.urlopen(f"http://127.0.0.1:{RADIO_PORTA}/radio.mp3", timeout=10)
+        except OSError:
+            return self._json(503, {"erro": "A rádio está fora do ar."})
+        radio_ouvintes += 1
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Cache-Control", "no-cache, no-store")
+            self.send_header("icy-name", (S["transmissao"].get("nome") or S["casa"]["nome"]).replace("—", "-").encode("latin-1", "replace").decode("latin-1"))
+            self.end_headers()
+            while True:
+                bloco = origem.read(8192)
+                if not bloco:
+                    break
+                self.wfile.write(bloco)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            radio_ouvintes -= 1
+            origem.close()
+        self.close_connection = True
+        return True
+
+    def _radio_arquivo(self):
+        """POST /api/radio/arquivo?nome=vinheta.mp3 (corpo = arquivo): entra na programação da rádio."""
+        with trava:
+            ator = self._ator()
+        if not ator or ator["papel"] != "presidente":
+            return self._json(401, {"erro": "Entre no painel do presidente."})
+        if not RADIO_LOCAL:
+            return self._json(400, {"erro": "Esta Câmara não tem rádio local."})
+        nome = urllib.parse.parse_qs(urlparse(self.path).query).get("nome", [""])[0]
+        nome = re.sub(r"[^\w.\- ]+", "_", Path(nome).name).strip(" .")[:120]
+        if not nome or Path(nome).suffix.lower() not in RADIO_FORMATOS:
+            return self._json(400, {"erro": "Envie MP3, OGG, M4A, WAV ou FLAC."})
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0 or n > 80 * 1024 * 1024:
+            return self._json(413, {"erro": "Arquivo vazio ou maior que 80 MB."})
+        RADIO_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = RADIO_DIR / f".{nome}.enviando"
+        restante = n
+        with open(tmp, "wb") as f:
+            while restante:
+                bloco = self.rfile.read(min(65536, restante))
+                if not bloco:
+                    break
+                f.write(bloco)
+                restante -= len(bloco)
+        if restante:
+            tmp.unlink(missing_ok=True)
+            return self._json(400, {"erro": "Envio interrompido."})
+        tmp.replace(RADIO_DIR / nome)  # a playlist recarrega sozinha quando a pasta muda
+        with trava:
+            registrar("presidente", "radioArquivo", {"nome": nome, "bytes": n})
+        return self._json(200, {"ok": True, "nome": nome})
 
     def _transmissao_parte(self):
         """POST /api/transmissao/parte (corpo binário, ~1 s de áudio): segue para o ffmpeg da transmissão."""
@@ -2932,6 +3017,19 @@ class Manipulador(BaseHTTPRequestHandler):
                 coms = [participacao.publico(c) for c in participacao.do_projeto(db, pid)]
             return self._json(200, {"projeto": p, "artigos": participacao.artigos(p.get("texto", "")), "comentarios": coms,
                                     "aberta": _consulta_aberta(p), "situacoes": participacao.SITUACOES})
+        if caminho == "/radio.mp3":
+            return self._radio_audio()
+        if caminho == "/api/radio":
+            with trava:
+                ator = self._ator()
+            if not ator or ator["papel"] != "presidente":
+                return self._json(401, {"erro": "Entre no painel do presidente."})
+            arquivos = []
+            if RADIO_DIR.is_dir():
+                arquivos = sorted(({"nome": f.name, "bytes": f.stat().st_size} for f in RADIO_DIR.iterdir()
+                                   if f.is_file() and f.suffix.lower() in RADIO_FORMATOS), key=lambda x: x["nome"].lower())
+            return self._json(200, {"ligada": RADIO_LOCAL, "arquivos": arquivos, "ouvintes": radio_ouvintes,
+                                    "endereco": "/radio.mp3"})
         if caminho == "/api/legendas":
             try:
                 desde = int((qs.get("desde") or ["0"])[0])
@@ -3214,6 +3312,8 @@ class Manipulador(BaseHTTPRequestHandler):
                 return self._gravacao_post(caminho)
             if caminho == "/api/transmissao/parte":
                 return self._transmissao_parte()
+            if caminho == "/api/radio/arquivo":
+                return self._radio_arquivo()
             corpo = self._ler()
             if caminho == "/api/entrar":
                 return self._entrar(corpo)

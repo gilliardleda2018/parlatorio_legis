@@ -14,6 +14,7 @@ O `apt` pergunta:
 |---|---|
 | Estado e município | busca no TSE os vereadores eleitos em 2024 (nome de urna, partido e foto) e no IBGE a população |
 | Nome curto | endereço na internet: `https://<nome>.<sua-tailnet>.ts.net` |
+| Rádio da Câmara | cada Câmara ganha a própria rádio no servidor: toca a programação e entra sozinha com a sessão ao vivo |
 | Transcrição e legendas | transcreve os discursos e legenda a transmissão ao vivo (cerca de 600 MB) |
 | IA local | rascunho da ata, perguntas sobre os discursos e assistente do cidadão, no próprio servidor (precisa do Docker e de 8 GB de RAM) |
 | Chave do Tailscale (opcional) | publica na internet sem abrir portas no roteador; a chave é usada uma vez e não fica guardada |
@@ -41,6 +42,16 @@ sudo legis            # endereços, PIN inicial do presidente e o que já está 
 ```
 
 Siga o checklist de [deploy/cidade/README.md](../cidade/README.md#depois-de-instalar-checklist): certificado nos aparelhos, troca do PIN do presidente, brasão e contatos, mesa de som, transmissão e troca dos PINs dos vereadores.
+
+## Rádio da Câmara
+
+Cada instalação tem a **própria rádio**, sem servidor central nem custo mensal:
+
+- **Programação:** em Configurações → Rádio da Câmara, envie vinhetas, avisos e músicas (MP3, OGG, M4A, WAV ou FLAC). A rádio toca em ordem aleatória. Sem arquivos, fica em silêncio fora das sessões.
+- **Sessão ao vivo:** quando o presidente clica em 📡 Transmitir, a rádio entra com a sessão em poucos segundos e volta à programação ao encerrar. Não é preciso configurar nada.
+- **Para ouvir:** `https://<endereço do LEGIS>/radio.mp3`, na rede da Câmara e, com o Tailscale, na internet. A faixa "Rádio da Câmara" aparece nas páginas públicas.
+- **Por dentro:** o Liquidsoap (serviço `legis-radio`) monta a rádio, e o LEGIS a entrega aos ouvintes no mesmo endereço e certificado do site.
+- **Capacidade:** cada ouvinte usa 128 kbps de upload. Uma Câmara com 10 Mbps de upload atende cerca de 50 a 60 ouvintes ao mesmo tempo. Para mais, a rádio pode ser retransmitida a um servidor maior, como o AzuraCast.
 
 ## Comandos
 

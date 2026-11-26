@@ -25,7 +25,7 @@ class Servidor:
         self.dir = tempfile.TemporaryDirectory(prefix="parlatorio-teste-")
         self.porta = porta_livre()
         self.base = f"http://127.0.0.1:{self.porta}"
-        env = {**{k: v for k, v in os.environ.items() if not k.startswith("TRANSCRICAO")}, "PORTA": str(self.porta), "PARLATORIO_BANCO": f"{self.dir.name}/teste.db", "HTTPS": "0",
+        env = {**{k: v for k, v in os.environ.items() if not k.startswith(("TRANSCRICAO", "RADIO_"))}, "PORTA": str(self.porta), "PARLATORIO_BANCO": f"{self.dir.name}/teste.db", "HTTPS": "0",
                "BACKUP_HORA": "", "BACKUP_DIR": f"{self.dir.name}/backups", "PIN_PRESIDENTE": "1234", **env_extra}
         for k in ("NEXTCLOUD_URL", "NEXTCLOUD_USUARIO", "NEXTCLOUD_SENHA", "JITSI_URL", "JITSI_SEGREDO"):
             if k not in env_extra:

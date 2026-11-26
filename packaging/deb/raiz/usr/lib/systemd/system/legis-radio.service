@@ -1,0 +1,21 @@
+[Unit]
+Description=LEGIS — Rádio da Câmara (Liquidsoap)
+After=network-online.target legis.service
+Wants=network-online.target
+
+[Service]
+User=legis
+Group=legis
+WorkingDirectory=/var/lib/legis/radio
+Environment=HOME=/var/lib/legis
+ExecStart=/usr/bin/liquidsoap /var/lib/legis/radio/radio.liq
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/legis
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

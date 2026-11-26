@@ -152,3 +152,31 @@ async function responderContribuicao(botao, comentario, id) {
 async function ocultarContribuicao(comentario, oculto, id) {
   await PL.acao('presidente', 'consultaOcultar', { comentario, oculto }).then(() => { dlg.close(); gerirConsulta(id); }).catch(() => {});
 }
+
+/* ---------------- rádio da Câmara (programação) ---------------- */
+async function carregarRadio() {
+  if (!PL.estado?.radioLocal) return;
+  $('cartaoRadio').classList.remove('oculto');
+  let d;
+  try { d = await (await apiGet('/api/radio')).json(); } catch (e) { return PL.avisar(e.message, true); }
+  $('rdEstado').innerHTML = `<span class="chip sim">${d.ouvintes} ouvinte(s) agora</span>`;
+  const mb = b => (b / 1048576).toFixed(1).replace('.', ',') + ' MB';
+  $('rdLista').innerHTML = d.arquivos.length ? '<table class="tab">' + d.arquivos.map(a => `<tr><td>${esc(a.nome)}</td><td class="tnum suave">${mb(a.bytes)}</td>
+      <td style="text-align:right"><button class="botao pq fantasma" onclick="removerProgramacao('${esc(a.nome).replace(/'/g, "\\'")}')">Remover</button></td></tr>`).join('') + '</table>'
+    : '<p class="vazio">Nenhum áudio na programação: fora das sessões a rádio fica em silêncio.</p>';
+}
+async function enviarProgramacao(arquivos) {
+  for (const arq of arquivos) {
+    PL.avisar(`Enviando ${arq.name}…`);
+    const r = await fetch('/api/radio/arquivo?nome=' + encodeURIComponent(arq.name), { method: 'POST',
+      headers: { Authorization: 'Bearer ' + PL.token('presidente'), 'Content-Type': 'application/octet-stream' }, body: arq });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) PL.avisar(`${arq.name}: ${j.erro || 'falhou'}`, true);
+  }
+  carregarRadio();
+}
+async function removerProgramacao(nome) {
+  if (!confirm(`Tirar “${nome}” da programação?`)) return;
+  await PL.acao('presidente', 'radioRemover', { nome }).then(carregarRadio).catch(() => {});
+}
+document.querySelector('[data-aba="config"]')?.addEventListener('click', () => setTimeout(carregarRadio, 100));

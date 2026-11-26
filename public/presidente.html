@@ -418,6 +418,15 @@
             <div id="bkEstado" class="detalhe"></div>
             <small class="suave">Cópia automática diária do banco (sessões, votos, projetos, imagens) e das gravações. Para enviar também ao Nextcloud, configure no servidor as variáveis NEXTCLOUD_URL, NEXTCLOUD_USUARIO, NEXTCLOUD_SENHA e NEXTCLOUD_PASTA (veja o README).</small>
           </div>
+          <div class="cartao oculto" id="cartaoRadio">
+            <h2>Rádio da Câmara<span class="esp"></span><span id="rdEstado"></span></h2>
+            <p class="detalhe" style="margin-top:0">A rádio toca a programação abaixo o tempo todo e entra automaticamente com a sessão quando você clica em “Transmitir a sessão ao vivo”. Endereço para ouvir: <a href="/radio.mp3" target="_blank" rel="noopener">/radio.mp3</a> (o mesmo do site).</p>
+            <div class="grupo" style="align-items:center;margin-bottom:10px">
+              <label class="botao principal" style="cursor:pointer">Enviar vinhetas ou músicas<input type="file" accept=".mp3,.ogg,.m4a,.wav,.flac,audio/*" multiple hidden onchange="enviarProgramacao(this.files)"></label>
+              <small class="suave">MP3, OGG, M4A, WAV ou FLAC, até 80 MB cada. Use só áudios que a Câmara tem direito de tocar.</small>
+            </div>
+            <div id="rdLista"></div>
+          </div>
           <div class="cartao" id="cartaoTransmissaoCfg">
             <h2>Transmissão ao vivo (rádio)<span class="esp"></span><span id="trCfgEstado"></span></h2>
             <p class="detalhe" style="margin-top:0">Envia o áudio da sessão para um servidor de rádio Icecast ou AzuraCast. No AzuraCast, ative “Streamers/DJs” na estação, crie uma conta de DJ para a câmara e use aqui o usuário e a senha dela (porta 8005, montagem /).</p>

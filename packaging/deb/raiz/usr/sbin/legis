@@ -31,6 +31,7 @@ resumo() {
  Internet:        ${url:-não publicado (sudo dpkg-reconfigure legis, com a chave do Tailscale)}
  Presidente:      /presidente — PIN inicial: ${pin:-?} (troque no primeiro acesso)
  Vereadores:      /parlamentar — PIN inicial 0000 (troca obrigatória)
+ Rádio:           $( grep -q '^RADIO_LOCAL=1' "$ENVF" 2>/dev/null && echo "https://$(hostname).local$suf/radio.mp3 (programação em Configurações → Rádio da Câmara)" || echo "não instalada")
  Certificado:     instale em cada aparelho: http://$ip:${http:-80}/certificado
  Checklist:       /usr/share/doc/legis/README.md
 EOF
@@ -45,6 +46,13 @@ estado() {
   fi
   [ -x "$DADOS/whisper/bin/python" ] && echo " Transcrição:     instalada" || echo " Transcrição:     não instalada"
   grep -q '^IA=ollama' "$ENVF" 2>/dev/null && echo " IA local:        instalada (Ollama)" || echo " IA local:        não instalada"
+  if grep -q '^RADIO_LOCAL=1' "$ENVF" 2>/dev/null; then
+    printf " Rádio:           %s — /radio.mp3, %s arquivo(s) na programação\n" \
+      "$( [ -d /run/systemd/system ] && systemctl is-active legis-radio.service 2>/dev/null || echo instalada)" \
+      "$(find "$DADOS/radio/programacao" -type f 2>/dev/null | wc -l)"
+  else
+    echo " Rádio:           não instalada"
+  fi
   [ -f "$LOG" ] && { echo " Últimas linhas de $LOG:"; tail -3 "$LOG" | sed 's/^/   /'; }
   echo
 }
@@ -106,7 +114,7 @@ case "${1:-estado}" in
   estado|status) estado ;;
   resumo) resumo ;;
   logs) exec journalctl -u legis.service -f ;;
-  reiniciar) root reiniciar; reiniciar; echo "reiniciado" ;;
+  reiniciar) root reiniciar; reiniciar; [ -d /run/systemd/system ] && systemctl restart legis-radio.service 2>/dev/null; echo "reiniciado" ;;
   reconfigurar) root reconfigurar; exec dpkg-reconfigure legis ;;
   extras) extras ;;
   importar-tse)
