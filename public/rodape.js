@@ -58,15 +58,24 @@ const Rodape = (() => {
       document.head.append(st);
     }
     const c = r.camara || {}, a = r.aggilli || {};
-    const logoCasa = casa?.logoV ? `/imagem/logo?v=${casa.logoV}` : '/marca/logo.svg';
+    const logoCasa = casa?.logoV ? `/imagem/logo?v=${casa.logoV}` : '/marca/legis-icone.png';
     const f = document.createElement('footer');
     f.id = 'rodapePublico'; f.className = 'rodape-pub';
     f.innerHTML = `<div class="grade">
         <div class="col"><div class="marca-r"><img src="${logoCasa}" alt="Brasão">${esc(casa?.nome || 'Câmara Municipal')}</div>${contatos(c)}</div>
         <div class="col dir"><a class="marca-r" href="${esc(a.site || 'https://www.aggillintelligence.com.br')}" target="_blank" rel="noopener noreferrer" style="color:var(--texto)">
           <span><small>Desenvolvido por</small>Aggilli Intelligence</span><img src="/marca/logo.svg" alt="Aggilli Intelligence"></a>${contatos(a)}</div>
-      </div><div class="fim">Parlatório Legis · software livre para casas legislativas</div>`;
+      </div><div class="fim"><span class="selo-legis" style="margin-bottom:10px"><img class="legis-auto" src="/marca/legis-claro.webp" alt="LEGIS — Sistema de Gestão Parlamentar" style="height:48px;width:auto"></span><br>LEGIS · Sistema de Gestão Parlamentar</div>`;
     document.body.append(f);
   }
   return { mostrar };
 })();
+
+/* Logotipo do LEGIS no canto superior esquerdo do menu de cada página (comum.js faz o mesmo nas telas internas) */
+document.querySelectorAll('.nav .menu').forEach(m => {
+  if (m.querySelector('.selo-nav')) return;
+  const a = document.createElement('a');
+  a.className = 'selo-nav'; a.href = '/'; a.title = 'LEGIS — Sistema de Gestão Parlamentar';
+  a.innerHTML = '<img src="/marca/legis-claro.webp" alt="LEGIS">';
+  m.prepend(a);
+});

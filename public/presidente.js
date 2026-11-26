@@ -652,10 +652,18 @@ async function carregarTransmissao() {
   $('trUsuario').value = c.usuario; $('trSenha').value = ''; $('trSenha').placeholder = c.temSenha ? '•••••• (mantida; digite para trocar)' : '';
   $('trBitrate').value = c.bitrate; $('trPublico').value = c.publico; $('trNome').value = c.nome; $('trTls').checked = c.tls;
   if (!c.ffmpeg) $('trCfgEstado').innerHTML = '<span class="chip nao">servidor sem ffmpeg</span>';
+  trVisibilidade();
 }
 function trPreset() {
-  const p = trPresets[$('trPreset').value]; if (!p) return;
+  trVisibilidade();
+  const p = trPresets[$('trPreset').value]; if (!p || $('trPreset').value === 'local') return;
   $('trPorta').value = p.porta; $('trMount').value = p.mount; if (p.usuario) $('trUsuario').value = p.usuario;
+}
+function trVisibilidade() {
+  const local = $('trPreset').value === 'local';
+  document.querySelectorAll('.trDestino').forEach(e => e.classList.toggle('oculto', local));
+  $('trLocalAjuda').classList.toggle('oculto', !local);
+  $('trLocalAjuda').innerHTML = `Na estação do AzuraCast, a sessão entra puxando <b>http://${esc(location.hostname)}:${esc(location.port || '80')}/aovivo</b> (use o IP deste servidor). Em "Endereço público para ouvir", ponha o link da estação.`;
 }
 async function trSalvar() {
   await PL.acao('presidente', 'transmissaoConfigurar', { preset: $('trPreset').value, host: $('trHost').value, porta: +$('trPorta').value,

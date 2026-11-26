@@ -1,11 +1,25 @@
+# Parlatório Legis em Docker, sempre ligado (reinicia sozinho, como o AzuraCast).
+#   docker compose up -d --build
+# Configuração da máquina (fica fora do Git) em dados/parlatorio.env, por exemplo:
+#   PARLATORIO_BANCO=/dados/tuntum.db
+#   PIN_PRESIDENTE=...
+#   JITSI_URL=... / JITSI_SEGREDO=...   (deploy/local/jitsi.sh)
+# Variáveis desta pasta (.env ou ambiente): PORTA, PORTA_HTTPS, TRANSCRICAO=1, HF_CACHE (modelos já baixados)
 services:
   parlatorio:
-    build: .
+    build:
+      context: .
+      args:
+        TRANSCRICAO: ${TRANSCRICAO:-0}
+    user: "${UID_GID:-1000:1000}"
     ports: ["${PORTA:-8090}:8090", "${PORTA_HTTPS:-8443}:8443"]
+    env_file:
+      - path: dados/parlatorio.env
+        required: false
     environment:
-      PIN_PRESIDENTE: ${PIN_PRESIDENTE:-1234}
       TZ: America/Sao_Paulo
-      # nomes ou IPs extras para o certificado (ex.: IP fixo do servidor visto pela rede)
       TLS_NOMES: ${TLS_NOMES:-}
-    volumes: ["./dados:/dados"]
+    volumes:
+      - ./dados:/dados
+      - ${HF_CACHE:-./dados/hf}:/cache/hf
     restart: unless-stopped

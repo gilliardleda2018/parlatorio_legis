@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1220">
-<title>Parlamentar — Parlatório Legis</title>
-<link rel="icon" type="image/png" href="/marca/favicon-32x32.png">
-<link rel="apple-touch-icon" href="/marca/icon-192x192.png">
+<title>Parlamentar — LEGIS</title>
+<link rel="icon" type="image/png" href="/marca/legis-32.png">
+<link rel="apple-touch-icon" href="/marca/legis-192.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="/aggilli.css">
 <style>
@@ -55,13 +55,14 @@
 </head>
 <body>
 <nav class="nav"><div class="menu">
-  <a class="marca" href="/"><img data-logo src="/marca/logo.svg" alt=""><span><span data-casa></span><small data-sessao></small></span></a>
+  <a class="marca" href="/"><img data-logo src="/marca/legis-icone.png" alt=""><span><span data-casa></span><small data-sessao></small></span></a>
   <span class="esp"></span><span class="conexao"></span><span class="relogio tnum" id="hora" style="font-size:16px"></span>
 </div></nav>
 
 <main id="login" class="oculto">
   <form class="cartao login" onsubmit="event.preventDefault(); entrar()">
-    <img data-logo src="/marca/logo.svg" alt="">
+    <div class="selo-legis" style="width:100%;margin-bottom:6px"><img class="legis-auto" src="/marca/legis-claro.webp" alt="LEGIS — Sistema de Gestão Parlamentar"></div>
+    <img data-logo src="/marca/legis-icone.png" alt="">
     <h1 style="font-size:21px">Acesso do parlamentar</h1>
     <select class="campo" id="lParl" aria-label="Seu nome"></select>
     <input class="campo pin" id="lPin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" aria-label="PIN">

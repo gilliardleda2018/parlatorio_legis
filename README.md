@@ -225,6 +225,17 @@ O roteiro para a AWS (EC2 em São Paulo, HTTPS automático com Caddy no domínio
 
 O painel transmite o áudio da sessão para um servidor de rádio **Icecast** ou **AzuraCast** (como o do projeto [streaming_radio](https://github.com/gilliardleda2018/streaming_radio)). O computador da mesa capta a saída da mesa de som (a mesma entrada da gravação) e manda o áudio ao Parlatório, que converte para MP3 com o ffmpeg e publica no servidor de rádio pelo protocolo *source* do Icecast.
 
+**Modo local (recomendado quando a rádio está na mesma rede ou no mesmo servidor):** em Configurações → Transmissão ao vivo, escolha "A rádio puxa do Parlatório". O Parlatório passa a servir o MP3 da sessão em `http://IP-DO-SERVIDOR:8090/aovivo` (só enquanto estiver no ar), e a estação do AzuraCast puxa de lá com uma linha na configuração avançada do Liquidsoap (Perfil da estação → Editar → Configuração personalizada, seção "antes da transmissão"):
+
+```
+camara_sessao = input.http(id="camara_sessao", "http://IP-DO-SERVIDOR:8090/aovivo")
+radio = fallback(id="camara_ou_programacao", track_sensitive=false, [camara_sessao, radio])
+```
+
+Sem sessão no ar, a estação segue a programação normal. Não há senha nem porta para abrir. Se o Parlatório e o AzuraCast rodam em Docker na mesma máquina, ligue os dois na mesma rede Docker e use `http://parlatorio:8090/aovivo`.
+
+**Modo DJ (rádio em outro lugar da internet):**
+
 1. No AzuraCast: na estação, ative **Streamers/DJs**, crie uma conta para a câmara e anote usuário e senha. A conexão é na porta 8005, montagem `/`.
 2. No painel: **Configurações → Transmissão ao vivo**, preencha o endereço do servidor, usuário, senha e o endereço público para ouvir (o link da estação, por exemplo `https://radio.exemplo.br/listen/camara/radio.mp3`).
 3. Na aba **Sessão**, clique em **Transmitir a sessão ao vivo**.

@@ -52,8 +52,15 @@ h1, h2, h3 { margin: 0; text-wrap: balance }
 .nav { position: sticky; top: 0; z-index: 20; background: var(--destaque-suave); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 2px 12px rgba(0,0,0,.25); color: #fff }
 .nav .menu { display: flex; align-items: center; gap: 6px; padding: 10px 18px; flex-wrap: wrap }
 .marca { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 700; font-size: 18px; margin-right: 10px; color: #fff; white-space: nowrap }
-.marca img { width: 34px; height: 34px; background: #fff; border-radius: 8px; padding: 3px; object-fit: contain }
+.marca img { display: none }  /* no topo fica só o logotipo LEGIS e o nome da câmara; o brasão aparece no centro do início */
 .marca small { display: block; font-weight: 500; font-size: 12px; opacity: .85 }
+.selo-legis { display: inline-block }
+.selo-legis img { display: block; width: 100% !important; height: auto !important; max-width: none; background: none; padding: 0; border-radius: 0 }
+/* logotipo LEGIS no canto superior esquerdo de todas as telas */
+.nav .selo-nav { display: inline-flex; align-items: center; padding-right: 14px; margin-right: 6px; border-right: 1px solid rgba(255,255,255,.35) }
+.nav .selo-nav img { height: 40px; width: auto; display: block }
+@media (max-width: 720px) { .nav .selo-nav img { height: 28px } .nav .selo-nav { padding-right: 8px } }
+[data-tema="claro"] .cartao img.legis-auto, [data-tema="claro"] .rodape-pub img.legis-auto { content: url(/marca/legis.webp) }
 .nav .item { color: #fff; text-decoration: none; font-weight: 600; font-size: 15px; padding: 8px 12px; border-radius: 8px; background: none; border: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 6px }
 .nav .item:hover { background: rgba(255,255,255,.15) }
 .nav .item.ativo { background: rgba(255,255,255,.92); color: var(--destaque-forte) }

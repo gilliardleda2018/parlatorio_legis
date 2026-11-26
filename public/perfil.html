@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Parlamentar — Parlatório Legis</title>
-<link rel="icon" type="image/png" href="/marca/favicon-32x32.png">
+<title>Parlamentar — LEGIS</title>
+<link rel="icon" type="image/png" href="/marca/legis-32.png">
 <link rel="stylesheet" href="/aggilli.css">
 <style>
   :root { --a-presenca: #3987e5; --a-debates: #c98500; --a-producao: #d95926; --a-votacoes: #d55181; --s-fala: #3987e5;
@@ -54,7 +54,7 @@
 </head>
 <body>
 <nav class="nav"><div class="menu">
-  <a class="marca" href="/"><img id="logoNav" src="/marca/logo.svg" alt=""><span><span id="casaNav">Parlatório Legis</span><small>Parlamentares</small></span></a>
+  <a class="marca" href="/"><img id="logoNav" src="/marca/legis-icone.png" alt=""><span><span id="casaNav">Parlatório Legis</span><small>Parlamentares</small></span></a>
   <span class="esp"></span>
   <a class="item" href="/parlamentares">Todos os parlamentares</a><a class="item" href="/transparencia">Transparência</a>
 </div></nav>
@@ -97,7 +97,7 @@ async function carregar() {
   const c = D.casa, raiz = document.documentElement;
   raiz.style.setProperty('--destaque', c.destaque || '#1f8a4c');
   raiz.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
-  $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg';
+  $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/legis-icone.png';
   $('casaNav').textContent = c.nome;
   desenhar();
   Rodape.mostrar(D.rodape, c);

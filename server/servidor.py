@@ -2128,6 +2128,8 @@ transmissor = transmissao.Transmissor(_transmissao_mudou)
 @acao("presidente")
 def transmissaoConfigurar(ator, preset="azuracast", host="", porta=8005, mount="/", usuario="", senha=None, tls=False,
                           bitrate=128, publico="", nome=""):
+    if preset == "local":  # a rádio puxa de /aovivo: não há servidor de destino para validar
+        host, porta, mount, usuario = "", 8005, "/", ""
     host = str(host or "").strip().lower()
     for prefixo in ("https://", "http://", "icecast://"):
         host = host.removeprefix(prefixo)
@@ -2151,12 +2153,14 @@ def transmissaoConfigurar(ator, preset="azuracast", host="", porta=8005, mount="
     publico = str(publico or "").strip()
     if publico and not re.fullmatch(r"https?://[^\s<>\"']{3,300}", publico):
         raise Erro("O endereço para ouvir deve começar com https:// (ou http://).")
+    local = preset == "local"
     cfg = S["_transmissao"]
     cfg.update(preset=preset if preset in transmissao.PRESETS else "icecast", host=host, porta=porta, mount=mount,
                usuario=usuario, tls=bool(tls), bitrate=int(bitrate))
     if senha is not None and str(senha) != "":
         cfg["senha"] = str(senha)[:200]
-    S["transmissao"].update(configurada=bool(cfg["host"] and cfg["senha"]), publico=publico, nome=str(nome or "").strip()[:120])
+    S["transmissao"].update(configurada=local or bool(cfg["host"] and cfg["senha"]), publico=publico,
+                            nome=str(nome or "").strip()[:120], local=local)
     registrar("presidente", "transmissaoConfigurar", {"host": host, "porta": porta, "mount": mount})
 
 
@@ -2252,7 +2256,7 @@ class Manipulador(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         caminho = urlparse(self.path).path
         if host in ("localhost", "127.0.0.1", "::1", "") or caminho in ("/certificado", "/certificado.crt") \
-                or caminho.startswith("/.well-known/acme-challenge/"):
+                or caminho.startswith("/.well-known/acme-challenge/") or caminho == "/aovivo":
             return False
         self.send_response(308 if self.command == "POST" else 301)
         self.send_header("Location", f"https://{host}:{PORTA_HTTPS}{self.path}")
@@ -2287,6 +2291,8 @@ class Manipulador(BaseHTTPRequestHandler):
                 return self._json(200, resposta)
         if caminho.startswith("/api/perfil/"):
             return self._perfil(caminho.rsplit("/", 1)[1])
+        if caminho == "/aovivo":
+            return self._aovivo_audio()
         if caminho == "/api/aovivo":
             with trava:
                 return self._json(200, ao_vivo())
@@ -2492,6 +2498,29 @@ class Manipulador(BaseHTTPRequestHandler):
                                 "minhas": sorted(minhas, key=lambda p: -(p.get("atualizado") or 0)),
                                 "abrangenciaNomes": {k: v[0] for k, v in estatisticas.ABRANGENCIA.items()},
                                 "vulneraveisNomes": estatisticas.VULNERAVEIS})
+
+    def _aovivo_audio(self):
+        """GET /aovivo: o MP3 da sessão, direto do Parlatório (a rádio puxa daqui no modo "local")."""
+        try:
+            blocos = transmissor.ouvir()
+        except RuntimeError as e:
+            return self._json(503, {"erro": str(e)})
+        if blocos is None:
+            return self._json(404, {"erro": "Nenhuma sessão no ar agora."})
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Cache-Control", "no-cache, no-store")
+        self.send_header("icy-name", S["transmissao"].get("nome") or S["casa"]["nome"])
+        self.end_headers()
+        try:
+            for bloco in blocos:
+                self.wfile.write(bloco)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            blocos.close()
+        self.close_connection = True
 
     def _transmissao_parte(self):
         """POST /api/transmissao/parte (corpo binário, ~1 s de áudio): segue para o ffmpeg da transmissão."""

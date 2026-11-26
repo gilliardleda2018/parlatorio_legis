@@ -16,10 +16,12 @@ import threading
 import time
 
 PRESETS = {
+    "local": {"nome": "A rádio puxa do Parlatório (AzuraCast na mesma rede)", "porta": 0, "mount": "", "usuario": ""},
     "azuracast": {"nome": "AzuraCast (Streamer/DJ ao vivo)", "porta": 8005, "mount": "/", "usuario": ""},
     "icecast": {"nome": "Icecast", "porta": 8000, "mount": "/sessao", "usuario": "source"},
 }
 BITRATES = (64, 96, 128, 160, 192)
+MAX_OUVINTES = 20  # quem puxa direto de /aovivo: a rádio e alguns conferentes; o público ouve pela rádio
 FILA_MAXIMA = 40  # ~40 s de áudio parado na fila: a rede ou o servidor de rádio não está acompanhando
 
 
@@ -79,6 +81,7 @@ class Transmissor:
         self.conectando = False
         self._trava = threading.Lock()
         self._geracao = 0
+        self.ouvintes: set[queue.Queue] = set()
 
     @property
     def ativa(self) -> bool:
@@ -108,14 +111,17 @@ class Transmissor:
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             raise RuntimeError("O servidor precisa do ffmpeg para transmitir (apt install ffmpeg).")
-        if not cfg.get("host") or not cfg.get("senha"):
+        local = cfg.get("preset") == "local"
+        if not local and (not cfg.get("host") or not cfg.get("senha")):
             raise RuntimeError("Configure o servidor de rádio (endereço e senha) antes de transmitir.")
         self.desligar(avisar=False)
-        try:
-            sock = conectar(cfg, titulo)
-        except RuntimeError as e:
-            self.erro = str(e)
-            raise
+        sock = None
+        if not local:
+            try:
+                sock = conectar(cfg, titulo)
+            except RuntimeError as e:
+                self.erro = str(e)
+                raise
         cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-fflags", "+nobuffer", "-i", "pipe:0", "-vn",
                "-ac", "2", "-ar", "44100", "-c:a", "libmp3lame", "-b:a", f"{int(cfg.get('bitrate') or 128)}k",
                "-flush_packets", "1", "-f", "mp3", "pipe:1"]
@@ -156,6 +162,7 @@ class Transmissor:
                 sock.close()
             except OSError:
                 pass
+        self._fechar_ouvintes()
         if avisar:
             self.ao_mudar()
 
@@ -179,7 +186,9 @@ class Transmissor:
                 bloco = proc.stdout.read1(16384)
                 if not bloco:
                     break
-                sock.sendall(bloco)
+                if sock:
+                    sock.sendall(bloco)
+                self._distribuir(bloco)
                 self.bytes += len(bloco)
         except (OSError, ValueError):
             erro = "A conexão com o servidor de rádio caiu."
@@ -189,14 +198,58 @@ class Transmissor:
         saida = proc.stderr.read().decode(errors="replace").strip()
         for f in (proc.stdout, proc.stderr):
             f.close()
-        try:
-            sock.close()
-        except OSError:
-            pass
+        if sock:
+            try:
+                sock.close()
+            except OSError:
+                pass
         if geracao != self._geracao:  # desligada de propósito ou substituída
             return
         with self._trava:
             self.proc = self.sock = None
             self.erro = erro or ("O áudio enviado pelo navegador não pôde ser lido: " + saida.splitlines()[-1][:150]
                                  if saida else "A transmissão parou.")
+        self._fechar_ouvintes()
         self.ao_mudar()
+
+    # ---- quem puxa o MP3 direto do Parlatório (GET /aovivo)
+    def _distribuir(self, bloco: bytes):
+        for q in list(self.ouvintes):
+            try:
+                q.put_nowait(bloco)
+            except queue.Full:  # ouvinte lento demais: desliga para não acumular memória
+                self.ouvintes.discard(q)
+                q.put(None)
+
+    def _fechar_ouvintes(self):
+        for q in list(self.ouvintes):
+            self.ouvintes.discard(q)
+            try:
+                q.put_nowait(None)
+            except queue.Full:
+                pass
+
+    def ouvir(self):
+        """Gerador de blocos MP3 enquanto a transmissão estiver no ar; None se não estiver."""
+        if not self.ativa:
+            return None
+        if len(self.ouvintes) >= MAX_OUVINTES:
+            raise RuntimeError("Limite de conexões diretas atingido: ouça pela rádio.")
+        q: queue.Queue = queue.Queue(maxsize=400)
+        self.ouvintes.add(q)
+
+        def gerar():
+            try:
+                while True:
+                    try:
+                        bloco = q.get(timeout=15)
+                    except queue.Empty:
+                        if not self.ativa:
+                            return
+                        continue
+                    if bloco is None:
+                        return
+                    yield bloco
+            finally:
+                self.ouvintes.discard(q)
+        return gerar()

@@ -188,7 +188,7 @@ const PL = (() => {
     const c = estado.casa, raiz = document.documentElement;
     raiz.style.setProperty('--destaque', c.destaque || '#1f8a4c');
     if (!raiz.dataset.temaFixo) raiz.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
-    document.querySelectorAll('[data-logo]').forEach(img => { img.src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg'; });
+    document.querySelectorAll('[data-logo]').forEach(img => { img.src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/legis-icone.png'; });
     document.querySelectorAll('[data-casa]').forEach(el => { el.textContent = c.nome; });
     document.querySelectorAll('[data-sessao]').forEach(el => { el.textContent = c.titulo; });
   }
@@ -276,3 +276,12 @@ const PL = (() => {
     aoSinal: null
   };
 })();
+
+/* Logotipo do LEGIS no canto superior esquerdo do menu de cada página */
+document.querySelectorAll('.nav .menu').forEach(m => {
+  if (m.querySelector('.selo-nav')) return;
+  const a = document.createElement('a');
+  a.className = 'selo-nav'; a.href = '/'; a.title = 'LEGIS — Sistema de Gestão Parlamentar';
+  a.innerHTML = '<img src="/marca/legis-claro.webp" alt="LEGIS">';
+  m.prepend(a);
+});

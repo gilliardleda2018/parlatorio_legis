@@ -139,6 +139,35 @@ class Transmissao(TesteComServidor):
             s.acao(P, "transmissaoDesligar")
             ice.fechar()
 
+    def test_modo_local_serve_o_mp3_em_aovivo(self):
+        s, P = self.s, self.P
+        self.assertEqual(s.req("/aovivo")["HTTP"], 404)
+        self.assertEqual(s.acao(P, "transmissaoConfigurar", preset="local", publico="https://radio.exemplo.br/listen/camara/radio.mp3",
+                                nome="Câmara ao vivo"), {"ok": True})
+        self.assertTrue(s.estado()["transmissao"]["configurada"])
+        self.assertEqual(s.acao(P, "transmissaoLigar"), {"ok": True})
+        self.esperar(lambda st: st["ativa"])
+        recebido = bytearray()
+
+        def ouvir():
+            import urllib.request
+            with urllib.request.urlopen(s.base + "/aovivo", timeout=10) as r:
+                self.assertEqual(r.headers["Content-Type"], "audio/mpeg")
+                while len(recebido) < 20000:
+                    parte = r.read(4096)
+                    if not parte:
+                        break
+                    recebido.extend(parte)
+        t = threading.Thread(target=ouvir)
+        t.start()
+        time.sleep(0.5)
+        self.enviar_audio()
+        t.join(15)
+        self.assertGreater(len(recebido), 20000)
+        self.assertTrue(recebido[:3] == b"ID3" or recebido[0] == 0xFF)  # cabeçalho MP3
+        self.assertEqual(s.acao(P, "transmissaoDesligar"), {"ok": True})
+        self.assertEqual(s.req("/aovivo")["HTTP"], 404)
+
 
 if __name__ == "__main__":
     unittest.main()
