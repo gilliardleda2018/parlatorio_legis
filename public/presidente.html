@@ -531,6 +531,19 @@
   <div class="rodape"><button class="botao fantasma" onclick="dlg.close()">Cancelar</button><button class="botao principal" id="dlgOk">Salvar</button></div>
 </form></dialog>
 
+<dialog id="dlgCidade"><form method="dialog" onsubmit="return false">
+  <div class="cab"><b>De qual cidade é esta Câmara?</b></div>
+  <div class="corpo" id="cidCorpo">
+    <p class="detalhe" style="margin:0">Escolha o estado e o município. O LEGIS busca no <b>TSE</b> os vereadores eleitos em 2024
+      (nome de urna, partido e foto) e no <b>IBGE</b> a população, e troca os dados de exemplo.</p>
+    <label class="rot">Estado<select class="campo" id="cidUf"><option value="">Escolha o estado…</option></select></label>
+    <label class="rot">Município<input class="campo" id="cidMun" list="cidLista" autocomplete="off" placeholder="Comece a digitar o nome da cidade" disabled>
+      <datalist id="cidLista"></datalist></label>
+    <p class="detalhe" id="cidEstado" style="margin:0" role="status" aria-live="polite"></p>
+  </div>
+  <div class="rodape" id="cidRodape"><button class="botao fantasma" id="cidDepois">Agora não</button><button class="botao principal" id="cidOk">Buscar dados</button></div>
+</form></dialog>
+
 <script src="/comum.js"></script>
 <script src="/presidente.js"></script>
 <script src="/presidente2.js"></script>

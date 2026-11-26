@@ -4,6 +4,8 @@ Pacote para Debian 12/13 (e Ubuntu 24.04). Instala o LEGIS como serviço do sist
 
 ## Instalar
 
+**O jeito mais simples:** instale o pacote (com dois cliques ou pelo terminal) e abra o LEGIS no navegador. No primeiro acesso ao **painel do presidente**, depois da troca do PIN, aparece a caixa **De qual cidade é esta Câmara?**. Escolha o estado e o município (lista do IBGE) e clique em **Buscar dados**: o LEGIS traz do TSE os vereadores eleitos, com partido e foto, e do IBGE a população, no lugar dos dados de exemplo.
+
 **Com tela (o mais simples):** dê dois cliques no arquivo `legis_<versão>_all.deb` e instale. Ao terminar, abre sozinha a janela **Configurar o LEGIS**:
 
 1. escolha o **estado** e o **município**, numa lista que vem do IBGE e filtra enquanto você digita;

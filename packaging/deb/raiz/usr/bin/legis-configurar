@@ -64,7 +64,7 @@ def configuracao_atual() -> dict:
 
 
 def precisa_configurar() -> bool:
-    return (DADOS / ".sem-municipio").exists() or not (ETC / "instalacao.conf").exists() or not configuracao_atual().get("MUNICIPIO")
+    return (DADOS / ".sem-municipio").exists()   # o LEGIS apaga quando a cidade é escolhida (aqui ou no painel)
 
 
 def endereco_local() -> str:

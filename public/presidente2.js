@@ -180,3 +180,60 @@ async function removerProgramacao(nome) {
   await PL.acao('presidente', 'radioRemover', { nome }).then(carregarRadio).catch(() => {});
 }
 document.querySelector('[data-aba="config"]')?.addEventListener('click', () => setTimeout(carregarRadio, 100));
+
+
+/* ---------------- primeira configuração: de qual cidade é esta Câmara ---------------- */
+const UFS = { AC: 'Acre', AL: 'Alagoas', AP: 'Amapá', AM: 'Amazonas', BA: 'Bahia', CE: 'Ceará', DF: 'Distrito Federal',
+  ES: 'Espírito Santo', GO: 'Goiás', MA: 'Maranhão', MT: 'Mato Grosso', MS: 'Mato Grosso do Sul', MG: 'Minas Gerais',
+  PA: 'Pará', PB: 'Paraíba', PR: 'Paraná', PE: 'Pernambuco', PI: 'Piauí', RJ: 'Rio de Janeiro', RN: 'Rio Grande do Norte',
+  RS: 'Rio Grande do Sul', RO: 'Rondônia', RR: 'Roraima', SC: 'Santa Catarina', SP: 'São Paulo', SE: 'Sergipe', TO: 'Tocantins' };
+$('cidUf').insertAdjacentHTML('beforeend', Object.entries(UFS).map(([s, n]) => `<option value="${s}">${s} — ${esc(n)}</option>`).join(''));
+const semAcento = t => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+PL.aoMudar(S => verificarCidade(S));
+function verificarCidade(S) {
+  if (!Cidade.pronto || Cidade.aberto || S.camaraConfigurada !== false || sessionStorage.getItem('legis.cidadeDepois')) return;
+  if (document.querySelector('dialog[open]')) return;   // não cobre outra janela (ex.: troca de PIN)
+  Cidade.aberto = true;
+  $('dlgCidade').showModal();
+  $('cidUf').focus();
+}
+$('cidUf').onchange = async () => {
+  const uf = $('cidUf').value;
+  $('cidMun').value = ''; $('cidLista').innerHTML = ''; Cidade.municipios = [];
+  if (!uf) { $('cidMun').disabled = true; return; }
+  $('cidMun').disabled = false; $('cidMun').focus();
+  $('cidEstado').textContent = `Buscando os municípios de ${UFS[uf]} no IBGE…`;
+  try {
+    const lista = await (await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios?orderBy=nome`)).json();
+    if ($('cidUf').value !== uf) return;
+    Cidade.municipios = lista.map(m => m.nome);
+    $('cidLista').innerHTML = Cidade.municipios.map(n => `<option value="${esc(n)}">`).join('');
+    $('cidEstado').textContent = `${Cidade.municipios.length} municípios. Digite para filtrar.`;
+  } catch { $('cidEstado').textContent = 'Sem acesso à lista do IBGE: digite o nome do município.'; }
+};
+$('cidMun').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('cidOk').click(); } };
+$('cidDepois').onclick = () => { sessionStorage.setItem('legis.cidadeDepois', '1'); $('dlgCidade').close(); };
+$('dlgCidade').addEventListener('cancel', () => sessionStorage.setItem('legis.cidadeDepois', '1'));
+$('cidOk').onclick = async () => {
+  const uf = $('cidUf').value, mun = $('cidMun').value.trim();
+  if (!uf || !mun) { $('cidEstado').textContent = 'Escolha o estado e o município.'; return; }
+  const certo = Cidade.municipios.find(n => semAcento(n) === semAcento(mun));
+  if (Cidade.municipios.length && !certo) { $('cidEstado').textContent = `“${mun}” não está na lista do IBGE para ${uf}. Escolha um nome da lista.`; return; }
+  $('cidOk').disabled = $('cidDepois').disabled = $('cidUf').disabled = $('cidMun').disabled = true;
+  $('cidEstado').textContent = 'Buscando os vereadores no TSE e as fotos… pode levar até um minuto.';
+  try {
+    const r = await api('/api/cidade', { uf, municipio: certo || mun });
+    const pop = r.populacao ? ` · ${r.populacao.toLocaleString('pt-BR')} habitantes (IBGE)` : '';
+    $('cidCorpo').innerHTML = `<p style="margin:0;font-size:1.15em"><b>✔ ${esc(r.nome)}</b></p>
+      <p class="detalhe" style="margin:0">${r.vereadores} vereadores eleitos em 2024, ${r.fotos} com foto${pop}.</p>
+      <p class="detalhe" style="margin:0">O PIN inicial de cada vereador é <b>0000</b>, com troca obrigatória no primeiro acesso.
+      Suplentes que assumiram depois e mudanças de partido se ajustam em <b>Plenário</b>.</p>`;
+    $('cidRodape').innerHTML = '<button class="botao principal" id="cidFim">Começar</button>';
+    $('cidFim').onclick = () => $('dlgCidade').close();
+    $('cidFim').focus();
+  } catch (e) {
+    $('cidEstado').textContent = e.message;
+    $('cidOk').disabled = $('cidDepois').disabled = $('cidUf').disabled = $('cidMun').disabled = false;
+  }
+};

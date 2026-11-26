@@ -39,6 +39,7 @@ from ata import gerar_ata
 import estatisticas
 import recomendacao
 import sapl as sapl_cli
+import cidade
 import seguranca
 import backup as backup_mod
 import transcricao
@@ -1931,6 +1932,7 @@ def pacote() -> str:
     pub["transmissaoStatus"] = transmissor.status() if "transmissor" in globals() else {"ativa": False}
     pub["iaMotor"] = ia.descricao()
     pub["radioLocal"] = RADIO_LOCAL
+    pub["camaraConfigurada"] = camara_configurada()
     pub["legendasLigadas"] = bool(getattr(globals().get("legendador"), "ligado", False))  # a mesa avisa antes de tudo carregar
     pub["portaHttps"] = PORTA_HTTPS if HTTPS_ATIVO else None
     pub["virtuais"] = [{**v, "status": _status_virtual(v)} for v in S["virtuais"][:20]]
@@ -2432,6 +2434,51 @@ def sessao_publica(r: dict) -> dict:
             "video": video, "capitulos": capitulos, "falas": falas, "votacoes": votacoes, "nomes": nomes,
             "pauta": [{k: m.get(k) for k in ("id", "numero", "ementa", "autor", "situacao")} for m in r.get("pauta") or []],
             "presentes": len(r.get("presenca") or {}), "membros": len(r.get("parls") or [])}
+
+
+# --- primeira configuração: de qual cidade é esta Câmara (TSE + IBGE)
+trava_cidade = threading.Lock()
+
+
+def camara_configurada() -> bool:
+    """Falso só no banco de exemplo: sem município, sem vereadores do TSE, nome padrão e nenhuma sessão encerrada."""
+    if S["casa"].get("municipio") or any(p.get("tse") for p in S["parls"]) or S["sapl"].get("casa"):
+        return True
+    if S["casa"].get("nome") != "Câmara Municipal":
+        return True
+    return bool(db.execute("select count(*) from sessoes").fetchone()[0])
+
+
+def aplicar_cidade(dados: dict):
+    """Troca os dados de exemplo pelos do município (já baixados por cidade.buscar). Chamar com a trava."""
+    S["casa"].update(nome=f"Câmara Municipal de {dados['municipio']}", titulo="Sessão Ordinária",
+                     municipio=dados["municipio"], uf=dados["uf"], ibge=dados["ibge"])
+    for p in S["parls"]:
+        db.execute("delete from imagens where chave = ?", (p["id"],))
+    novo = estado_inicial()
+    for k in ("presenca", "filas", "orador", "interr", "pedidos", "votacao"):
+        S[k] = novo[k]
+    S["pauta"], S["parls"], S["_pins"] = [], [], {}
+    S["_tokens"] = {t: a for t, a in S["_tokens"].items() if a.get("papel") == "presidente"}
+    if dados.get("populacao"):
+        S["relevancia"]["populacao"] = dados["populacao"]
+    db.execute("delete from projetos")
+    S["projetosRev"] = S.get("projetosRev", 0) + 1
+    for k, e in enumerate(dados["eleitos"], 1):
+        p = {"id": uid(), "nome": e["nome"], "partido": e["partido"], "lider": False, "fotoV": 0, "canal": k, "bloco": "",
+             "tse": {"numero": e["numero"], "votos": e["votos"], "sq": e["sq"], "situacao": e["situacao"]}}
+        if e.get("foto"):
+            db.execute("insert or replace into imagens (chave, mime, dados) values (?, ?, ?)", (p["id"], "image/jpeg", e["foto"]))
+            p["fotoV"] = agora()
+        S["parls"].append(p)
+        S["_pins"][p["id"]] = seguranca.hash_pin("0000")
+        S["partidos"].setdefault(e["partido"], "#5b6b86")
+    if S["transmissao"].get("local"):
+        S["transmissao"]["nome"] = f"{S['casa']['nome']} — Rádio"
+    try:
+        (BANCO.parent / ".sem-municipio").unlink(missing_ok=True)   # aviso do instalador .deb
+    except OSError:
+        pass
 
 
 # --- programação da rádio local
@@ -3144,7 +3191,40 @@ class Manipulador(BaseHTTPRequestHandler):
         p = next((x for x in S["parls"] if x["id"] == pid), None) or next((x for x in S.get("exParls", []) if x["id"] == pid), None)
         return (p or {}).get("nome", pid)
 
+    def _cidade(self, corpo: dict):
+        """POST /api/cidade {uf, municipio}: primeira configuração pelo painel do presidente."""
+        with trava:
+            ator = self._ator()
+            if not ator or ator["papel"] != "presidente":
+                return self._json(401, {"erro": "Entre como presidente."})
+            if ator.get("deveTrocar"):
+                return self._json(403, {"erro": "Troque o PIN padrão antes de continuar.", "codigo": "trocarPin"})
+            if camara_configurada():
+                return self._json(409, {"erro": "Esta Câmara já está configurada. Ajuste os vereadores em Plenário."})
+        if not trava_cidade.acquire(blocking=False):
+            return self._json(409, {"erro": "A busca já está em andamento."})
+        try:
+            try:
+                dados = cidade.buscar(corpo.get("uf"), corpo.get("municipio"), log=lambda m: print("cidade:", m, flush=True))
+            except ValueError as e:
+                return self._json(400, {"erro": str(e)})
+            except Exception as e:
+                return self._json(502, {"erro": f"Não foi possível falar com o TSE agora ({e.__class__.__name__}). Verifique a internet e tente de novo."})
+            with trava:
+                if camara_configurada():
+                    return self._json(409, {"erro": "Esta Câmara já está configurada."})
+                aplicar_cidade(dados)
+                registrar("presidente", "configurarCidade", {"uf": dados["uf"], "municipio": dados["municipio"],
+                                                              "vereadores": len(dados["eleitos"])})
+                confirmar()
+            return self._json(200, {"ok": True, "nome": S["casa"]["nome"], "vereadores": len(dados["eleitos"]),
+                                    "fotos": sum(1 for e in dados["eleitos"] if e.get("foto")), "populacao": dados["populacao"]})
+        finally:
+            trava_cidade.release()
+
     def _post_novos(self, caminho: str, corpo: dict):
+        if caminho == "/api/cidade":
+            return self._cidade(corpo)
         if caminho == "/api/perguntar":
             pergunta = str(corpo.get("pergunta") or "").strip()
             if len(pergunta) < 4:

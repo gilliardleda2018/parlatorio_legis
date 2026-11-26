@@ -5,6 +5,7 @@ const { esc, avatar, sigla, parl, fase, tempo, hora } = PL;
 let abaAtual = 'sessao';
 let selInterr = '';
 let som = localStorage.getItem('parlatorio.som') !== '0';
+const Cidade = { pronto: false, aberto: false, municipios: [] };  // primeira configuração (presidente2.js)
 
 /* ---------------- entrada ---------------- */
 async function iniciar() {
@@ -13,6 +14,7 @@ async function iniciar() {
   $(eu ? 'app' : 'login').classList.remove('oculto');
   if (!eu) $('pin').focus();
   if (eu?.deveTrocar) PL.exigirTrocaPin('presidente');
+  else if (eu) { Cidade.pronto = true; if (PL.estado) verificarCidade(PL.estado); }
 }
 async function entrar() {
   try { await PL.entrar('presidente', $('pin').value); location.reload(); }
