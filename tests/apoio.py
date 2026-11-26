@@ -27,8 +27,9 @@ class Servidor:
         self.base = f"http://127.0.0.1:{self.porta}"
         env = {**{k: v for k, v in os.environ.items() if not k.startswith("TRANSCRICAO")}, "PORTA": str(self.porta), "PARLATORIO_BANCO": f"{self.dir.name}/teste.db", "HTTPS": "0",
                "BACKUP_HORA": "", "BACKUP_DIR": f"{self.dir.name}/backups", "PIN_PRESIDENTE": "1234", **env_extra}
-        for k in ("NEXTCLOUD_URL", "NEXTCLOUD_USUARIO", "NEXTCLOUD_SENHA"):
-            env.pop(k, None)
+        for k in ("NEXTCLOUD_URL", "NEXTCLOUD_USUARIO", "NEXTCLOUD_SENHA", "JITSI_URL", "JITSI_SEGREDO"):
+            if k not in env_extra:
+                env.pop(k, None)
         self.proc = subprocess.Popen([sys.executable, str(RAIZ / "server" / "servidor.py")], env=env, cwd=RAIZ,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         for _ in range(100):

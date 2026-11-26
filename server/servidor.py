@@ -13,6 +13,8 @@ servidor; cada tela corrige a diferença do próprio relógio com o campo
 "agora" de cada mensagem.
 """
 import base64
+import hashlib
+import hmac
 import json
 import math
 import os
@@ -64,6 +66,10 @@ OCIOSO_PRESIDENTE = 12 * 3600_000      # login do painel expira após 12 h sem u
 OCIOSO_PARLAMENTAR = 30 * 86400_000    # no celular, após 30 dias sem uso
 VALIDADE_MAXIMA = 90 * 86400_000       # nenhum login dura mais que 90 dias
 ACOES_COM_PIN = {"virtualVotar", "virtualDestaque"}  # confirmação do próprio PIN
+# Jitsi próprio da Câmara (deploy/local/jitsi.sh): só entra quem tem o token emitido pelo Parlatório
+JITSI_URL = os.environ.get("JITSI_URL", "").strip().rstrip("/")
+JITSI_APP_ID = os.environ.get("JITSI_APP_ID", "parlatorio")
+JITSI_SEGREDO = os.environ.get("JITSI_SEGREDO", "")
 bloqueio = seguranca.Bloqueio()
 BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", BANCO.parent / "backups"))
 BACKUP_HORA = os.environ.get("BACKUP_HORA", "03:00")   # backup diário automático (vazio desliga)
@@ -247,7 +253,7 @@ def NOVOS_CAMPOS() -> dict:
         "sapl": {"url": "", "casa": None, "tipos": [], "sessoes": [], "job": None},  # integração com o SAPL
         "rodape": rodape_padrao(),  # contatos públicos da câmara e da Aggilli, no rodapé das páginas
         "virtuais": [],         # sessões virtuais assíncronas (votação online com prazo)
-        "remoto": {"ativo": False, "servidor": "https://meet.jit.si"},  # sessão híbrida por videoconferência
+        "remoto": {"ativo": False, "servidor": JITSI_URL or "https://meet.jit.si"},  # sessão híbrida por videoconferência
         "presencaModo": {},     # pid -> "remoto" quando a presença foi registrada pela videoconferência
         "_remoto": {"sala": ""},  # nome da sala: nunca vai para as telas públicas
         "_pinPresidente": None,   # hash do PIN do painel depois da primeira troca
@@ -270,6 +276,8 @@ def carregar() -> dict:
     for k, v in CFG_PADRAO.items():
         estado["mesa"].setdefault(k, v)
     estado["cfg"].setdefault("transcricaoAutoPublicar", False)
+    if JITSI_URL and estado["remoto"].get("servidor") == "https://meet.jit.si":  # instalou o Jitsi próprio
+        estado["remoto"]["servidor"] = JITSI_URL
     for p in estado["parls"]:
         p.setdefault("canal", 0)
     for pid, pin in list(estado["_pins"].items()):
@@ -1647,6 +1655,18 @@ def remotoConfigurar(ator, ativo, servidor=None):
         S["_remoto"]["sala"] = "parlatorio-" + secrets.token_urlsafe(12).replace("_", "").replace("-", "")
 
 
+def token_jitsi(nome: str, uid: str, sala: str, moderador: bool) -> str:
+    """JWT HS256 aceito pelo Jitsi configurado com AUTH_TYPE=jwt (vale 12 h, só para a sala da sessão)."""
+    b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+    agora_s = int(time.time())
+    corpo = {"aud": "jitsi", "iss": JITSI_APP_ID, "sub": "*", "room": sala, "nbf": agora_s - 60, "exp": agora_s + 12 * 3600,
+             "context": {"user": {"id": uid, "name": nome, "moderator": moderador,
+                                  "affiliation": "owner" if moderador else "member"}}}
+    partes = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()) + "." + b64(json.dumps(corpo, ensure_ascii=False).encode())
+    assinatura = hmac.new(JITSI_SEGREDO.encode(), partes.encode(), hashlib.sha256).digest()
+    return partes + "." + b64(assinatura)
+
+
 @acao("presidente")
 def remotoNovaSala(ator):
     S["_remoto"]["sala"] = "parlatorio-" + secrets.token_urlsafe(12).replace("_", "").replace("-", "")
@@ -2231,7 +2251,8 @@ class Manipulador(BaseHTTPRequestHandler):
             return False
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         caminho = urlparse(self.path).path
-        if host in ("localhost", "127.0.0.1", "::1", "") or caminho in ("/certificado", "/certificado.crt"):
+        if host in ("localhost", "127.0.0.1", "::1", "") or caminho in ("/certificado", "/certificado.crt") \
+                or caminho.startswith("/.well-known/acme-challenge/"):
             return False
         self.send_response(308 if self.command == "POST" else 301)
         self.send_header("Location", f"https://{host}:{PORTA_HTTPS}{self.path}")
@@ -2245,6 +2266,8 @@ class Manipulador(BaseHTTPRequestHandler):
         caminho = urlparse(self.path).path
         if caminho in ("/certificado", "/certificado.crt"):
             return self._certificado()
+        if caminho.startswith("/.well-known/acme-challenge/"):
+            return self._acme(caminho.rsplit("/", 1)[1])
         if caminho.startswith("/api/sessoes") or caminho.startswith("/api/ata/"):
             return self._sessoes(caminho)
         if caminho == "/api/transparencia":
@@ -2257,8 +2280,11 @@ class Manipulador(BaseHTTPRequestHandler):
                 if not ator or not S["remoto"]["ativo"]:
                     return self._json(403, {"erro": "Sessão remota indisponível."})
                 nome = "Presidência" if ator["papel"] == "presidente" else parl(ator["pid"])["nome"]
-                return self._json(200, {"servidor": S["remoto"]["servidor"], "sala": S["_remoto"]["sala"], "nome": nome,
-                                        "moderador": ator["papel"] == "presidente"})
+                moderador = ator["papel"] == "presidente"
+                resposta = {"servidor": S["remoto"]["servidor"], "sala": S["_remoto"]["sala"], "nome": nome, "moderador": moderador}
+                if JITSI_SEGREDO and JITSI_URL and S["remoto"]["servidor"] == JITSI_URL:
+                    resposta["jwt"] = token_jitsi(nome, ator["pid"] or "presidente", S["_remoto"]["sala"], moderador)
+                return self._json(200, resposta)
         if caminho.startswith("/api/perfil/"):
             return self._perfil(caminho.rsplit("/", 1)[1])
         if caminho == "/api/aovivo":
@@ -2507,6 +2533,18 @@ class Manipulador(BaseHTTPRequestHandler):
         return self._json(200, {"id": g["id"], "nome": g["nome"], "partido": g["partido"], "fase": g.get("faseNome", ""),
                                 "inicio": g["inicio"], "audio": f"/gravacao/{g['id']}.{g['ext']}",
                                 "transcricao": t if presidente else {k: t.get(k) for k in ("texto", "segmentos", "revisada", "motor")}})
+
+    def _acme(self, ficha):
+        """Desafio do Let's Encrypt (certbot --webroot em dados/acme): certificado real para um domínio público."""
+        alvo = BANCO.parent / "acme" / ".well-known" / "acme-challenge" / ficha
+        if not re.fullmatch(r"[A-Za-z0-9_-]{10,200}", ficha) or not alvo.is_file():
+            return self._json(404, {"erro": "Não encontrado."})
+        dados = alvo.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(dados)))
+        self.end_headers()
+        self.wfile.write(dados)
 
     def _certificado(self):
         ca = TLS_DIR / "ca.crt"

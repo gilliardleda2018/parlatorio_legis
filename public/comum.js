@@ -230,7 +230,7 @@ const PL = (() => {
     }
     jitsi?.dispose();
     jitsi = new JitsiMeetExternalAPI(new URL(cfg.servidor).host, {
-      roomName: cfg.sala, parentNode: container, width: '100%', height: '100%',
+      roomName: cfg.sala, parentNode: container, width: '100%', height: '100%', ...(cfg.jwt ? { jwt: cfg.jwt } : {}),
       userInfo: { displayName: cfg.nome },
       configOverwrite: { startWithAudioMuted: true, prejoinPageEnabled: false, disableDeepLinking: true },
       interfaceConfigOverwrite: { MOBILE_APP_PROMO: false }

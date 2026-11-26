@@ -10,6 +10,10 @@
 # Variáveis opcionais:
 #   NOME=parlatorio      nome na rede: os aparelhos abrem https://parlatorio.local
 #   TRANSCRICAO=1        instala a transcrição local dos discursos (recomendado 8 GB de RAM)
+#   DOMINIO=sessao.suacamara.ma.leg.br   acesso também pela internet (vereadores em casa, sessão
+#                        híbrida): certificado Let's Encrypt gratuito e renovado sozinho. Antes, aponte o
+#                        domínio para o IP público da Câmara e encaminhe no roteador as portas TCP 80 e 443
+#                        (e, com o Jitsi, TCP 8443 e UDP 10000) para este servidor. EMAIL= recebe avisos.
 #   REPO, RAMO           de onde baixar o código (padrão: GitHub, ramo main)
 set -euo pipefail
 
@@ -53,7 +57,7 @@ HTTPS=auto
 TLS_NOMES=$NOME.local,$NOME,$IPS
 TZ=America/Sao_Paulo
 # PIN inicial do painel do presidente (depois da primeira troca vale o PIN salvo):
-PIN_PRESIDENTE=$(tr -dc 0-9 </dev/urandom | head -c 8)
+PIN_PRESIDENTE=$(python3 -c "import secrets; print(str(secrets.randbelow(10**8)).zfill(8))")
 # Backup diário às 03:00 em $DADOS/backups (para enviar ao Nextcloud, veja o README).
 EOF
   chmod 600 /etc/parlatorio.env
@@ -89,6 +93,34 @@ systemctl daemon-reload
 systemctl enable parlatorio
 systemctl restart parlatorio
 
+if [ -n "${DOMINIO:-}" ]; then
+  apt-get install -y -q certbot
+  mkdir -p "$DADOS/acme/.well-known/acme-challenge" "$DADOS/tls-publico" /etc/letsencrypt/renewal-hooks/deploy
+  chown -R parlatorio:parlatorio "$DADOS/acme" "$DADOS/tls-publico"
+  GANCHO=/etc/letsencrypt/renewal-hooks/deploy/parlatorio.sh
+  {
+    echo '#!/bin/sh'
+    echo '# copia o certificado renovado para o Parlatório e para o Jitsi e reinicia os dois'
+    echo 'set -e'
+    echo "D=/etc/letsencrypt/live/$DOMINIO"
+    echo "install -o parlatorio -g parlatorio -m 644 \"\$D/fullchain.pem\" $DADOS/tls-publico/fullchain.pem"
+    echo "install -o parlatorio -g parlatorio -m 600 \"\$D/privkey.pem\" $DADOS/tls-publico/privkey.pem"
+    echo 'if [ -d /opt/jitsi/config/web/keys ]; then'
+    echo '  cp "$D/fullchain.pem" /opt/jitsi/config/web/keys/cert.crt'
+    echo '  cp "$D/privkey.pem" /opt/jitsi/config/web/keys/cert.key'
+    echo '  (cd /opt/jitsi && docker compose restart web) || true'
+    echo 'fi'
+    echo 'systemctl restart parlatorio'
+  } > "$GANCHO"
+  chmod 755 "$GANCHO"
+  sleep 2
+  if [ -n "${EMAIL:-}" ]; then CONTA=(-m "$EMAIL" --no-eff-email); else CONTA=(--register-unsafely-without-email); fi
+  certbot certonly --webroot -w "$DADOS/acme" -d "$DOMINIO" --non-interactive --agree-tos "${CONTA[@]}" --deploy-hook "$GANCHO"
+  sed -i '/^TLS_CERT=/d;/^TLS_KEY=/d;/^DOMINIO=/d' /etc/parlatorio.env
+  { echo "DOMINIO=$DOMINIO"; echo "TLS_CERT=$DADOS/tls-publico/fullchain.pem"; echo "TLS_KEY=$DADOS/tls-publico/privkey.pem"; } >> /etc/parlatorio.env
+  systemctl restart parlatorio
+fi
+
 if [ "$TRANSCRICAO" = "1" ]; then
   sudo -u parlatorio env PARLATORIO_DADOS="$DADOS" HOME="$DADOS" sh "$APP/scripts/instalar_transcricao.sh" \
     && systemctl restart parlatorio
@@ -99,6 +131,10 @@ IP=$(hostname -I | awk '{print $1}')
 echo
 echo "Pronto. Na rede do plenário:"
 echo "  1. Em cada aparelho, abra http://$IP/certificado e instale o certificado da Câmara (uma vez)."
-echo "  2. Depois use https://$NOME.local (ou https://$IP)."
+if [ -n "${DOMINIO:-}" ]; then
+  echo "  Endereço: https://$DOMINIO (certificado público: os aparelhos não precisam instalar nada)."
+else
+  echo "  2. Depois use https://$NOME.local (ou https://$IP)."
+fi
 echo "PIN inicial do presidente: grep PIN_PRESIDENTE /etc/parlatorio.env"
 echo "Mesa de som: ligue-a na mesma rede e configure em Painel → Configurações → Mesa de som."

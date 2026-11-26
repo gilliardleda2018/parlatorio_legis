@@ -58,6 +58,36 @@ Os protocolos de Yamaha, Allen & Heath e Soundcraft seguem a documentação dos 
 
 **Durante a sessão, o painel manda:** conceder a palavra abre o canal do orador (ou da tribuna). Aparte e questão de ordem abrem o canal de quem interrompe. Tempo esgotado, pausa, congelamento e corte por tumulto fecham. Os microfones de bancada abrem e fecham um a um, e há o botão "fechar todos". A cada 5 s o estado é reenviado, então se alguém mexer na mesa à mão o painel corrige.
 
+## Videoconferência própria (Jitsi)
+
+Para sessões híbridas, com vereadores participando por vídeo, instale o Jitsi da própria Câmara, já configurado para o Parlatório:
+
+```bash
+bash /opt/parlatorio_legis/deploy/local/jitsi.sh
+```
+
+- Roda em Docker no mesmo servidor, com a versão estável oficial do `docker-jitsi-meet`, em `https://parlatorio.local:8443`.
+- **Só entra quem está logado no Parlatório.** O Jitsi exige um token assinado pelo servidor do Parlatório: o presidente entra como moderador e os vereadores como participantes. Sem token, ou com token falso, o Jitsi recusa a entrada.
+- Usa o mesmo certificado do Parlatório e a sessão remota do painel já aponta para ele.
+- O painel do presidente comanda também o microfone de quem está no vídeo: conceder a palavra abre; cortar, congelar ou esgotar o tempo fecha.
+
+Recursos: some 2 GB de RAM e 2 núcleos para até uns 15 participantes de vídeo.
+
+## Acesso de fora da Câmara (vereador em casa)
+
+Dentro da rede do plenário não é preciso nada além do instalador. Para quem participa de casa:
+
+1. Registre um domínio ou subdomínio (por exemplo `sessao.suacamara.ma.leg.br`) apontando para o **IP público fixo** da Câmara.
+2. No roteador, encaminhe para o servidor as portas **TCP 80 e 443** (Parlatório) e, com o Jitsi, **TCP 8443 e UDP 10000**.
+3. Instale (ou reinstale) informando o domínio. O certificado Let's Encrypt é emitido e renovado sozinho:
+
+```bash
+DOMINIO=sessao.suacamara.ma.leg.br EMAIL=ti@suacamara.ma.leg.br bash /opt/parlatorio_legis/deploy/local/instalar.sh
+IP_PUBLICO=200.0.0.10 bash /opt/parlatorio_legis/deploy/local/jitsi.sh
+```
+
+Com o domínio, use o mesmo endereço também dentro da Câmara. Se o roteador não fizer "NAT loopback", crie no DNS interno uma entrada do domínio para o IP local do servidor.
+
 ## Transmissão ao vivo
 
 O computador do presidente capta a saída da mesa e o servidor local manda o áudio para a rádio (AzuraCast ou Icecast) em **Configurações → Transmissão ao vivo**. É a única parte que usa a internet. Se a internet cair, a sessão continua normalmente; só a transmissão para.

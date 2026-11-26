@@ -42,7 +42,7 @@ HTTPS=0
 PROXY_CONFIAVEL=1
 TZ=America/Sao_Paulo
 # PIN inicial do painel do presidente (depois da primeira troca vale o PIN salvo):
-PIN_PRESIDENTE=$(tr -dc 0-9 </dev/urandom | head -c 8)
+PIN_PRESIDENTE=$(python3 -c "import secrets; print(str(secrets.randbelow(10**8)).zfill(8))")
 # Só em período de testes: TROCA_PIN=0 deixa entrar com o PIN padrão sem obrigar a troca.
 # Em servidor aberto na internet, deixe a troca obrigatória (padrão).
 EOF
