@@ -71,7 +71,7 @@ def buscar(uf: str, municipio: str, log=print, fotos: bool = True) -> dict:
     try:
         ibge = json.loads(baixar(f"{IBGE}/v3/agregados/4709/periodos/2022/variaveis/93?localidades=N6%5B{mun['cdi']}%5D"))
         populacao = int(ibge[0]["resultados"][0]["series"][0]["serie"]["2022"])
-        log(f"IBGE, Censo 2022: {populacao:,} habitantes".replace(",", "."))
+        log(f"IBGE, Censo 2022: {populacao:,} habitantes".replace(f"{populacao:,}", f"{populacao:,}".replace(",", ".")))
     except Exception as e:  # o IBGE fora do ar não impede a configuração
         log(f"População do IBGE indisponível ({e}); ajuste em Projetos → critérios.")
 
