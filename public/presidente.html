@@ -405,7 +405,7 @@
           </div>
           <div class="cartao" id="cartaoTransmissaoCfg">
             <h2>Transmissão ao vivo (rádio)<span class="esp"></span><span id="trCfgEstado"></span></h2>
-            <p class="detalhe" style="margin-top:0">Envia o áudio da sessão para um servidor de rádio Icecast ou AzuraCast. No AzuraCast, ative “Streamers/DJs” na estação, crie uma conta de DJ para a câmara e use aqui o usuário e a senha dela (porta 8005, montagem /).</p>
+            <p class="detalhe" style="margin-top:0" id="trCfgAjuda">Envia o áudio da sessão para um servidor de rádio Icecast ou AzuraCast. No AzuraCast, ative “Streamers/DJs” na estação, crie uma conta de DJ para a câmara e use aqui o usuário e a senha dela (porta 8005, montagem /).</p>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
               <label class="rot">Tipo de servidor<select class="campo" id="trPreset" onchange="trPreset()"><option value="azuracast">AzuraCast (Streamer/DJ)</option><option value="icecast">Icecast</option></select></label>
               <label class="rot">Endereço do servidor<input class="campo" id="trHost" placeholder="radio.suacamara.leg.br"></label>

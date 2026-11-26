@@ -57,6 +57,11 @@ PORTA = int(os.environ.get("PORTA", "8090"))
 HOST = os.environ.get("HOST", "0.0.0.0")  # 127.0.0.1 quando há um proxy (Caddy, nginx) na frente
 # Atrás de proxy, o IP real do visitante vem no X-Forwarded-For (usado no bloqueio por tentativas)
 PROXY_CONFIAVEL = os.environ.get("PROXY_CONFIAVEL", "0") == "1"
+# estação própria das sessões: Icecast neste mesmo servidor, instalado por deploy/aws/instalar.sh.
+# A senha fica só no ambiente (/etc/parlatorio.env), nunca no banco nem nas telas.
+ESTACAO = {"host": os.environ.get("ESTACAO_HOST", "127.0.0.1"), "porta": int(os.environ.get("ESTACAO_PORTA") or 8000),
+           "mount": "/" + os.environ.get("ESTACAO_MOUNT", "/sessao").lstrip("/"), "usuario": "source",
+           "senha": os.environ.get("ESTACAO_SENHA", ""), "tls": False, "publico": os.environ.get("ESTACAO_PUBLICO", "")}
 PIN_PRESIDENTE = os.environ.get("PIN_PRESIDENTE", "1234")  # PIN inicial; depois da troca vale o salvo (com hash)
 # Período de testes: TROCA_PIN=0 deixa entrar com PIN padrão (0000) sem obrigar a troca. Em produção, deixe ligado.
 TROCA_PIN_OBRIGATORIA = os.environ.get("TROCA_PIN", "1") != "0"
@@ -2090,6 +2095,39 @@ def _transmissao_mudou():
 
 
 transmissor = transmissao.Transmissor(_transmissao_mudou)
+PRESET_PROPRIA = {"nome": "Estação própria das sessões (neste servidor)", "porta": ESTACAO["porta"],
+                  "mount": ESTACAO["mount"], "usuario": "source"}
+
+
+def estacao_propria() -> bool:
+    return bool(ESTACAO["senha"])
+
+
+def presets_transmissao() -> dict:
+    return {"propria": PRESET_PROPRIA, **transmissao.PRESETS} if estacao_propria() else dict(transmissao.PRESETS)
+
+
+def cfg_transmissao() -> dict:
+    """Configuração em uso: a estação própria vem do ambiente; as outras rádios, do que a presidência salvou."""
+    cfg = S["_transmissao"]
+    if cfg.get("preset") != "propria":
+        return cfg
+    if not estacao_propria():  # a variável sumiu do ambiente: fica sem destino até reconfigurar
+        return {**cfg, "host": "", "senha": ""}
+    return {**cfg, **{k: ESTACAO[k] for k in ("host", "porta", "mount", "usuario", "senha", "tls")}}
+
+
+def _ajustar_estacao():
+    """Com a estação própria instalada e nenhuma rádio configurada, ela vira o destino padrão."""
+    t, cfg = S["transmissao"], S["_transmissao"]
+    if estacao_propria() and cfg.get("preset") != "propria" and not cfg.get("host"):
+        cfg.update(preset="propria", bitrate=96)
+        t["publico"] = t["publico"] or ESTACAO["publico"]
+    atual = cfg_transmissao()
+    t["configurada"] = bool(atual["host"] and atual["senha"])
+
+
+_ajustar_estacao()
 
 
 @acao("presidente")
@@ -2116,14 +2154,22 @@ def transmissaoConfigurar(ator, preset="azuracast", host="", porta=8005, mount="
     if int(bitrate) not in transmissao.BITRATES:
         raise Erro("Qualidade inválida.")
     publico = str(publico or "").strip()
+    if preset == "propria":
+        if not estacao_propria():
+            raise Erro("Este servidor não tem a estação própria instalada (falta ESTACAO_SENHA no ambiente).")
+        publico = publico or ESTACAO["publico"]
     if publico and not re.fullmatch(r"https?://[^\s<>\"']{3,300}", publico):
         raise Erro("O endereço para ouvir deve começar com https:// (ou http://).")
     cfg = S["_transmissao"]
-    cfg.update(preset=preset if preset in transmissao.PRESETS else "icecast", host=host, porta=porta, mount=mount,
-               usuario=usuario, tls=bool(tls), bitrate=int(bitrate))
-    if senha is not None and str(senha) != "":
-        cfg["senha"] = str(senha)[:200]
-    S["transmissao"].update(configurada=bool(cfg["host"] and cfg["senha"]), publico=publico, nome=str(nome or "").strip()[:120])
+    if preset == "propria":  # endereço, porta e senha vêm do ambiente; os da outra rádio ficam guardados
+        cfg.update(preset="propria", bitrate=int(bitrate))
+    else:
+        cfg.update(preset=preset if preset in transmissao.PRESETS else "icecast", host=host, porta=porta, mount=mount,
+                   usuario=usuario, tls=bool(tls), bitrate=int(bitrate))
+        if senha is not None and str(senha) != "":
+            cfg["senha"] = str(senha)[:200]
+    atual = cfg_transmissao()
+    S["transmissao"].update(configurada=bool(atual["host"] and atual["senha"]), publico=publico, nome=str(nome or "").strip()[:120])
     registrar("presidente", "transmissaoConfigurar", {"host": host, "porta": porta, "mount": mount})
 
 
@@ -2134,7 +2180,7 @@ def transmissaoLigar(ator):
     if not S["transmissao"]["configurada"]:
         raise Erro("Configure o servidor de rádio (endereço e senha) antes de transmitir.")
     try:
-        transmissor.ligar_em_segundo_plano(S["_transmissao"], f"{S['casa']['nome']} · {S['casa']['titulo']}")
+        transmissor.ligar_em_segundo_plano(cfg_transmissao(), f"{S['casa']['nome']} · {S['casa']['titulo']}")
     except RuntimeError as e:
         raise Erro(str(e))
     registrar("presidente", "transmissaoLigar", {})
@@ -2256,9 +2302,14 @@ class Manipulador(BaseHTTPRequestHandler):
                 ator = self._ator()
                 if not ator or ator["papel"] != "presidente":
                     return self._json(403, {"erro": "Só o painel do presidente."})
-                cfg = {k: v for k, v in S["_transmissao"].items() if k != "senha"}
-                return self._json(200, {**cfg, "temSenha": bool(S["_transmissao"]["senha"]), "publico": S["transmissao"]["publico"],
-                                        "nome": S["transmissao"]["nome"], "presets": transmissao.PRESETS,
+                atual = cfg_transmissao()
+                cfg = {k: v for k, v in atual.items() if k != "senha"}
+                return self._json(200, {**cfg, "temSenha": bool(atual["senha"]), "publico": S["transmissao"]["publico"],
+                                        "nome": S["transmissao"]["nome"], "presets": presets_transmissao(),
+                                        "estacaoPropria": estacao_propria(), "estacaoPublico": ESTACAO["publico"],
+                                        # dados guardados da outra rádio (para a tela, ao trocar de destino)
+                                        "outra": {k: S["_transmissao"].get(k) for k in ("host", "porta", "mount", "usuario", "tls")},
+                                        "temSenhaOutra": bool(S["_transmissao"].get("senha")),
                                         "bitrates": transmissao.BITRATES, "ffmpeg": bool(shutil.which("ffmpeg"))})
         if caminho == "/api/discursos":
             return self._discursos()
