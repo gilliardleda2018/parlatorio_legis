@@ -37,7 +37,7 @@ Variáveis de ambiente:
 - `PIN_PRESIDENTE`: PIN do painel do presidente (padrão 1234; troque em produção)
 - `TRANSCRICAO`: `auto` (padrão), `local`, `api`, `comando` ou `0` — veja **Transcrição dos discursos**
 - `HOST`: endereço onde o servidor escuta (padrão `0.0.0.0`; use `127.0.0.1` atrás de um proxy)
-- `PROXY_CONFIAVEL=1`: atrás de proxy (Caddy, nginx), usa o IP real do visitante no bloqueio por tentativas
+- `PROXY_CONFIAVEL=1`: atrás de proxy (Caddy, nginx, Tailscale Funnel), usa o IP real do visitante no bloqueio por tentativas; `PROXY_IPS` diz de onde o proxy conecta (padrão `127.0.0.1,::1`; em Docker, o gateway da rede)
 - `TROCA_PIN=0`: período de testes — deixa entrar com o PIN padrão (0000) sem obrigar a troca. Não use em produção.
 - `PARLATORIO_BANCO`: caminho do banco SQLite (padrão `dados/parlatorio.db`)
 
