@@ -1,5 +1,7 @@
 # Parlatório Legis on-premise (servidor Debian na Câmara)
 
+> **Para uma Câmara nova, prefira o instalador em Docker de [`deploy/cidade`](../cidade/README.md)**, que faz tudo em um comando. Este roteiro instala sem Docker, como serviço do sistema.
+
 O servidor fica dentro da rede do plenário. Assim a sessão não depende da internet, e o painel do presidente controla a mesa de som diretamente: concessão da palavra abre o microfone, tempo esgotado, congelamento e corte por tumulto fecham, tudo sem o operador tocar na mesa.
 
 ```

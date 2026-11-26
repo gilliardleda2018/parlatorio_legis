@@ -83,7 +83,7 @@ def main():
     import servidor  # noqa: E402
 
     S = servidor.S
-    S["casa"]["nome"] = f"Câmara Municipal de {mun['nm'].title()}"
+    S["casa"]["nome"] = f"Câmara Municipal de {nome_proprio(mun['nm'])}"
     S["casa"]["titulo"] = "Sessão Ordinária"
     S["pauta"], S["parls"], S["_pins"] = [], [], {}
     if populacao:

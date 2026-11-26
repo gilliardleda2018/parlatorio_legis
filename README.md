@@ -236,6 +236,15 @@ PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 
 As respostas automáticas sempre mostram as fontes, e o rascunho da ata só vale depois de revisado.
 
+## Instalar em uma nova Câmara (recomendado)
+
+Um comando num servidor Debian novo instala tudo: LEGIS, vereadores eleitos do TSE (com fotos), população do IBGE, IA local, transcrição e legendas, e publicação na internet pelo Tailscale. Passo a passo e checklist em [deploy/cidade/README.md](deploy/cidade/README.md).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gilliardleda2018/parlatorio_legis/main/deploy/cidade/instalar.sh -o instalar.sh
+sudo bash instalar.sh
+```
+
 ## Publicar na internet
 
 Para rodar **dentro da Câmara** (on-premise, servidor Debian na rede do plenário, controlando a mesa de som), veja [deploy/local/README.md](deploy/local/README.md). Mesas suportadas: Behringer X32/M32, X Air, WING; Yamaha TF/DM3/DM7/QL/CL/Rivage; Allen & Heath Qu/dLive/Avantis/SQ; Soundcraft Ui; qualquer mesa OSC; Bitfocus Companion ou Node-RED por ponte HTTP; relés e centrais de conferência com URL por canal.
