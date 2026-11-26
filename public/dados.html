@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dados abertos — LEGIS</title>
+<meta name="description" content="Dados abertos da Câmara: projetos, sessões, votações nominais e documentos no padrão Akoma Ntoso.">
+<link rel="icon" type="image/png" href="/marca/legis-32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px }
+  code { background: var(--cartao2); padding: 2px 6px; border-radius: 6px; font-size: 13px }
+  table.tab td { vertical-align: top }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img id="logoNav" src="/marca/legis-icone.png" alt=""><span><span id="casaNav">Câmara Municipal</span><small>Dados abertos</small></span></a>
+  <span class="esp"></span>
+  <a class="item" href="/transparencia">Transparência</a><a class="item" href="/participe">Participe</a><a class="item ativo" href="/dados">Dados abertos</a>
+</div></nav>
+<main>
+  <section class="cartao">
+    <h2>Dados abertos</h2>
+    <p class="detalhe" style="margin-top:0">Tudo o que é público no LEGIS pode ser baixado e reutilizado (licença CC-BY 4.0: cite a Câmara como fonte).
+      Os documentos legislativos também saem no <b>Akoma Ntoso 3.0</b> (OASIS LegalDocML), o padrão internacional usado pelo Senado italiano, pelo Parlamento Europeu e, com adaptações, pelo Senado brasileiro.</p>
+    <table class="tab">
+      <tr><th>Conjunto</th><th>Formato</th><th>Endereço</th></tr>
+      <tr><td>Projetos (situação, autoria, áreas, histórico)</td><td>JSON</td><td><a href="/api/dados/projetos.json"><code>/api/dados/projetos.json</code></a></td></tr>
+      <tr><td>Sessões (pauta, presença, pronunciamentos, votações)</td><td>JSON</td><td><a href="/api/dados/sessoes.json"><code>/api/dados/sessoes.json</code></a></td></tr>
+      <tr><td>Votações, com o voto de cada parlamentar nas nominais</td><td>CSV</td><td><a href="/api/dados/votacoes.csv"><code>/api/dados/votacoes.csv</code></a></td></tr>
+      <tr><td>Texto de um projeto, artigo por artigo</td><td>Akoma Ntoso (XML)</td><td><code>/dados/akn/projeto/&lt;id&gt;.xml</code> (o <code>akn</code> de cada projeto no JSON)</td></tr>
+      <tr><td>Registro de uma sessão (debate) com os discursos publicados</td><td>Akoma Ntoso (XML)</td><td><code>/dados/akn/sessao/&lt;id&gt;.xml</code></td></tr>
+      <tr><td>Discursos publicados (busca)</td><td>JSON</td><td><code>/api/discursos?q=saude</code></td></tr>
+      <tr><td>Consultas públicas e contribuições</td><td>JSON</td><td><a href="/api/consultas"><code>/api/consultas</code></a>, <code>/api/consulta/&lt;id&gt;</code></td></tr>
+    </table>
+    <p class="detalhe">Votações secretas trazem só o resultado. Contribuições de cidadãos saem sem e-mail. Propostas de vereadores ainda não protocoladas não são publicadas.</p>
+  </section>
+</main>
+<script src="/rodape.js"></script>
+<script src="/assistente.js"></script>
+<script>
+fetch('/api/transparencia').then(r => r.json()).then(t => { document.getElementById('casaNav').textContent = t.casa.nome; Rodape.mostrar(t.rodape, t.casa); }).catch(() => {});
+</script>
+</body>
+</html>

@@ -9,7 +9,9 @@
 #   bash instalar.sh
 # Variáveis opcionais:
 #   NOME=parlatorio      nome na rede: os aparelhos abrem https://parlatorio.local
-#   TRANSCRICAO=1        instala a transcrição local dos discursos (recomendado 8 GB de RAM)
+#   TRANSCRICAO=1        instala a transcrição local dos discursos e as legendas ao vivo (8 GB de RAM)
+#   IA=1                 IA local (Ollama em Docker, modelo qwen2.5:3b): rascunho da ata, perguntas sobre os
+#                        discursos e assistente do cidadão, sem mandar dados para fora (+4 GB de RAM)
 #   DOMINIO=sessao.suacamara.ma.leg.br   acesso também pela internet (vereadores em casa, sessão
 #                        híbrida): certificado Let's Encrypt gratuito e renovado sozinho. Antes, aponte o
 #                        domínio para o IP público da Câmara e encaminhe no roteador as portas TCP 80 e 443
@@ -118,6 +120,19 @@ if [ -n "${DOMINIO:-}" ]; then
   certbot certonly --webroot -w "$DADOS/acme" -d "$DOMINIO" --non-interactive --agree-tos "${CONTA[@]}" --deploy-hook "$GANCHO"
   sed -i '/^TLS_CERT=/d;/^TLS_KEY=/d;/^DOMINIO=/d' /etc/parlatorio.env
   { echo "DOMINIO=$DOMINIO"; echo "TLS_CERT=$DADOS/tls-publico/fullchain.pem"; echo "TLS_KEY=$DADOS/tls-publico/privkey.pem"; } >> /etc/parlatorio.env
+  systemctl restart parlatorio
+fi
+
+if [ "${IA:-0}" = "1" ]; then
+  apt-get install -y -q docker.io
+  systemctl enable --now docker
+  mkdir -p "$DADOS/ollama"
+  docker inspect ollama >/dev/null 2>&1 || docker run -d --name ollama --restart unless-stopped -e OLLAMA_KEEP_ALIVE=30m \
+    -p 127.0.0.1:11434:11434 -v "$DADOS/ollama:/root/.ollama" ollama/ollama
+  sleep 5
+  docker exec ollama ollama pull qwen2.5:3b
+  sed -i '/^IA=/d;/^OLLAMA_URL=/d;/^IA_MODELO=/d' /etc/parlatorio.env
+  { echo "IA=ollama"; echo "OLLAMA_URL=http://127.0.0.1:11434"; echo "IA_MODELO=qwen2.5:3b"; } >> /etc/parlatorio.env
   systemctl restart parlatorio
 fi
 

@@ -340,6 +340,20 @@
         <div class="cartao neutro"><h2>Gravações das falas</h2><div id="gravacoes"></div></div>
         <div class="cartao neutro"><h2>Ocorrências (cortes e congelamentos)<span class="esp"></span><button class="botao pq" onclick="csvOcorrencias()">CSV</button></h2><table class="tab" id="ocorrencias"></table></div>
       </div>
+      <div class="cartao" style="margin-top:16px" id="cartaoResumo">
+        <h2>Rascunho da ata por item da pauta<span class="esp"></span><select class="campo" id="rsSessao" style="width:auto" onchange="carregarResumo()"></select></h2>
+        <div id="rsCorpo"></div>
+      </div>
+      <div class="cartao neutro" style="margin-top:16px">
+        <h2>Vídeo da sessão (marcação por orador e votação)</h2>
+        <p class="detalhe" style="margin-top:0">Cole o link do vídeo (YouTube ou arquivo .mp4) e o horário em que ele começou. A página pública da sessão mostra o vídeo com um índice clicável: cada pronunciamento e cada votação vira um ponto do vídeo.</p>
+        <div style="display:grid;grid-template-columns:3fr 1fr auto;gap:10px;align-items:end">
+          <label class="rot">Link do vídeo<input class="campo" id="vdUrl" placeholder="https://www.youtube.com/watch?v=..."></label>
+          <label class="rot">Começou às<input class="campo" id="vdHora" type="time" step="1"></label>
+          <button class="botao principal" onclick="salvarVideo()">Salvar</button>
+        </div>
+        <div id="vdLink" class="detalhe" style="margin-top:8px"></div>
+      </div>
     </section>
 
     <!-- ===== SESSÕES ===== -->
@@ -510,5 +524,6 @@
 
 <script src="/comum.js"></script>
 <script src="/presidente.js"></script>
+<script src="/presidente2.js"></script>
 </body>
 </html>

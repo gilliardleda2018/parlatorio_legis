@@ -37,6 +37,10 @@
   .cartao-interr .rot { font-size: 2.2vh; color: var(--azul); font-weight: 800; letter-spacing: .1em; text-transform: uppercase }
   .cartao-interr .nm { font-size: 3.4vh; font-weight: 700 }
   .cartao-interr .t { font-size: 7vh; font-weight: 800; line-height: 1 }
+  .legenda { position: fixed; left: 50%; bottom: 12vh; transform: translateX(-50%); max-width: 86vw; background: rgba(0,0,0,.78);
+    color: #fff; font-size: 3.4vh; line-height: 1.35; padding: 1vh 2vh; border-radius: 1vh; text-align: center; z-index: 30;
+    transition: opacity .4s; opacity: 0 }
+  .legenda.on { opacity: 1 }
   .proximos { padding: 1.8vh 3vw; display: flex; gap: 2.4vw; align-items: center; font-size: 2.4vh; min-height: 9vh; background: color-mix(in srgb, var(--cartao) 80%, transparent); border-top: .4vh solid var(--destaque-suave) }
   .proximos .rot { color: var(--suave); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; white-space: nowrap }
   .proximos .it { display: flex; align-items: center; gap: 1vh; white-space: nowrap }
@@ -175,6 +179,20 @@ function relogios() {
 PL.aoMudar(desenhar);
 setInterval(relogios, 200);
 PL.conectar();
+</script>
+<div class="legenda" id="legenda" aria-live="polite"></div>
+<script>
+/* legendas ao vivo da sessão transmitida: as duas últimas falas reconhecidas, somem após 12 s de silêncio */
+(() => {
+  const caixa = document.getElementById('legenda'), linhas = [];
+  let apagar = null;
+  PL.aoLegenda(m => {
+    linhas.push(m.texto); while (linhas.length > 2) linhas.shift();
+    caixa.textContent = linhas.join(' ');
+    caixa.classList.add('on');
+    clearTimeout(apagar); apagar = setTimeout(() => caixa.classList.remove('on'), 12000);
+  });
+})();
 </script>
 </body>
 </html>

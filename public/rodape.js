@@ -67,6 +67,16 @@ const Rodape = (() => {
           <span><small>Desenvolvido por</small>Aggilli Intelligence</span><img src="/marca/logo.svg" alt="Aggilli Intelligence"></a>${contatos(a)}</div>
       </div><div class="fim"><span class="selo-legis" style="width:120px;margin-bottom:6px"><img class="legis-auto" src="/marca/legis-claro.webp" alt="LEGIS — Sistema de Gestão Parlamentar"></span><br>LEGIS · Sistema de Gestão Parlamentar</div>`;
     document.body.append(f);
+    if (r.vlibras !== false && !document.querySelector('[vw]')) {  // tradutor de Libras do gov.br (pode ser desligado no rodapé)
+      const w = document.createElement('div');
+      w.setAttribute('vw', ''); w.className = 'enabled';
+      w.innerHTML = '<div vw-access-button class="active"></div><div vw-plugin-wrapper><div class="vw-plugin-top-wrapper"></div></div>';
+      document.body.append(w);
+      const sc = document.createElement('script');
+      sc.src = 'https://vlibras.gov.br/app/vlibras-plugin.js';
+      sc.onload = () => { try { new window.VLibras.Widget('https://vlibras.gov.br/app'); } catch { } };
+      document.body.append(sc);
+    }
   }
   return { mostrar };
 })();

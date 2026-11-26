@@ -21,6 +21,9 @@
     el.innerHTML = `<h2>${esc(titulo)}</h2>
       <form class="disc-busca" role="search"><input class="campo" type="search" placeholder="Buscar nos discursos: saúde, estrada, escola…" aria-label="Buscar nos discursos">
       <button class="botao">Buscar</button></form>
+      <form class="disc-busca disc-perg" role="search"><input class="campo" placeholder="Ou pergunte: o que foi dito sobre a estrada do povoado?" aria-label="Pergunte sobre os discursos" maxlength="300">
+      <button class="botao">Perguntar</button></form>
+      <div class="disc-resp" aria-live="polite"></div>
       <div class="disc-lista" aria-live="polite"><p class="vazio">Carregando…</p></div>`;
     const campo = el.querySelector('input'), lista = el.querySelector('.disc-lista');
     let termos = [];
@@ -52,6 +55,18 @@
       b.remove();
     });
     el.querySelector('form').addEventListener('submit', ev => { ev.preventDefault(); buscar(); });
+    el.querySelector('.disc-perg').addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const campo = ev.target.querySelector('input'), resp = el.querySelector('.disc-resp');
+      if (campo.value.trim().length < 4) return;
+      resp.innerHTML = '<p class="detalhe">Procurando nos discursos…</p>';
+      const r = await fetch('/api/perguntar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pergunta: (pid ? 'Discursos deste parlamentar: ' : '') + campo.value, escopo: 'discursos' }) }).then(x => x.json()).catch(() => ({ erro: 'Sem conexão.' }));
+      if (r.erro) { resp.innerHTML = `<p class="detalhe">${esc(r.erro)}</p>`; return; }
+      const fontes = (r.fontes || []).map((f, k) => `<div class="disc-cab" style="margin-top:6px">[${k + 1}] <a href="${esc(f.link || '#')}">${esc(f.titulo)}</a> — <span class="suave">${esc(f.texto.slice(0, 220))}…</span></div>`).join('');
+      resp.innerHTML = `<div class="cartao neutro" style="margin:8px 0">${r.resposta ? `<p style="margin:0 0 6px">${esc(r.resposta)}</p>` : ''}${fontes}
+        ${r.modo === 'ia' ? '<small class="suave">Resposta automática a partir dos discursos publicados; confira nas fontes.</small>' : ''}</div>`;
+    });
     buscar();
   }
 

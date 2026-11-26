@@ -215,6 +215,27 @@ python3 scripts/dados_demo.py dados/demo.db
 PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 ```
 
+## Pacote de recursos inspirado nos melhores sistemas do mundo
+
+| Recurso | Onde | Inspiração |
+|---|---|---|
+| **Rascunho da ata por item da pauta** (pontos discutidos, encaminhamentos, resultado), revisado pela secretaria e incluído na ata em PDF | Painel → Relatórios | CivicPlus, PublicInput, ParlBrief (Canadá) |
+| **Legendas ao vivo** da sessão transmitida, no telão e na faixa "Ao vivo" | automático com a transcrição local | tradução ao vivo de Fresno (EUA) |
+| **Consulta pública artigo por artigo**, com apoio a sugestões e resposta da autoria (acatada, em parte, não acatada) | `/participe`; Painel → Projetos → Texto e consulta | Wikilegis/e-Democracia, Decidim, MAPLE |
+| **Perguntas sobre os discursos** ("o que foi dito sobre…?"), com as fontes citadas | Transparência e perfis | busca por perguntas do Hansard de Ontário |
+| **Vídeo da sessão com índice clicável** por orador e por votação | `/sessao/<id>`; Painel → Relatórios | vídeos com marcação de tempo (Granicus e similares) |
+| **Pauta e anexos no celular do vereador**, com o item em andamento e o resultado | app do vereador → Pauta | Bosch DICENTIS |
+| **Dados abertos** em JSON, CSV e **Akoma Ntoso 3.0** (projetos e debates) | `/dados` | Senado italiano, Parlamento Europeu, Senado brasileiro |
+| **Acessibilidade**: modo de alto contraste e letras grandes, voto confirmado por vibração, som e leitor de tela; tradutor de Libras (VLibras) nas páginas públicas | app do vereador (botão Aa); páginas públicas | Bosch (voto acessível) |
+| **Assistente do cidadão** ("Pergunte à Câmara"), respondendo com base nos registros públicos e mostrando as fontes | todas as páginas públicas | assistente virtual da Câmara dos Deputados |
+
+**IA:** o rascunho da ata, as perguntas e o assistente usam um modelo de linguagem escolhido pela variável `IA`:
+- `ollama` (recomendado): modelo aberto rodando no próprio servidor, sem custo e sem dados saindo da Câmara. Em Docker: `COMPOSE_PROFILES=ia` e `docker compose exec ollama ollama pull qwen2.5:3b`; no instalador Debian: `IA=1`.
+- `claude`: API da Anthropic pelo SDK oficial (`pip install anthropic`, modelo `claude-opus-5-5`). Os textos saem do servidor.
+- sem IA: cada recurso funciona em modo simples (rascunho com quem falou e o resultado; perguntas respondidas com os trechos encontrados).
+
+As respostas automáticas sempre mostram as fontes, e o rascunho da ata só vale depois de revisado.
+
 ## Publicar na internet
 
 Para rodar **dentro da Câmara** (on-premise, servidor Debian na rede do plenário, controlando a mesa de som), veja [deploy/local/README.md](deploy/local/README.md). Mesas suportadas: Behringer X32/M32, X Air, WING; Yamaha TF/DM3/DM7/QL/CL/Rivage; Allen & Heath Qu/dLive/Avantis/SQ; Soundcraft Ui; qualquer mesa OSC; Bitfocus Companion ou Node-RED por ponte HTTP; relés e centrais de conferência com URL por canal.

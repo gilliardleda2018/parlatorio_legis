@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sessão — LEGIS</title>
+<link rel="icon" type="image/png" href="/marca/legis-32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 48px }
+  .grade-video { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start }
+  .player { aspect-ratio: 16/9; background: #000; border-radius: 12px; overflow: hidden }
+  .player iframe, .player video { width: 100%; height: 100%; border: 0 }
+  .capitulos { max-height: 62vh; overflow: auto }
+  .capitulos button { display: flex; gap: 10px; width: 100%; text-align: left; background: none; border: 0; padding: 8px; border-radius: 8px; cursor: pointer; color: var(--texto) }
+  .capitulos button:hover { background: var(--cartao2) }
+  .capitulos .t { font-variant-numeric: tabular-nums; color: var(--suave); min-width: 64px }
+  @media (max-width: 860px) { .grade-video { grid-template-columns: 1fr } }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img id="logoNav" src="/marca/legis-icone.png" alt=""><span><span id="casaNav">Câmara Municipal</span><small>Sessão</small></span></a>
+  <span class="esp"></span>
+  <a class="item" href="/transparencia#sessoes">Sessões</a><a class="item" href="/participe">Participe</a><a class="item" href="/dados">Dados abertos</a>
+</div></nav>
+<main id="conteudo"><p class="vazio">Carregando…</p></main>
+<script src="/rodape.js"></script>
+<script src="/assistente.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const hora = ms => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const tempo = s => { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+const RES = { aprovada: ['sim', 'Aprovada'], rejeitada: ['nao', 'Rejeitada'], sem_quorum: ['nao', 'Sem quórum'], adiada: ['', 'Adiada'], retirada: ['', 'Retirada'] };
+let D = null;
+
+function youtube(url) {
+  const m = url.match(/(?:youtu\.be\/|v=|\/embed\/|\/live\/)([\w-]{11})/);
+  return m ? m[1] : null;
+}
+function irPara(seg) {
+  const v = D.video, yt = youtube(v.url);
+  if (yt) $('player').innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${yt}?start=${seg}&autoplay=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Vídeo da sessão"></iframe>`;
+  else { const el = $('player').querySelector('video'); el.currentTime = seg; el.play(); }
+}
+async function carregar() {
+  const sid = location.pathname.split('/').pop();
+  const r = await fetch('/api/sessao-publica/' + encodeURIComponent(sid));
+  if (!r.ok) { $('conteudo').innerHTML = '<p class="vazio">Sessão não encontrada.</p>'; return; }
+  D = await r.json();
+  $('casaNav').textContent = D.casa || 'Câmara Municipal';
+  document.title = `${D.titulo} — ${D.casa}`;
+  const v = D.video, yt = v && youtube(v.url);
+  const materia = id => D.pauta.find(m => m.id === id);
+  $('conteudo').innerHTML = `
+    <section class="cartao"><h2>${esc(D.titulo)}</h2>
+      <p class="detalhe" style="margin:0">${new Date(D.inicio).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+        · ${D.presentes}/${D.membros} presentes · ${D.falas.length} pronunciamento(s) · ${D.votacoes.length} votação(ões)
+        · <a href="/dados/akn/sessao/${D.id}.xml">registro em Akoma Ntoso</a></p></section>
+    ${v ? `<div class="grade-video" style="margin-top:16px">
+      <div class="player" id="player">${yt ? `<iframe src="https://www.youtube-nocookie.com/embed/${yt}" allow="encrypted-media; picture-in-picture" allowfullscreen title="Vídeo da sessão"></iframe>`
+        : `<video controls preload="metadata" src="${esc(v.url)}"></video>`}</div>
+      <section class="cartao neutro capitulos"><h2>Índice do vídeo</h2>
+        ${D.capitulos.length ? D.capitulos.map(c => `<button onclick="irPara(${c.tempo})"><span class="t">${tempo(c.tempo)}</span><span>${esc(c.rotulo)}</span></button>`).join('') : '<p class="vazio">Sem marcações.</p>'}
+      </section></div>` : ''}
+    <section class="cartao neutro" style="margin-top:16px"><h2>Pauta e votações</h2>
+      ${D.pauta.length ? '<table class="tab">' + D.pauta.map(m => {
+        const vt = D.votacoes.find(x => x.materia === m.id), [cor, rot] = RES[vt?.resultado || m.situacao] || ['', m.situacao];
+        const c = vt?.contagem;
+        return `<tr><td><b>${esc(m.numero)}</b><div style="font-size:13px">${esc(m.ementa)}</div><small class="suave">${esc(m.autor || '')}</small></td>
+          <td style="white-space:nowrap"><span class="chip ${cor}">${esc(rot)}</span>${c ? `<div class="suave" style="font-size:12px;margin-top:4px">${c.sim} sim · ${c.nao} não · ${c.abst} abst.</div>` : ''}</td></tr>`;
+      }).join('') + '</table>' : '<p class="vazio">Pauta não registrada.</p>'}</section>
+    <section class="cartao neutro" style="margin-top:16px"><h2>Pronunciamentos</h2>
+      ${D.falas.length ? '<table class="tab">' + D.falas.map(f => `<tr><td class="tnum">${hora(f.inicio)}</td>
+        <td><b>${esc(f.nome)}</b> <span class="suave">${esc(f.partido)}</span><div style="font-size:13px" class="suave">${esc(f.fase)}${f.materia && materia(f.materia) ? ' · ' + esc(materia(f.materia).numero) : ''}</div></td>
+        <td class="tnum">${tempo(f.usado)}</td>
+        <td>${f.audio ? `<audio controls preload="none" src="${f.audio}" style="height:32px;max-width:220px"></audio>` : ''}</td></tr>`).join('') + '</table>'
+        : '<p class="vazio">Nenhum pronunciamento registrado.</p>'}</section>`;
+  const t = await fetch('/api/transparencia').then(x => x.json()).catch(() => null);
+  if (t) Rodape.mostrar(t.rodape, t.casa);
+}
+carregar();
+</script>
+</body>
+</html>

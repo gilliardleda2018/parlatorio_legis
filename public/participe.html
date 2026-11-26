@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Participe — LEGIS</title>
+<meta name="description" content="Consulta pública dos projetos de lei: comente cada artigo e acompanhe a resposta da Câmara.">
+<link rel="icon" type="image/png" href="/marca/legis-32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px }
+  .consulta-lista a { display: block; text-decoration: none; padding: 12px; border-radius: 10px; background: var(--cartao2); margin-bottom: 8px }
+  .consulta-lista a:hover, .consulta-lista a.ativa { outline: 2px solid var(--destaque-suave) }
+  .artigo { border-left: 3px solid var(--linha); padding: 10px 0 10px 14px; margin: 14px 0 }
+  .artigo .txt { white-space: pre-wrap; line-height: 1.55 }
+  .contrib { background: var(--cartao2); border-radius: 10px; padding: 10px 12px; margin-top: 8px; font-size: 14px }
+  .contrib .resp { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--destaque) 14%, transparent) }
+  .form-contrib { display: grid; gap: 8px; margin-top: 8px }
+  .form-contrib .linha2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+  .isca { position: absolute; left: -9999px }
+  @media (max-width: 640px) { .form-contrib .linha2 { grid-template-columns: 1fr } }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img id="logoNav" src="/marca/legis-icone.png" alt=""><span><span id="casaNav">Câmara Municipal</span><small>Participe</small></span></a>
+  <span class="esp"></span>
+  <a class="item" href="/transparencia">Transparência</a><a class="item" href="/parlamentares">Parlamentares</a><a class="item ativo" href="/participe">Participe</a><a class="item" href="/dados">Dados abertos</a>
+</div></nav>
+<main>
+  <section class="cartao">
+    <h2>Consulta pública</h2>
+    <p class="detalhe" style="margin-top:0">Leia o texto de cada projeto, comente o artigo que quiser e apoie as sugestões de outras pessoas. A autoria do projeto ou a Mesa Diretora responde cada contribuição dizendo se ela foi acatada.</p>
+    <div class="consulta-lista" id="lista"><p class="vazio">Carregando…</p></div>
+  </section>
+  <section class="cartao neutro oculto" id="detalhe" style="margin-top:16px"></section>
+</main>
+<script src="/rodape.js"></script>
+<script src="/aovivo.js"></script>
+<script src="/assistente.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const data = ms => new Date(ms).toLocaleDateString('pt-BR');
+const token = localStorage.getItem('parlatorio.token.presidente') || localStorage.getItem('parlatorio.token.parlamentar') || '';
+const cab = token ? { Authorization: 'Bearer ' + token } : {};
+let L = null, D = null;
+
+async function carregar() {
+  L = await fetch('/api/consultas').then(r => r.json());
+  $('casaNav').textContent = L.casa;
+  document.title = `Participe — ${L.casa}`;
+  $('lista').innerHTML = L.consultas.length ? L.consultas.map(c => `<a href="#${c.id}" data-id="${c.id}">
+      <span class="chip ${c.aberta ? 'sim' : ''}" style="float:right">${c.aberta ? 'aberta' : 'encerrada'}</span>
+      <b>${esc(c.numero)}</b> <span class="suave">· ${esc(c.autor || '')}</span><div style="font-size:14px;margin-top:4px">${esc(c.ementa)}</div>
+      <small class="suave">${c.contribuicoes} contribuição(ões)${c.consulta?.prazo ? ' · até ' + data(c.consulta.prazo) : ''}</small></a>`).join('')
+    : '<p class="vazio">Nenhum projeto em consulta pública no momento.</p>';
+  const t = await fetch('/api/transparencia').then(r => r.json()).catch(() => null);
+  if (t) Rodape.mostrar(t.rodape, t.casa);
+  if (location.hash.length > 1) abrir(location.hash.slice(1));
+}
+addEventListener('hashchange', () => abrir(location.hash.slice(1)));
+
+async function abrir(id) {
+  const r = await fetch('/api/consulta/' + encodeURIComponent(id), { headers: cab });
+  if (!r.ok) { $('detalhe').classList.remove('oculto'); $('detalhe').innerHTML = '<p class="vazio">Este projeto não tem consulta pública.</p>'; return; }
+  D = await r.json();
+  document.querySelectorAll('#lista a').forEach(a => a.classList.toggle('ativa', a.dataset.id === id));
+  desenhar();
+  $('detalhe').scrollIntoView({ behavior: 'smooth' });
+}
+
+function contribuicoes(chave) {
+  const lista = D.comentarios.filter(c => c.artigo === chave).sort((a, b) => b.apoios - a.apoios || a.criado - b.criado);
+  return lista.map(c => `<div class="contrib" ${c.oculto ? 'style="opacity:.5"' : ''}>
+      <b>${esc(c.nome)}</b>${c.bairro ? ' · ' + esc(c.bairro) : ''} <span class="suave">· ${data(c.criado)}</span>
+      <div style="white-space:pre-wrap;margin:4px 0">${esc(c.texto)}</div>
+      <button class="botao pq fantasma" onclick="apoiar('${c.id}', this)" aria-label="Apoiar esta contribuição">👍 Apoiar (${c.apoios})</button>
+      ${c.resposta ? `<div class="resp"><span class="chip ${c.resposta.situacao === 'acatada' ? 'sim' : c.resposta.situacao === 'nao_acatada' ? 'nao' : 'ambar'}">${esc(D.situacoes[c.resposta.situacao])}</span>
+        <b>${esc(c.resposta.autor)}</b>: ${esc(c.resposta.texto)}</div>` : ''}
+      ${D.podeResponder ? `<div class="grupo" style="margin-top:8px"><select class="campo" style="width:auto">${Object.entries(D.situacoes).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+        <input class="campo" placeholder="Resposta ao cidadão" style="flex:1;min-width:160px"><button class="botao pq" onclick="responder(this,'${c.id}')">Responder</button></div>` : ''}
+    </div>`).join('');
+}
+function formulario(chave) {
+  if (!D.projeto.aberta) return '';
+  return `<details><summary class="botao pq" style="display:inline-flex;cursor:pointer;margin-top:8px">Comentar ${chave === 'geral' ? 'o projeto' : 'este artigo'}</summary>
+    <form class="form-contrib" onsubmit="event.preventDefault(); comentar(this, '${chave}')">
+      <div class="linha2"><input class="campo" name="nome" placeholder="Seu nome" required minlength="3" maxlength="80" autocomplete="name">
+        <input class="campo" name="bairro" placeholder="Bairro ou povoado (opcional)" maxlength="60"></div>
+      <textarea class="campo" name="texto" rows="3" placeholder="Sua sugestão ou comentário" required minlength="10" maxlength="2000"></textarea>
+      <input class="campo" name="email" type="email" placeholder="E-mail para saber da resposta (opcional, não é publicado)" maxlength="120" autocomplete="email">
+      <input class="isca" name="site" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button class="botao principal">Enviar contribuição</button></form></details>`;
+}
+function desenhar() {
+  const p = D.projeto;
+  $('detalhe').classList.remove('oculto');
+  $('detalhe').innerHTML = `<h2>${esc(p.numero)}<span class="esp"></span><span class="chip ${p.aberta ? 'sim' : ''}">${p.aberta ? 'consulta aberta' : 'consulta encerrada'}</span></h2>
+    <p style="margin-top:0">${esc(p.ementa)}</p>
+    <p class="detalhe">Autoria: ${esc(p.autor || '—')}${p.consulta?.prazo ? ` · contribuições até ${data(p.consulta.prazo)}` : ''}
+      · <a href="/dados/akn/projeto/${p.id}.xml">texto em Akoma Ntoso</a>${p.anexo ? ` · <a href="/anexo/${p.id}.pdf?v=${p.anexo.v}" target="_blank" rel="noopener">📄 ${esc(p.anexo.nome)}</a>` : ''}</p>
+    ${D.artigos.map(a => `<div class="artigo" id="art-${a.chave}"><div class="txt">${esc(a.texto)}</div>${contribuicoes(a.chave)}${formulario(a.chave)}</div>`).join('')}
+    <div class="artigo"><b>Comentários gerais sobre o projeto</b>${contribuicoes('geral')}${formulario('geral')}</div>`;
+}
+async function comentar(form, artigo) {
+  const corpo = Object.fromEntries(new FormData(form)); corpo.artigo = artigo;
+  const r = await fetch(`/api/consulta/${D.projeto.id}/comentar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.erro || 'Não foi possível enviar.');
+  alert('Obrigado! Sua contribuição foi publicada. A resposta da Câmara aparecerá aqui.');
+  abrir(D.projeto.id);
+}
+async function apoiar(id, botao) {
+  const r = await fetch('/api/consulta/apoiar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+  const j = await r.json().catch(() => ({}));
+  if (r.ok) botao.textContent = `👍 Apoiado (${j.apoios})`;
+}
+async function responder(botao, comentario) {
+  const linha = botao.parentElement;
+  const r = await fetch('/api/acao', { method: 'POST', headers: { 'Content-Type': 'application/json', ...cab },
+    body: JSON.stringify({ nome: 'consultaResponder', args: { comentario, situacao: linha.querySelector('select').value, texto: linha.querySelector('input').value } }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.erro || 'Não foi possível responder.');
+  abrir(D.projeto.id);
+}
+carregar();
+</script>
+</body>
+</html>

@@ -398,6 +398,22 @@ def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = N
                      _dur(((g.get("fim") or g["ultimo"]) - g["criado"]) / 1000)] for g in reversed(gravs)])
         pdf.paragrafo("Os arquivos de áudio ficam arquivados no servidor do Parlatório Legis.", 8.5, False, CINZA)
 
+    # resumo dos trabalhos (rascunho por IA, revisado pela secretaria)
+    itens_resumo = [i for i in (r.get("resumoIA") or {}).get("itens", []) if (i.get("texto") or "").strip()]
+    if itens_resumo:
+        n += 1
+        pdf.secao(n, "Resumo dos trabalhos")
+        if any(not i.get("revisado") for i in itens_resumo):
+            pdf.paragrafo("Itens marcados como rascunho foram redigidos automaticamente a partir das transcrições e "
+                          "ainda não foram revisados pela secretaria.", 8.5, False, CINZA)
+        for i in itens_resumo:
+            pdf.garantir(50)
+            pdf.espaco(4)
+            pdf.paragrafo(i["titulo"], 10, True)
+            if not i.get("revisado"):
+                pdf.paragrafo("Rascunho automático, não revisado.", 8.5, False, CINZA)
+            pdf.paragrafo(i["texto"], 9.5, False, ESCURO, recuo=10)
+
     # 7. íntegra dos pronunciamentos (transcrição)
     transcritas = [g for g in reversed(gravs) if ((g.get("transcricao") or {}).get("texto") or "").strip()]
     if transcritas:

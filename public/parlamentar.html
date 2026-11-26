@@ -33,7 +33,7 @@
   .login img { width: 90px; margin: 10px auto 0 }
   .pin { font-size: 28px; letter-spacing: .4em; text-align: center }
   .status { font-size: 15px; display: flex; flex-direction: column; gap: 4px }
-  .segmento { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: var(--cartao); padding: 4px; border-radius: 12px; position: sticky; top: 62px; z-index: 5 }
+  .segmento { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; background: var(--cartao); padding: 4px; border-radius: 12px; position: sticky; top: 62px; z-index: 5 }
   .segmento button { border: 0; background: none; padding: 10px 4px; border-radius: 9px; font-weight: 600; font-size: 14px; cursor: pointer; color: var(--suave) }
   .segmento button.ativo { background: var(--destaque-suave); color: #fff }
   .coluna { display: flex; flex-direction: column; gap: 14px }
@@ -51,6 +51,15 @@
   .afinidade b { font-size: 20px; font-variant-numeric: tabular-nums }
   dialog { background: var(--cartao); color: var(--texto); border: 0; border-top: 4px solid var(--destaque-suave); border-radius: var(--raio); padding: 16px; width: min(500px, 94vw) }
   dialog::backdrop { background: rgba(0,0,0,.6) }
+  /* modo acessível: letras maiores e contraste alto (preferência guardada no aparelho) */
+  html.acessivel { font-size: 118% }
+  html.acessivel body { --fundo: #000; --cartao: #0b0b0b; --cartao2: #1c1c1c; --texto: #fff; --suave: #e8e8e8; --linha: #8a8a8a; background: #000 }
+  html.acessivel .botao { min-height: 52px; font-size: 1.05rem; border: 2px solid #fff }
+  html.acessivel .chip { font-size: 13px; border: 1px solid currentColor }
+  html.acessivel .cartao { border: 1px solid #8a8a8a }
+  .pauta-item { border-left: 4px solid var(--linha) }
+  .pauta-item.atual { border-left-color: var(--destaque); box-shadow: 0 0 0 2px var(--destaque-suave) }
+  .so-leitor { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0) }
 </style>
 </head>
 <body>
@@ -76,7 +85,9 @@
     <button data-aba="ideias" role="tab">Ideias de projetos</button>
     <button data-aba="virtual" role="tab">Virtual <span id="bolhaVirtual"></span></button>
     <button data-aba="minhas" role="tab">Minhas propostas</button>
+    <button data-aba="pauta" role="tab">Pauta</button>
   </div>
+  <div id="anuncio" class="so-leitor" aria-live="assertive"></div>
   <div id="videoCartao" class="cartao oculto" style="padding:10px">
     <div class="grupo" style="justify-content:space-between;align-items:center;margin-bottom:8px">
       <b>Sessão remota</b><span id="videoMic"></span><button class="botao pq fantasma" onclick="sairVideo()">Sair do vídeo</button></div>
@@ -129,6 +140,7 @@ function desenhar() {
 
   let html = `<div class="cartao"><div class="eu">${avatar(p)}<div class="nm"><b>${esc(p.nome)}</b>${sigla(p.partido)}</div>
     <button class="botao pq fantasma" onclick="PL.exigirTrocaPin('parlamentar', true)" title="Trocar meu PIN">🔑 Trocar PIN</button>
+    <button class="botao pq fantasma" onclick="alternarAcessivel()" aria-pressed="${document.documentElement.classList.contains('acessivel')}" title="Letras maiores e contraste alto">Aa</button>
     <button class="botao pq fantasma" onclick="PL.sair('parlamentar').then(()=>location.reload())">Sair</button></div>
     <div class="status" style="margin-top:12px">
       <div class="grupo">${PL.micChip(eu.pid)}${S.congelado ? '<span class="chip interr"><span class="ponto"></span>Sessão congelada</span>' : ''}</div>
@@ -264,10 +276,11 @@ let aba = 'plenario', R = null, revCarregada = null, escopo = '';
 document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
   aba = b.dataset.aba;
   document.querySelectorAll('[data-aba]').forEach(x => x.classList.toggle('ativo', x === b));
-  if (aba === 'plenario') desenhar(); else if (aba === 'virtual') desenharVirtualParl(); else carregarIdeias();
+  if (aba === 'plenario') desenhar(); else if (aba === 'virtual') desenharVirtualParl(); else if (aba === 'pauta') desenharPauta(); else carregarIdeias();
   scrollTo(0, 0);
 });
 PL.aoMudar(S => { if (eu && ['ideias', 'minhas'].includes(aba) && S.projetosRev !== revCarregada) carregarIdeias(); });
+PL.aoMudar(() => { if (eu && aba === 'pauta') desenharPauta(); });
 async function carregarIdeias() {
   revCarregada = PL.estado?.projetosRev;
   const r = await fetch('/api/recomendacoes', { headers: { Authorization: 'Bearer ' + PL.token('parlamentar') } });
@@ -363,7 +376,49 @@ function desenharMinhas() {
 function votar(x) {
   const v = PL.estado.votacao;
   if (v.tipo === 'secreta' && !confirm(`Confirmar voto “${PL.VOTOS[x]}”? Na votação secreta não é possível alterar.`)) return;
-  A('votar', { valor: x });
+  PL.acao('parlamentar', 'votar', { valor: x }).then(() => confirmarVoto(PL.VOTOS[x])).catch(() => {});
+}
+/* retorno do voto para quem não enxerga a tela: vibração, som e leitor de tela */
+function confirmarVoto(rotulo) {
+  navigator.vibrate?.([80, 60, 80]);
+  try {
+    const ctx = new AudioContext(), o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = 880; g.gain.value = 0.15; o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.18); setTimeout(() => ctx.close(), 400);
+  } catch { }
+  $('anuncio').textContent = '';
+  setTimeout(() => { $('anuncio').textContent = `Voto ${rotulo} registrado.`; }, 50);
+  PL.avisar(`Voto “${rotulo}” registrado.`);
+}
+function alternarAcessivel() {
+  const ligado = document.documentElement.classList.toggle('acessivel');
+  localStorage.setItem('parlatorio.acessivel', ligado ? '1' : '');
+  desenhar();
+}
+if (localStorage.getItem('parlatorio.acessivel')) document.documentElement.classList.add('acessivel');
+
+/* ---------------- pauta da sessão no celular ---------------- */
+const SIT_PAUTA = { pendente: ['', 'Aguardando'], em_discussao: ['ambar', 'Em discussão'], em_votacao: ['ambar', 'Em votação'],
+  aprovada: ['sim', 'Aprovada'], rejeitada: ['nao', 'Rejeitada'], adiada: ['', 'Adiada'], retirada: ['', 'Retirada'], sem_quorum: ['nao', 'Sem quórum'] };
+function desenharPauta() {
+  const S = PL.estado;
+  if (aba !== 'pauta') return;
+  const votos = Object.fromEntries(S.votacoes.map(v => [v.materia, v]));
+  $('conteudoApp').innerHTML = `<div class="cartao neutro"><b>${esc(S.casa.titulo)}</b> · ${S.pauta.length} matéria(s) na pauta</div>` +
+    (S.pauta.length ? S.pauta.map((m, k) => {
+      const [cor, rot] = SIT_PAUTA[m.situacao] || ['', m.situacao];
+      const v = votos[m.id], c = v?.contagem;
+      return `<div class="cartao pauta-item ${S.materiaAtual === m.id ? 'atual' : ''}">
+        <div class="grupo" style="justify-content:space-between;align-items:center"><b>${k + 1}. ${esc(m.numero)}</b>
+          <span class="chip ${cor}">${S.materiaAtual === m.id ? 'Agora · ' : ''}${rot}</span></div>
+        <p style="margin:8px 0">${esc(m.ementa)}</p>
+        ${m.autor ? `<p class="detalhe" style="margin:0">Autoria: ${esc(m.autor)}</p>` : ''}
+        ${v && v.resultado ? `<p class="detalhe" style="margin:6px 0 0">Resultado: <b>${esc(SIT_PAUTA[v.resultado]?.[1] || v.resultado)}</b>${c ? ` — ${c.sim} sim, ${c.nao} não, ${c.abst} abstenções` : ''}</p>` : ''}
+        <div class="grupo" style="margin-top:8px">
+          ${m.anexo ? `<a class="botao pq" href="/anexo/${m.id}.pdf?v=${m.anexo.v}" target="_blank" rel="noopener">📄 ${esc(m.anexo.nome)}</a>` : ''}
+          <a class="botao pq fantasma" href="/participe#${m.id}" target="_blank" rel="noopener">Texto e contribuições</a></div>
+      </div>`;
+    }).join('') : '<div class="cartao neutro"><p class="vazio" style="margin:0">Nenhuma matéria na pauta.</p></div>');
 }
 function relogios() {
   const S = PL.estado; if (!S) return;

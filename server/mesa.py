@@ -142,7 +142,10 @@ class Mesa:
         except Exception as e:  # rede fora, host errado, ponte desligada
             self.status.update(ok=False, erro=f"{type(e).__name__}: {e}"[:200])
         if motivo != "reenvio" or (self.status["ok"], self.status["erro"]) != antes:
-            self.aviso()
+            try:
+                self.aviso()
+            except Exception:  # avisar as telas nunca pode derrubar o controle dos microfones
+                pass
 
 
 # ---------------------------------------------------------------- protocolos

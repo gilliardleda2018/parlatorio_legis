@@ -4,6 +4,7 @@ const PL = (() => {
   let desvio = 0;            // relógio do servidor − relógio local (ms)
   let ultimoSinal = null;
   const ouvintes = [];
+  const ouvintesLegenda = [];
   const tokenChave = papel => 'parlatorio.token.' + papel;
 
   /* ----- conexão (SSE) ----- */
@@ -15,6 +16,7 @@ const PL = (() => {
     fonte.onmessage = e => {
       const m = JSON.parse(e.data);
       desvio = m.agora - Date.now();
+      if (m.tipo === 'legenda') { ouvintesLegenda.forEach(f => f(m)); return; }
       if (m.tipo !== 'estado') return;
       const primeira = !estado;
       estado = m.estado;
@@ -273,6 +275,7 @@ const PL = (() => {
     exigirTrocaPin, pedirPin, esquecerPin,
     get estado() { return estado; },
     aoMudar: f => ouvintes.push(f),
+    aoLegenda: f => ouvintesLegenda.push(f),
     aoSinal: null
   };
 })();

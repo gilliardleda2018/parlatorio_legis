@@ -42,6 +42,12 @@ import seguranca
 import backup as backup_mod
 import transcricao
 import transmissao
+import akn
+import conhecimento
+import ia
+import legendas as legendas_mod
+import participacao
+import resumo as resumo_mod
 from texto import _sem_acento
 from mesa import CFG_PADRAO, DRIVERS as DRIVERS_MESA, PRESETS, Mesa
 
@@ -261,6 +267,8 @@ def NOVOS_CAMPOS() -> dict:
         "_pinPresidente": None,   # hash do PIN do painel depois da primeira troca
         "backup": {"ultimo": None, "arquivo": None, "tamanho": 0, "nextcloud": None, "erro": None, "emAndamento": False},
         "mesa": dict(CFG_PADRAO),
+        "_resumoAtual": None,    # rascunho da ata por IA da sessão em andamento (só o presidente vê)
+        "resumoJob": None,       # andamento da geração do rascunho
         # transmissão ao vivo para Icecast/AzuraCast: o público vê só o endereço para ouvir
         "transmissao": {"configurada": False, "publico": "", "nome": ""},
         "_transmissao": {"preset": "azuracast", "host": "", "porta": 8005, "mount": "/", "usuario": "", "senha": "",
@@ -898,7 +906,8 @@ def pautaIncluir(ator, id):
         raise Erro("Já está na pauta.")
     if p["situacao"] in ("aprovada", "rejeitada"):
         raise Erro("Projeto já votado.")
-    S["pauta"].append({"id": id, "numero": p["numero"], "ementa": p["ementa"], "autor": p["autor"], "situacao": "pendente"})
+    S["pauta"].append({"id": id, "numero": p["numero"], "ementa": p["ementa"], "autor": p["autor"], "situacao": "pendente",
+                       **({"anexo": p["anexo"]} if p.get("anexo") else {})})
     p["situacao"] = "em_pauta"
     proj_salvar(p)
     S["projetosRev"] += 1
@@ -1736,6 +1745,7 @@ def retrato(fim=None) -> dict:
         "parls": [{k: p.get(k) for k in ("id", "nome", "partido", "lider")} for p in S["parls"]],
         "presenca": S["presenca"], "pauta": S["pauta"], "hist": S["hist"], "votacoes": S["votacoes"],
         "ocorrencias": S["ocorrencias"], "gravacoes": grav_da_sessao(S["sessao"]["id"]),
+        "resumoIA": S.get("_resumoAtual"), "video": S["sessao"].get("video"),
     }
     return json.loads(json.dumps(r))
 
@@ -1763,7 +1773,7 @@ def sessaoEncerrar(ator, proximoTitulo, manterPauta=True):
                    if m["situacao"] in ("pendente", "em_discussao", "em_votacao", "adiada")] if manterPauta else []
     S.update(filas={}, orador=None, interr=None, pedidos=[], hist=[], presenca={}, votacao=None, votacoes=[],
              micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[], pauta=nao_votadas, materiaAtual=None,
-             sessao={"id": secrets.token_hex(8), "inicio": agora()})
+             sessao={"id": secrets.token_hex(8), "inicio": agora()}, _resumoAtual=None, resumoJob=None)
     seguem = {m["id"] for m in nao_votadas}  # continuam na pauta da próxima sessão
     for m in r["pauta"]:  # histórico no banco de projetos
         p = proj_obter(m["id"])
@@ -1898,7 +1908,9 @@ def pacote() -> str:
     pub["mesaPresets"] = PRESETS
     pub["gravacoes"] = [grav_publica(g) for g in grav_da_sessao(S["sessao"]["id"])]
     pub["transcricaoMotor"] = transcritor.descricao()
-    pub["transmissaoStatus"] = transmissor.status()
+    pub["transmissaoStatus"] = transmissor.status() if "transmissor" in globals() else {"ativa": False}
+    pub["iaMotor"] = ia.descricao()
+    pub["legendasLigadas"] = bool(getattr(globals().get("legendador"), "ligado", False))  # a mesa avisa antes de tudo carregar
     pub["portaHttps"] = PORTA_HTTPS if HTTPS_ATIVO else None
     pub["virtuais"] = [{**v, "status": _status_virtual(v)} for v in S["virtuais"][:20]]
     return json.dumps({"tipo": "estado", "agora": agora(), "estado": pub}, ensure_ascii=False)
@@ -2196,6 +2208,310 @@ def ao_vivo() -> dict:
             "desde": transmissor.desde if transmissor.ativa else None}
 
 
+# ---------------------------------------------------------------- pacote 2026: IA, legendas, participação, vídeo, dados abertos
+participacao.criar_tabela(db)
+
+
+# --- ata por IA (rascunho por item da pauta; nunca é público antes de revisado na ata)
+def _ler_resumo(sessao: str) -> dict | None:
+    if sessao == "atual":
+        return S.get("_resumoAtual")
+    r = sessao_arquivada(sessao) if str(sessao).isalnum() else None
+    return (r or {}).get("resumoIA")
+
+
+def _guardar_resumo(sessao: str, res: dict):
+    if sessao == "atual":
+        S["_resumoAtual"] = res
+        return
+    linha = db.execute("select json from sessoes where id = ?", (sessao,)).fetchone()
+    if linha:
+        r = json.loads(linha[0])
+        r["resumoIA"] = res
+        db.execute("update sessoes set json = ? where id = ?", (json.dumps(r, ensure_ascii=False), sessao))
+        db.commit()
+
+
+def _rodar_resumo(sessao: str, r: dict, casa: str):
+    def avancar(n, total):
+        with trava:
+            S["resumoJob"].update(feitos=n, total=total)
+            confirmar()
+    try:
+        res, erro = resumo_mod.gerar(r, casa, avancar), None
+    except Exception as e:  # o rascunho é auxiliar: falha vira aviso no painel
+        res, erro = None, (str(e) or e.__class__.__name__)[:200]
+    with trava:
+        if res:
+            _guardar_resumo(sessao, res)
+        S["resumoJob"].update(fim=agora(), erro=erro)
+        confirmar()
+
+
+@acao("presidente")
+def ataResumoGerar(ator, sessao="atual"):
+    job = S.get("resumoJob")
+    if job and not job.get("fim"):
+        raise Erro("Já estou gerando um resumo; aguarde terminar.")
+    r = retrato() if sessao == "atual" else (sessao_arquivada(sessao) if str(sessao).isalnum() else None)
+    if not r:
+        raise Erro("Sessão não encontrada.")
+    if not resumo_mod.blocos(r):
+        raise Erro("Ainda não há falas nem votações registradas nesta sessão.")
+    S["resumoJob"] = {"sessao": sessao, "inicio": agora(), "fim": None, "feitos": 0, "total": len(resumo_mod.blocos(r)),
+                      "erro": None, "motor": ia.descricao()}
+    threading.Thread(target=_rodar_resumo, args=(sessao, r, S["casa"]["nome"]), daemon=True).start()
+
+
+@acao("presidente")
+def ataResumoEditar(ator, sessao, chave, texto=None, revisado=None):
+    res = _ler_resumo(sessao)
+    item = next((i for i in (res or {}).get("itens", []) if i["chave"] == chave), None)
+    if not item:
+        raise Erro("Item do resumo não encontrado.")
+    if texto is not None:
+        texto = str(texto).strip()
+        if len(texto) > 20000:
+            raise Erro("Texto grande demais.")
+        item["texto"] = texto
+    if revisado is not None:
+        item["revisado"] = bool(revisado)
+    _guardar_resumo(sessao, res)
+
+
+# --- legendas ao vivo
+def _ao_legenda(item: dict):
+    transmitir(json.dumps({"tipo": "legenda", "agora": agora(), **item}, ensure_ascii=False))
+
+
+legendador = legendas_mod.Legendador(transmissor, transcritor.cmd[0] if transcritor.nome == "local" else None, _ao_legenda)
+
+
+# --- participação cidadã (consulta pública artigo por artigo)
+@acao("presidente")
+def projetoTexto(ator, id, texto):
+    p = proj_obter(id)
+    if not p:
+        raise Erro("Projeto não encontrado.")
+    texto = str(texto or "").replace("\r", "").strip()
+    if len(texto) > 200_000:
+        raise Erro("Texto grande demais.")
+    p["texto"] = texto
+    proj_salvar(p)
+    S["projetosRev"] += 1
+
+
+@acao("presidente")
+def consultaAbrir(ator, id, aberta=True, prazo=None):
+    p = proj_obter(id)
+    if not p:
+        raise Erro("Projeto não encontrado.")
+    if aberta and not participacao.artigos(p.get("texto", "")):
+        raise Erro("Cadastre o texto do projeto (com os artigos) antes de abrir a consulta.")
+    if p["situacao"] == "proposta":
+        raise Erro("Protocole o projeto antes de abrir a consulta pública.")
+    try:
+        prazo = int(prazo) if prazo else None
+    except (TypeError, ValueError):
+        raise Erro("Prazo inválido.")
+    p["consulta"] = {"aberta": bool(aberta), "prazo": prazo, "desde": (p.get("consulta") or {}).get("desde") or agora()}
+    proj_salvar(p)
+    S["projetosRev"] += 1
+
+
+def _consulta_aberta(p: dict) -> bool:
+    c = p.get("consulta") or {}
+    return bool(c.get("aberta")) and (not c.get("prazo") or agora() < c["prazo"])
+
+
+@acao("presidente", "parlamentar")
+def consultaResponder(ator, comentario, texto, situacao):
+    c = participacao.obter(db, comentario)
+    if not c:
+        raise Erro("Comentário não encontrado.")
+    p = proj_obter(c["projeto"]) or {}
+    if ator["papel"] == "parlamentar":
+        nome = parl(ator["pid"])["nome"]
+        if (p.get("autor") or "").strip().lower() != nome.strip().lower():
+            raise Erro("Só a autoria do projeto ou a presidência respondem às contribuições.")
+        autor = nome
+    else:
+        autor = "Presidência"
+    try:
+        participacao.responder(db, comentario, texto, situacao, autor)
+    except (ValueError, LookupError) as e:
+        raise Erro(str(e))
+    S["projetosRev"] += 1
+
+
+@acao("presidente")
+def consultaOcultar(ator, comentario, oculto=True):
+    try:
+        participacao.ocultar(db, comentario, oculto)
+    except LookupError as e:
+        raise Erro(str(e))
+    S["projetosRev"] += 1
+
+
+# --- vídeo da sessão com marcação por orador e por item
+def _validar_video(url: str) -> str:
+    url = str(url or "").strip()
+    if url and not re.fullmatch(r"https://[^\s<>\"']{8,400}", url):
+        raise Erro("Informe o endereço do vídeo começando com https://")
+    return url
+
+
+@acao("presidente")
+def sessaoVideo(ator, sessao="atual", url="", inicio=None):
+    url = _validar_video(url)
+    try:
+        inicio = int(inicio) if inicio else None
+    except (TypeError, ValueError):
+        raise Erro("Horário de início do vídeo inválido.")
+    video = {"url": url, "inicio": inicio} if url else None
+    if sessao == "atual":
+        S["sessao"]["video"] = video
+        return
+    linha = db.execute("select json from sessoes where id = ?", (sessao,)).fetchone() if str(sessao).isalnum() else None
+    if not linha:
+        raise Erro("Sessão não encontrada.")
+    r = json.loads(linha[0])
+    r["video"] = video
+    db.execute("update sessoes set json = ? where id = ?", (json.dumps(r, ensure_ascii=False), sessao))
+    db.commit()
+
+
+def sessao_publica(r: dict) -> dict:
+    """Só dados públicos: pauta, falas (com áudio e transcrição publicada), votações e capítulos do vídeo."""
+    grav = {}
+    for g in r.get("gravacoes") or []:
+        t = g.get("transcricao") or {}
+        grav.setdefault((g["pid"], g["inicio"]), {"audio": f"/gravacao/{g['id']}.{g['ext']}",
+                                                  "transcricao": g["id"] if t.get("publicada") else None})
+    video = r.get("video") or None
+    base = (video or {}).get("inicio")
+    capitulos = []
+    falas = []
+    for h in sorted(r.get("hist") or [], key=lambda h: h["inicio"]):
+        extra = grav.get((h["pid"], h["inicio"])) or next((v for (pid, ini), v in grav.items()
+                                                           if pid == h["pid"] and abs(ini - h["inicio"]) < 15000), {})
+        falas.append({"nome": h["nome"], "partido": h["partido"], "fase": h.get("faseNome", ""), "inicio": h["inicio"],
+                      "usado": h.get("usado"), "materia": h.get("materia"), **extra})
+        if base:
+            capitulos.append({"tempo": max(0, round((h["inicio"] - base) / 1000)), "rotulo": f"{h['nome']} — {h.get('faseNome', '')}"})
+    votacoes = [{k: v.get(k) for k in ("materia", "numero", "ementa", "tipo", "quorum", "resultado", "contagem", "inicio", "fim")}
+                | {"votos": v.get("votos") if v.get("tipo") == "nominal" else None} for v in r.get("votacoes") or []]
+    if base:
+        capitulos += [{"tempo": max(0, round(((v.get("inicio") or base) - base) / 1000)), "rotulo": f"Votação: {v['numero']}"}
+                      for v in votacoes]
+        capitulos.sort(key=lambda c: c["tempo"])
+    nomes = {p["id"]: p["nome"] for p in r.get("parls") or []}
+    return {"id": r["id"], "titulo": r.get("titulo"), "casa": r.get("casa"), "inicio": r.get("inicio"), "fim": r.get("fim"),
+            "video": video, "capitulos": capitulos, "falas": falas, "votacoes": votacoes, "nomes": nomes,
+            "pauta": [{k: m.get(k) for k in ("id", "numero", "ementa", "autor", "situacao")} for m in r.get("pauta") or []],
+            "presentes": len(r.get("presenca") or {}), "membros": len(r.get("parls") or [])}
+
+
+# --- anexos das matérias (PDF), vistos no celular dos vereadores e no público
+@acao("presidente")
+def materiaAnexo(ator, id, nome="", dataUrl=""):
+    p = proj_obter(id)
+    if not p:
+        raise Erro("Matéria não encontrada.")
+    if not dataUrl:
+        p.pop("anexo", None)
+        db.execute("delete from imagens where chave = ?", (f"anexo-{id}",))
+    else:
+        cab, _, b64 = str(dataUrl).partition(",")
+        if cab != "data:application/pdf;base64":
+            raise Erro("Envie o anexo em PDF.")
+        try:
+            dados = base64.b64decode(b64, validate=True)
+        except ValueError:
+            raise Erro("Arquivo inválido.")
+        if not dados.startswith(b"%PDF") or len(dados) > 2_800_000:
+            raise Erro("PDF inválido ou maior que 2,8 MB.")
+        db.execute("insert or replace into imagens (chave, mime, dados) values (?, ?, ?)", (f"anexo-{id}", "application/pdf", dados))
+        p["anexo"] = {"nome": str(nome or "documento.pdf")[:120], "v": agora(), "bytes": len(dados)}
+    db.commit()
+    proj_salvar(p)
+    for m in S["pauta"]:
+        if m["id"] == id:
+            m["anexo"] = p.get("anexo")
+    S["projetosRev"] += 1
+
+
+# --- perguntas sobre discursos e assistente do cidadão
+base_conhecimento = conhecimento.Base()
+_perguntas_recentes: dict[str, list[float]] = {}
+_respostas_cache: dict = {}
+
+
+def _chave_conhecimento():
+    n_pub = db.execute("select count(*), max(criado) from gravacoes where json like '%\"publicada\": true%'").fetchone()
+    n_ses = db.execute("select count(*), max(fim) from sessoes").fetchone()
+    return (S["projetosRev"], tuple(n_pub), tuple(n_ses), len(S["parls"]))
+
+
+def _documentos_conhecimento() -> list[dict]:
+    titulos = dict(db.execute("select id, titulo from sessoes").fetchall())
+    discursos = []
+    for (texto_json,) in db.execute("select json from gravacoes order by criado").fetchall():
+        g = json.loads(texto_json)
+        t = g.get("transcricao") or {}
+        if t.get("publicada") and t.get("texto"):
+            discursos.append({"nome": g["nome"], "partido": g["partido"], "inicio": g["inicio"], "texto": t["texto"],
+                              "sessao": titulos.get(g["sessao"], ""), "link": f"/sessao/{g['sessao']}"})
+    projetos = [p for p in proj_todos() if p["situacao"] != "proposta"]
+    sessoes = []
+    for i, t, ini, fim, res in db.execute("select id, titulo, inicio, fim, resumo from sessoes order by fim").fetchall():
+        rr = json.loads(res or "{}")
+        sessoes.append({"id": i, "titulo": t, "inicio": ini, "presentes": rr.get("presentes", 0), "falas": rr.get("falas", 0),
+                        "votacoes": rr.get("votacoes", 0)})
+    autoria = {}
+    for p in projetos:
+        autoria[(p.get("autor") or "").lower()] = autoria.get((p.get("autor") or "").lower(), 0) + 1
+    parls = [{"id": p["id"], "nome": p["nome"], "partido": p["partido"], "bloco": estatisticas.BLOCOS.get(p.get("bloco"), ""),
+              "resumo": f"Autor(a) de {autoria.get(p['nome'].lower(), 0)} projeto(s) registrados." + (" Líder." if p.get("lider") else "")}
+             for p in S["parls"]]
+    return conhecimento.montar_documentos(discursos, projetos, parls, sessoes, S["casa"]["nome"], S["rodape"])
+
+
+def perguntar(pergunta: str, escopo: str, historico: list, ip: str) -> dict:
+    agora_s = time.time()
+    recentes = [t for t in _perguntas_recentes.get(ip, []) if agora_s - t < 60]
+    if len(recentes) >= 8:
+        raise PermissionError("Muitas perguntas seguidas. Aguarde um minuto.")
+    _perguntas_recentes[ip] = recentes + [agora_s]
+    if len(_perguntas_recentes) > 5000:
+        _perguntas_recentes.clear()
+    with trava:
+        chave = _chave_conhecimento()
+        base_conhecimento.atualizar(chave, _documentos_conhecimento)
+    tipos = {"discurso"} if escopo == "discursos" else None
+    cache = (pergunta.strip().lower(), escopo, chave) if not historico else None
+    if cache and cache in _respostas_cache:
+        return _respostas_cache[cache]
+    r = conhecimento.responder(base_conhecimento, pergunta, tipos, historico)
+    if cache:
+        if len(_respostas_cache) > 300:
+            _respostas_cache.clear()
+        _respostas_cache[cache] = r
+    return r
+
+
+# --- dados abertos
+def dados_abertos_sessoes() -> list[dict]:
+    saida = []
+    for (texto_json,) in db.execute("select json from sessoes order by inicio").fetchall():
+        r = json.loads(texto_json)
+        pub = sessao_publica({**r, "gravacoes": []})
+        saida.append({k: pub[k] for k in ("id", "titulo", "inicio", "fim", "pauta", "votacoes", "presentes", "membros")}
+                     | {"presenca": sorted(pub["nomes"].get(pid, pid) for pid in (r.get("presenca") or {})),
+                        "pronunciamentos": [{k: f[k] for k in ("nome", "partido", "fase", "inicio", "usado")} for f in pub["falas"]]})
+    return saida
+
+
 # ---------------------------------------------------------------- HTTP
 class Manipulador(BaseHTTPRequestHandler):
     server_version = "ParlatorioLegis/2"
@@ -2212,6 +2528,7 @@ class Manipulador(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(corpo)
+        return True
 
     def _ler(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
@@ -2295,6 +2612,9 @@ class Manipulador(BaseHTTPRequestHandler):
             return self._perfil(caminho.rsplit("/", 1)[1])
         if caminho == "/aovivo":
             return self._aovivo_audio()
+        novo = self._get_novos(caminho)
+        if novo is not None:
+            return novo
         if caminho == "/api/aovivo":
             with trava:
                 return self._json(200, ao_vivo())
@@ -2328,6 +2648,8 @@ class Manipulador(BaseHTTPRequestHandler):
             caminho = "/index.html"
         if caminho.startswith("/parlamentares/"):  # página pública de cada parlamentar
             caminho = "/perfil.html"
+        if caminho.startswith("/sessao/"):  # vídeo e registros de cada sessão
+            caminho = "/sessao.html"
         alvo = (PUBLICO / caminho.lstrip("/")).resolve()
         if PUBLICO not in alvo.parents or not alvo.is_file():
             alvo = (PUBLICO / (caminho.lstrip("/") + ".html")).resolve()
@@ -2577,6 +2899,181 @@ class Manipulador(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(dados)
 
+    # ----- pacote 2026: rotas
+    def _get_novos(self, caminho: str):
+        """Rotas GET dos recursos novos; devolve None quando o caminho não é deles."""
+        qs = urllib.parse.parse_qs(urlparse(self.path).query)
+        if caminho.startswith("/api/resumo/"):
+            sessao = caminho.rsplit("/", 1)[1]
+            with trava:
+                ator = self._ator()
+                if not ator or ator["papel"] != "presidente":
+                    return self._json(401, {"erro": "Entre no painel do presidente."})
+                return self._json(200, {"resumo": _ler_resumo(sessao), "job": S.get("resumoJob"), "ia": ia.descricao()})
+        if caminho.startswith("/api/projeto/"):
+            pid = caminho.rsplit("/", 1)[1]
+            with trava:
+                ator = self._ator()
+                if not ator or ator["papel"] != "presidente":
+                    return self._json(401, {"erro": "Entre no painel do presidente."})
+                p = proj_obter(pid) if pid.isalnum() else None
+                if not p:
+                    return self._json(404, {"erro": "Projeto não encontrado."})
+                coms = [participacao.publico(c) for c in participacao.do_projeto(db, pid)]
+            return self._json(200, {"projeto": p, "artigos": participacao.artigos(p.get("texto", "")), "comentarios": coms,
+                                    "aberta": _consulta_aberta(p), "situacoes": participacao.SITUACOES})
+        if caminho == "/api/legendas":
+            try:
+                desde = int((qs.get("desde") or ["0"])[0])
+            except ValueError:
+                desde = 0
+            return self._json(200, {"ativa": transmissor.ativa, "ligadas": legendador.ligado, "itens": legendador.desde(desde)})
+        if caminho == "/api/consultas":
+            with trava:
+                lista = []
+                for p in proj_todos():
+                    if p["situacao"] == "proposta" or not (p.get("consulta") or {}).get("desde"):
+                        continue
+                    n = db.execute("select count(*) from participacoes where projeto = ?", (p["id"],)).fetchone()[0]
+                    lista.append({k: p.get(k) for k in ("id", "numero", "ementa", "autor", "situacao", "consulta", "areas")}
+                                 | {"aberta": _consulta_aberta(p), "contribuicoes": n})
+            lista.sort(key=lambda x: (not x["aberta"], -(x["consulta"] or {}).get("desde", 0)))
+            return self._json(200, {"consultas": lista, "casa": S["casa"]["nome"], "situacoes": participacao.SITUACOES})
+        if caminho.startswith("/api/consulta/"):
+            pid = caminho.rsplit("/", 1)[1]
+            with trava:
+                ator = self._ator()
+                p = proj_obter(pid)
+                if not p or p["situacao"] == "proposta" or not (p.get("consulta") or {}).get("desde"):
+                    return self._json(404, {"erro": "Consulta não encontrada."})
+                interno = bool(ator and ator["papel"] == "presidente")
+                autor = bool(ator and ator["papel"] == "parlamentar" and parl(ator["pid"])["nome"].lower() == (p.get("autor") or "").lower())
+                coms = [participacao.publico(c) for c in participacao.do_projeto(db, pid) if interno or not c.get("oculto")]
+            return self._json(200, {"projeto": {k: p.get(k) for k in ("id", "numero", "ementa", "autor", "situacao", "consulta", "anexo")}
+                                    | {"aberta": _consulta_aberta(p)},
+                                    "artigos": participacao.artigos(p.get("texto", "")), "comentarios": coms,
+                                    "situacoes": participacao.SITUACOES, "podeResponder": interno or autor, "podeOcultar": interno})
+        if caminho.startswith("/api/sessao-publica/"):
+            sid = caminho.rsplit("/", 1)[1]
+            with trava:
+                r = retrato() if sid == "atual" else (sessao_arquivada(sid) if sid.isalnum() else None)
+            if not r:
+                return self._json(404, {"erro": "Sessão não encontrada."})
+            return self._json(200, sessao_publica(r))
+        if caminho.startswith("/anexo/") and caminho.endswith(".pdf"):
+            pid = caminho[len("/anexo/"):-4]
+            with trava:
+                linha = db.execute("select dados from imagens where chave = ?", (f"anexo-{pid}",)).fetchone() if pid.isalnum() else None
+            if not linha:
+                return self._json(404, {"erro": "Anexo não encontrado."})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", str(len(linha[0])))
+            self.send_header("Content-Disposition", "inline")
+            self.end_headers()
+            self.wfile.write(linha[0])
+            return True
+        if caminho == "/api/dados/projetos.json":
+            with trava:
+                lista = [{k: p.get(k) for k in ("id", "numero", "ementa", "autor", "situacao", "areas", "beneficiados", "abrangencia",
+                                                  "criado", "atualizado", "historico")}
+                         | {"akn": f"/dados/akn/projeto/{p['id']}.xml", "temTexto": bool(p.get("texto"))}
+                         for p in proj_todos() if p["situacao"] != "proposta"]
+            return self._json(200, {"casa": S["casa"]["nome"], "licenca": "CC-BY 4.0", "gerado": agora(), "projetos": lista})
+        if caminho == "/api/dados/sessoes.json":
+            with trava:
+                dados = dados_abertos_sessoes()
+            return self._json(200, {"casa": S["casa"]["nome"], "licenca": "CC-BY 4.0", "gerado": agora(), "sessoes": dados})
+        if caminho == "/api/dados/votacoes.csv":
+            with trava:
+                linhas = ["sessao;data;materia;ementa;tipo;resultado;sim;nao;abstencao;parlamentar;voto"]
+                for s in dados_abertos_sessoes():
+                    for v in s["votacoes"]:
+                        c = v.get("contagem") or {}
+                        base_linha = [s["titulo"], time.strftime("%Y-%m-%d", time.localtime((s["inicio"] or 0) / 1000)),
+                                      v.get("numero") or "", (v.get("ementa") or "").replace(";", ","), v.get("tipo") or "",
+                                      v.get("resultado") or "", str(c.get("sim", "")), str(c.get("nao", "")), str(c.get("abst", ""))]
+                        votos = v.get("votos") or {}
+                        if votos:
+                            linhas += [";".join(base_linha + [s_nome, voto.get("valor") if isinstance(voto, dict) else str(voto)])
+                                       for s_nome, voto in sorted((self._nome_parl(pid), x) for pid, x in votos.items())]
+                        else:
+                            linhas.append(";".join(base_linha + ["", ""]))
+            corpo = ("﻿" + "\n".join(linhas) + "\n").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Length", str(len(corpo)))
+            self.end_headers()
+            self.wfile.write(corpo)
+            return True
+        m = re.fullmatch(r"/dados/akn/(projeto|sessao)/([A-Za-z0-9]+)\.xml", caminho)
+        if m:
+            with trava:
+                if m.group(1) == "projeto":
+                    p = proj_obter(m.group(2))
+                    xml = akn.projeto(p, participacao.artigos(p.get("texto", "")), S["casa"]["nome"]) \
+                        if p and p["situacao"] != "proposta" else None
+                else:
+                    r = sessao_arquivada(m.group(2))
+                    xml = None
+                    if r:
+                        discursos = [{"pid": g["pid"], "nome": g["nome"], "partido": g["partido"], "texto": g["transcricao"]["texto"]}
+                                     for g in sorted(r.get("gravacoes") or [], key=lambda g: g["inicio"])
+                                     if (g.get("transcricao") or {}).get("publicada") and g["transcricao"].get("texto")]
+                        xml = akn.debate(r, discursos, S["casa"]["nome"])
+            if not xml:
+                return self._json(404, {"erro": "Documento não encontrado."})
+            corpo = xml.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/akn+xml; charset=utf-8")
+            self.send_header("Content-Length", str(len(corpo)))
+            self.end_headers()
+            self.wfile.write(corpo)
+            return True
+        return None
+
+    def _nome_parl(self, pid: str) -> str:
+        p = next((x for x in S["parls"] if x["id"] == pid), None) or next((x for x in S.get("exParls", []) if x["id"] == pid), None)
+        return (p or {}).get("nome", pid)
+
+    def _post_novos(self, caminho: str, corpo: dict):
+        if caminho == "/api/perguntar":
+            pergunta = str(corpo.get("pergunta") or "").strip()
+            if len(pergunta) < 4:
+                return self._json(400, {"erro": "Escreva sua pergunta."})
+            historico = corpo.get("historico") if isinstance(corpo.get("historico"), list) else []
+            try:
+                return self._json(200, perguntar(pergunta, str(corpo.get("escopo") or "tudo"), historico[-6:], self._ip()))
+            except PermissionError as e:
+                return self._json(429, {"erro": str(e)})
+        m = re.fullmatch(r"/api/consulta/([A-Za-z0-9]+)/comentar", caminho)
+        if m:
+            if corpo.get("site"):  # campo-isca invisível: robôs preenchem
+                return self._json(200, {"ok": True})
+            with trava:
+                p = proj_obter(m.group(1))
+                if not p or not _consulta_aberta(p):
+                    return self._json(400, {"erro": "Esta consulta não está aberta."})
+                try:
+                    c = participacao.comentar(db, p, str(corpo.get("artigo") or "geral"), corpo.get("nome"), corpo.get("bairro"),
+                                              corpo.get("texto"), corpo.get("email"), self._ip())
+                except ValueError as e:
+                    return self._json(400, {"erro": str(e)})
+                except PermissionError as e:
+                    return self._json(429, {"erro": str(e)})
+                registrar("cidadao", "consultaComentar", {"projeto": p["id"], "comentario": c["id"]})
+                S["projetosRev"] += 1
+                confirmar()
+            return self._json(200, {"ok": True, "comentario": participacao.publico(c)})
+        if caminho == "/api/consulta/apoiar":
+            with trava:
+                try:
+                    n = participacao.apoiar(db, str(corpo.get("id") or ""), self._ip())
+                except LookupError as e:
+                    return self._json(404, {"erro": str(e)})
+            return self._json(200, {"ok": True, "apoios": n})
+        return None
+
     def _certificado(self):
         ca = TLS_DIR / "ca.crt"
         if not ca.exists():
@@ -2720,6 +3217,9 @@ class Manipulador(BaseHTTPRequestHandler):
                 return self._acao(corpo)
             if caminho == "/api/trocar-pin":
                 return self._trocar_pin(corpo)
+            novo = self._post_novos(caminho, corpo)
+            if novo is not None:
+                return novo
             return self._json(404, {"erro": "Não encontrado."})
         except Erro as e:
             return self._json(400, {"erro": str(e)})
@@ -2864,6 +3364,7 @@ def main():
     threading.Thread(target=tique, daemon=True).start()
     threading.Thread(target=agendador_backup, daemon=True).start()
     threading.Thread(target=trabalhador_transcricao, daemon=True).start()
+    legendador.iniciar()
     with trava:
         transcricao_retomar()
     par = certificado()

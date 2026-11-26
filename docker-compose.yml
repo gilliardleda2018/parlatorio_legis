@@ -5,6 +5,9 @@
 #   PIN_PRESIDENTE=...
 #   JITSI_URL=... / JITSI_SEGREDO=...   (deploy/local/jitsi.sh)
 # Variáveis desta pasta (.env ou ambiente): PORTA, PORTA_HTTPS, TRANSCRICAO=1, HF_CACHE (modelos já baixados)
+# IA local (rascunho da ata, perguntas sobre os discursos, assistente do cidadão): COMPOSE_PROFILES=ia
+#   e, em dados/parlatorio.env: IA=ollama, OLLAMA_URL=http://ollama:11434, IA_MODELO=qwen2.5:3b
+#   Baixar o modelo uma vez: docker compose exec ollama ollama pull qwen2.5:3b
 services:
   parlatorio:
     build:
@@ -23,3 +26,12 @@ services:
       - ./dados:/dados
       - ${HF_CACHE:-./dados/hf}:/cache/hf
     restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama
+    profiles: ["ia"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+    volumes:
+      - ./dados/ollama:/root/.ollama

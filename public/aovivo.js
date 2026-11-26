@@ -10,7 +10,7 @@
       background:color-mix(in srgb,var(--destaque,#1f8a4c) 18%,var(--cartao,#111a2b));border:1px solid color-mix(in srgb,var(--destaque,#1f8a4c) 45%,transparent)}
     .aovivo .sinal{display:inline-flex;align-items:center;gap:8px;font-weight:800;letter-spacing:.08em;font-size:13px;text-transform:uppercase}
     .aovivo .sinal i{width:10px;height:10px;border-radius:50%;background:#ff4d4d;box-shadow:0 0 10px #ff4d4d;animation:pulsar 1.6s infinite}
-    .aovivo .info{flex:1;min-width:200px;font-size:14px}.aovivo audio{height:36px;max-width:100%}
+    .aovivo .info{flex:1;min-width:200px;font-size:14px}.aovivo .leg{flex-basis:100%;font-size:15px;line-height:1.4;min-height:1.4em;color:var(--texto,#fff)}.aovivo audio{height:36px;max-width:100%}
     @keyframes pulsar{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.aovivo .sinal i{animation:none}}`;
   document.head.append(css);
   let url = '';
@@ -21,9 +21,23 @@
     const info = `<b>${esc(d.nome || d.casa)}</b> · ${esc(d.titulo)}${d.falando ? ` · na tribuna: <b>${esc(d.falando.nome)}</b> (${esc(d.falando.partido)})` : ''}`;
     if (url !== d.publico) {
       url = d.publico;
-      faixa.innerHTML = `<span class="sinal"><i></i>Ao vivo</span><span class="info"></span><audio controls preload="none" src="${esc(url)}"></audio>`;
+      faixa.innerHTML = `<span class="sinal"><i></i>Ao vivo</span><span class="info"></span><audio controls preload="none" src="${esc(url)}"></audio>
+        <div class="leg" aria-live="polite" title="Legenda automática"></div>`;
     }
     faixa.querySelector('.info').innerHTML = info;
+    if (!legendando) { legendando = true; legendas(); }
+  }
+  /* legendas automáticas enquanto a sessão está no ar */
+  let legendando = false, desde = Date.now() - 20000;
+  async function legendas() {
+    if (faixa.hidden) { legendando = false; return; }
+    const r = await fetch('/api/legendas?desde=' + desde).then(x => x.json()).catch(() => null);
+    if (r && r.itens.length) {
+      desde = r.itens[r.itens.length - 1].ts;
+      const caixa = faixa.querySelector('.leg');
+      if (caixa) caixa.textContent = r.itens.slice(-2).map(i => i.texto).join(' ');
+    }
+    setTimeout(legendas, 3000);
   }
   addEventListener('DOMContentLoaded', () => {
     const main = document.querySelector('main');
