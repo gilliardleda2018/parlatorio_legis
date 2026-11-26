@@ -1,0 +1,88 @@
+#!/bin/bash
+# Instalação/configuração do pacote legis.
+set -e
+. /usr/share/debconf/confmodule
+
+APP=/opt/legis
+DADOS=/var/lib/legis
+ETC=/etc/legis
+ENVF=$ETC/legis.env
+
+[ "$1" = "configure" ] || exit 0
+
+db_get legis/uf;            UF=$(echo "$RET" | tr 'A-Z' 'a-z' | tr -cd 'a-z')
+db_get legis/municipio;     MUNICIPIO="$RET"
+db_get legis/nome;          NOME="$RET"
+db_get legis/transcricao;   TRANSCRICAO="$RET"
+db_get legis/ia;            IA="$RET"
+db_get legis/tailscale_chave; CHAVE="$RET"
+db_set legis/tailscale_chave ""   # a chave não fica guardada no debconf
+db_stop
+
+slug() { python3 -c "import re,sys,unicodedata as u; t=''.join(c for c in u.normalize('NFD',sys.argv[1]) if u.category(c)!='Mn').lower(); print(re.sub(r'[^a-z0-9]+','-',t).strip('-'))" "$1"; }
+[ -n "$NOME" ] || NOME=$(slug "${MUNICIPIO:-legis}")
+NOME=$(slug "$NOME")
+
+getent group legis >/dev/null || addgroup --system legis >/dev/null
+getent passwd legis >/dev/null || adduser --system --ingroup legis --home "$DADOS" --no-create-home --shell /usr/sbin/nologin legis >/dev/null
+mkdir -p "$DADOS" "$ETC"
+chown legis:legis "$DADOS"; chmod 750 "$DADOS"
+
+porta_livre() { ! (ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)$1\$"); }
+if [ ! -f "$ENVF" ]; then
+  PIN=$(python3 -c "import secrets; print(str(secrets.randbelow(10**8)).zfill(8))")
+  HTTP=80;  porta_livre 80  || HTTP=8090
+  HTTPS=443; porta_livre 443 || HTTPS=8443
+  IPS=$(hostname -I 2>/dev/null | tr ' ' ',' | sed 's/,$//')
+  cat > "$ENVF" <<EOF
+# Configuração do LEGIS desta Câmara. Depois de mudar: sudo systemctl restart legis
+PARLATORIO_BANCO=$DADOS/legis.db
+PIN_PRESIDENTE=$PIN
+PORTA=$HTTP
+PORTA_HTTPS=$HTTPS
+HTTPS=auto
+TLS_NOMES=$(hostname).local,$(hostname),${IPS}
+TZ=America/Sao_Paulo
+PROXY_CONFIAVEL=1
+PROXY_IPS=127.0.0.1,::1
+EOF
+  chmod 640 "$ENVF"; chgrp legis "$ENVF"
+fi
+
+cat > "$ETC/instalacao.conf" <<EOF
+UF=$UF
+MUNICIPIO=$MUNICIPIO
+NOME=$NOME
+TRANSCRICAO=$TRANSCRICAO
+IA=$IA
+EOF
+
+# vereadores eleitos (TSE) e população (IBGE): só num banco novo
+if [ -n "$UF" ] && [ -n "$MUNICIPIO" ] && [ ! -f "$DADOS/legis.db" ]; then
+  echo "LEGIS: buscando os vereadores eleitos de $MUNICIPIO/${UF^^} no TSE..."
+  if ! runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 \
+       python3 "$APP/scripts/tse_eleitos.py" "$UF" "$MUNICIPIO" "$DADOS/legis.db"; then
+    rm -f "$DADOS/legis.db"
+    echo "LEGIS: não foi possível importar agora (internet?). Depois rode: sudo legis importar-tse $UF \"$MUNICIPIO\""
+  fi
+fi
+
+if [ -n "$CHAVE" ]; then
+  umask 077; printf %s "$CHAVE" > "$DADOS/.tailscale-chave"; umask 022
+fi
+unset CHAVE
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload
+  systemctl enable legis.service >/dev/null 2>&1 || true
+  systemctl restart legis.service
+  systemctl enable avahi-daemon >/dev/null 2>&1 || true
+  if [ "$TRANSCRICAO" = "true" ] || [ "$IA" = "true" ] || [ -f "$DADOS/.tailscale-chave" ]; then
+    systemd-run --unit=legis-extras --collect --quiet /usr/sbin/legis extras || true
+    EXTRAS=" (transcrição/IA/internet sendo instalados em segundo plano: sudo legis estado)"
+  fi
+fi
+
+/usr/sbin/legis resumo || true
+echo "${EXTRAS:-}"
+exit 0

@@ -1,0 +1,121 @@
+#!/bin/bash
+# Administração do LEGIS instalado pelo pacote .deb.
+#   legis              estado, endereços e o que está instalado
+#   legis logs         registro do serviço (Ctrl-C para sair)
+#   legis reiniciar    reinicia o serviço
+#   legis importar-tse UF "Município"   vereadores eleitos (só num banco vazio)
+#   legis reconfigurar perguntas da instalação de novo (dpkg-reconfigure legis)
+#   legis extras       instala transcrição, IA local e publicação na internet escolhidas
+set -euo pipefail
+APP=/opt/legis
+DADOS=/var/lib/legis
+ETC=/etc/legis
+ENVF=$ETC/legis.env
+LOG=/var/log/legis-extras.log
+
+le() { grep -E "^$1=" "$2" 2>/dev/null | tail -1 | cut -d= -f2-; }
+root() { [ "$(id -u)" = 0 ] || { echo "Use: sudo legis $*"; exit 1; }; }
+reiniciar() { if [ -d /run/systemd/system ]; then systemctl restart legis.service; fi; }
+
+resumo() {
+  local http https ip pin url
+  http=$(le PORTA "$ENVF"); https=$(le PORTA_HTTPS "$ENVF"); pin=$(le PIN_PRESIDENTE "$ENVF")
+  ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  url=$(cat "$ETC/endereco-internet" 2>/dev/null || true)
+  local suf=""; [ "$https" != "443" ] && suf=":$https"
+  cat <<EOF
+
+ LEGIS — Sistema de Gestão Parlamentar
+ ------------------------------------------------------------------
+ Rede da Câmara:  https://$(hostname).local$suf   (ou https://$ip$suf)
+ Internet:        ${url:-não publicado (sudo dpkg-reconfigure legis, com a chave do Tailscale)}
+ Presidente:      /presidente — PIN inicial: ${pin:-?} (troque no primeiro acesso)
+ Vereadores:      /parlamentar — PIN inicial 0000 (troca obrigatória)
+ Certificado:     instale em cada aparelho: http://$ip:${http:-80}/certificado
+ Checklist:       /usr/share/doc/legis/README.md
+EOF
+}
+
+estado() {
+  resumo
+  echo " ------------------------------------------------------------------"
+  if [ -d /run/systemd/system ]; then
+    printf " Serviço:         %s\n" "$(systemctl is-active legis.service 2>/dev/null || true)"
+    printf " Instalação extra: %s\n" "$(systemctl is-active legis-extras.service 2>/dev/null | sed 's/inactive/concluída/;s/activating\|active/em andamento/')"
+  fi
+  [ -x "$DADOS/whisper/bin/python" ] && echo " Transcrição:     instalada" || echo " Transcrição:     não instalada"
+  grep -q '^IA=ollama' "$ENVF" 2>/dev/null && echo " IA local:        instalada (Ollama)" || echo " IA local:        não instalada"
+  [ -f "$LOG" ] && { echo " Últimas linhas de $LOG:"; tail -3 "$LOG" | sed 's/^/   /'; }
+  echo
+}
+
+extras() {
+  root extras
+  exec >>"$LOG" 2>&1
+  echo "== $(date '+%F %T') instalação extra =="
+  # shellcheck disable=SC1090
+  . "$ETC/instalacao.conf"
+  local mudou=0
+  if [ "${TRANSCRICAO:-false}" = "true" ] && [ ! -x "$DADOS/whisper/bin/python" ]; then
+    echo "transcrição: instalando faster-whisper e o modelo small..."
+    runuser -u legis -- env PARLATORIO_DADOS="$DADOS" HOME="$DADOS" HF_HOME="$DADOS/hf" sh "$APP/scripts/instalar_transcricao.sh" && mudou=1
+  fi
+  if [ "${IA:-false}" = "true" ] && ! grep -q '^IA=ollama' "$ENVF"; then
+    if command -v docker >/dev/null; then
+      echo "IA: iniciando o Ollama e baixando qwen2.5:3b (cerca de 2 GB)..."
+      docker inspect legis-ollama >/dev/null 2>&1 || docker run -d --name legis-ollama --restart unless-stopped \
+        -e OLLAMA_KEEP_ALIVE=30m -p 127.0.0.1:11434:11434 -v "$DADOS/ollama:/root/.ollama" ollama/ollama
+      sleep 5
+      docker exec legis-ollama ollama pull qwen2.5:3b
+      printf 'IA=ollama\nOLLAMA_URL=http://127.0.0.1:11434\nIA_MODELO=qwen2.5:3b\n' >> "$ENVF"
+      mudou=1
+    else
+      echo "IA: o Docker não está instalado (sudo apt install docker.io) — pulando."
+    fi
+  fi
+  if [ -f "$DADOS/.tailscale-chave" ]; then
+    if command -v docker >/dev/null; then
+      echo "internet: publicando pelo Tailscale Funnel como ${NOME}..."
+      local https; https=$(le PORTA_HTTPS "$ENVF")
+      mkdir -p "$DADOS/tailscale"
+      cat > "$DADOS/tailscale/serve.json" <<EOF
+{ "TCP": { "443": { "HTTPS": true } },
+  "Web": { "\${TS_CERT_DOMAIN}:443": { "Handlers": { "/": { "Proxy": "https+insecure://127.0.0.1:${https:-443}" } } } },
+  "AllowFunnel": { "\${TS_CERT_DOMAIN}:443": true } }
+EOF
+      docker rm -f legis-tailscale >/dev/null 2>&1 || true
+      docker run -d --name legis-tailscale --restart unless-stopped --network host \
+        -e TS_AUTHKEY="$(cat "$DADOS/.tailscale-chave")" -e TS_HOSTNAME="$NOME" -e TS_USERSPACE=true \
+        -e TS_STATE_DIR=/var/lib/tailscale -e TS_SERVE_CONFIG=/config/serve.json \
+        -v "$DADOS/tailscale:/var/lib/tailscale" tailscale/tailscale:stable
+      rm -f "$DADOS/.tailscale-chave"
+      for _ in $(seq 1 40); do
+        local dns; dns=$(docker exec legis-tailscale tailscale status --json 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))" 2>/dev/null || true)
+        if [ -n "$dns" ]; then echo "https://$dns" > "$ETC/endereco-internet"; echo "internet: https://$dns"; break; fi
+        sleep 3
+      done
+    else
+      echo "internet: o Docker não está instalado (sudo apt install docker.io) — pulando."
+    fi
+  fi
+  [ "$mudou" = 1 ] && reiniciar
+  echo "== concluído =="
+}
+
+case "${1:-estado}" in
+  estado|status) estado ;;
+  resumo) resumo ;;
+  logs) exec journalctl -u legis.service -f ;;
+  reiniciar) root reiniciar; reiniciar; echo "reiniciado" ;;
+  reconfigurar) root reconfigurar; exec dpkg-reconfigure legis ;;
+  extras) extras ;;
+  importar-tse)
+    root importar-tse
+    [ $# -ge 3 ] || { echo 'Uso: sudo legis importar-tse UF "Município"'; exit 1; }
+    [ ! -f "$DADOS/legis.db" ] || { echo "Já existe um banco em $DADOS/legis.db (a importação só cria banco novo)."; exit 1; }
+    [ -d /run/systemd/system ] && systemctl stop legis.service
+    runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 python3 "$APP/scripts/tse_eleitos.py" "$2" "$3" "$DADOS/legis.db"
+    reiniciar ;;
+  ajuda|-h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) echo "Comando desconhecido: $1 (legis ajuda)"; exit 1 ;;
+esac

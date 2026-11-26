@@ -236,7 +236,15 @@ PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 
 As respostas automáticas sempre mostram as fontes, e o rascunho da ata só vale depois de revisado.
 
-## Instalar em uma nova Câmara (recomendado)
+## Instalador .deb (Debian 12/13, Ubuntu 24.04)
+
+```bash
+sudo apt install ./legis_<versão>_all.deb
+```
+
+O `apt` pergunta o município e já importa os vereadores do TSE, gera o PIN do presidente e o certificado e sobe o serviço. Transcrição, IA local e publicação pelo Tailscale são opcionais e instalam em segundo plano. Também aceita instalação sem perguntas (debconf). Guia: [deploy/deb/README.md](deploy/deb/README.md). Para gerar o pacote: `bash packaging/construir-deb.sh`.
+
+## Instalar em uma nova Câmara com Docker
 
 Um comando num servidor Debian novo instala tudo: LEGIS, vereadores eleitos do TSE (com fotos), população do IBGE, IA local, transcrição e legendas, e publicação na internet pelo Tailscale. Passo a passo e checklist em [deploy/cidade/README.md](deploy/cidade/README.md).
 

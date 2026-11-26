@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+if [ "$1" = "purge" ]; then
+  rm -rf /etc/legis
+  if [ -e /usr/share/debconf/confmodule ]; then
+    . /usr/share/debconf/confmodule
+    db_purge || true
+  fi
+  echo "LEGIS removido. Os dados da Câmara (sessões, votos, gravações, backups) continuam em /var/lib/legis."
+  echo "Para apagá-los também: sudo rm -rf /var/lib/legis"
+fi
+[ -d /run/systemd/system ] && systemctl daemon-reload || true
+exit 0

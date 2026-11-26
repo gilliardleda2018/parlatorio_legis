@@ -1,0 +1,13 @@
+#!/bin/sh
+# Perguntas da instalação (debconf). Pré-configurar sem perguntas:
+#   echo "legis legis/municipio string Tuntum" | sudo debconf-set-selections
+set -e
+. /usr/share/debconf/confmodule
+
+db_input high legis/uf || true
+db_input high legis/municipio || true
+db_input medium legis/nome || true
+db_input medium legis/transcricao || true
+db_input medium legis/ia || true
+db_input medium legis/tailscale_chave || true
+db_go || true

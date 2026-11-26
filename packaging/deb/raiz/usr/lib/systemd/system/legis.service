@@ -1,0 +1,25 @@
+[Unit]
+Description=LEGIS — Sistema de Gestão Parlamentar
+Documentation=https://github.com/gilliardleda2018/parlatorio_legis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=legis
+Group=legis
+WorkingDirectory=/opt/legis
+EnvironmentFile=/etc/legis/legis.env
+Environment=HF_HOME=/var/lib/legis/hf
+ExecStart=/usr/bin/python3 /opt/legis/server/servidor.py
+Restart=always
+RestartSec=3
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/legis
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

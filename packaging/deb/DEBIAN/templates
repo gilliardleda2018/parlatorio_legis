@@ -1,0 +1,42 @@
+Template: legis/uf
+Type: string
+Default:
+Description: Estado (sigla) da Câmara:
+ Sigla do estado, por exemplo MA. Com estado e município, o LEGIS busca no TSE
+ os vereadores eleitos em 2024 (nome de urna, partido e foto) e no IBGE a
+ população. Deixe em branco para começar sem vereadores.
+
+Template: legis/municipio
+Type: string
+Default:
+Description: Município:
+ Nome do município como aparece no TSE, por exemplo Tuntum ou Barra do Corda.
+
+Template: legis/nome
+Type: string
+Default:
+Description: Nome curto do endereço:
+ Usado no endereço da internet (https://NOME.<sua-tailnet>.ts.net). Só letras
+ minúsculas, números e hífen. Em branco, usa o nome do município.
+
+Template: legis/transcricao
+Type: boolean
+Default: true
+Description: Instalar a transcrição dos discursos e as legendas ao vivo?
+ Baixa o reconhecimento de fala (faster-whisper, cerca de 600 MB) depois da
+ instalação, em segundo plano. Recomendado com 8 GB de RAM.
+
+Template: legis/ia
+Type: boolean
+Default: false
+Description: Instalar a IA local (rascunho da ata, perguntas e assistente do cidadão)?
+ Roda o modelo aberto qwen2.5:3b no próprio servidor (Ollama em Docker, cerca
+ de 2 GB), sem mandar dados para fora. Precisa do Docker e de 8 GB de RAM.
+
+Template: legis/tailscale_chave
+Type: password
+Description: Chave do Tailscale para publicar na internet (opcional):
+ Gere em https://login.tailscale.com/admin/settings/keys (não reutilizável,
+ não efêmera, pré-aprovada). O LEGIS fica em https://NOME.<sua-tailnet>.ts.net
+ sem abrir portas no roteador. Deixe em branco para usar só na rede local.
+ A chave é usada uma vez e não fica guardada.
