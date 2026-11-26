@@ -236,6 +236,17 @@ PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 
 As respostas automáticas sempre mostram as fontes, e o rascunho da ata só vale depois de revisado.
 
+## Instalar num servidor Debian limpo (recomendado)
+
+Num Debian 12 ou 13, ou Ubuntu 24.04, recém-instalado, um comando instala tudo: LEGIS, vereadores eleitos do TSE (com fotos), população do IBGE, rádio da Câmara, transcrição e legendas, IA local, transmissão para rádio e YouTube e publicação pelo Tailscale.
+
+```bash
+curl -fsSLO https://github.com/gilliardleda2018/parlatorio_legis/releases/latest/download/instalar-legis.sh
+sudo bash instalar-legis.sh
+```
+
+Sem internet boa no local, leve o **pacote completo** `legis-completo-<versão>.tar.gz` (instalador, `.deb` e LEIA-ME) num pendrive e rode `sudo bash instalar-legis.sh` dentro da pasta. O servidor ainda precisa de internet para baixar as dependências do Debian. Instalação sem perguntas: `sudo UF=ma MUNICIPIO=Tuntum NOME=tuntum RADIO=s TRANSCRICAO=s IA=n bash instalar-legis.sh`. Para gerar o pacote: `bash packaging/construir-pacote.sh`.
+
 ## Instalador .deb (Debian 12/13, Ubuntu 24.04)
 
 ```bash
@@ -244,9 +255,9 @@ sudo apt install ./legis_<versão>_all.deb
 
 O `apt` pergunta o município e já importa os vereadores do TSE, gera o PIN do presidente e o certificado e sobe o serviço. Transcrição, IA local e publicação pelo Tailscale são opcionais e instalam em segundo plano. Também aceita instalação sem perguntas (debconf). Guia: [deploy/deb/README.md](deploy/deb/README.md). Para gerar o pacote: `bash packaging/construir-deb.sh`.
 
-## Instalar em uma nova Câmara com Docker
+## Instalar em uma nova Câmara com Docker (alternativa)
 
-Um comando num servidor Debian novo instala tudo: LEGIS, vereadores eleitos do TSE (com fotos), população do IBGE, IA local, transcrição e legendas, e publicação na internet pelo Tailscale. Passo a passo e checklist em [deploy/cidade/README.md](deploy/cidade/README.md).
+Alternativa ao pacote acima, em contêineres (sem a rádio da Câmara). Um comando num servidor Debian novo instala: LEGIS, vereadores eleitos do TSE (com fotos), população do IBGE, IA local, transcrição e legendas, e publicação na internet pelo Tailscale. Passo a passo e checklist em [deploy/cidade/README.md](deploy/cidade/README.md).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gilliardleda2018/parlatorio_legis/main/deploy/cidade/instalar.sh -o instalar.sh

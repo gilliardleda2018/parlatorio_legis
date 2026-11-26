@@ -1,8 +1,8 @@
 # Rádio da Câmara (LEGIS): toca a programação e entra com a sessão ao vivo quando o presidente transmite.
 # Gerado pelo pacote legis; para mudar a programação use o painel (Configurações → Rádio da Câmara).
-settings.log.stdout := true
-settings.log.file := false
-settings.harbor.bind_addrs := ["127.0.0.1"]
+settings.log.stdout.set(true)
+settings.log.file.set(false)
+settings.harbor.bind_addrs.set(["127.0.0.1"])
 
 # fora da sessão: vinhetas e músicas enviadas pelo painel, em ordem aleatória (recarrega quando a pasta muda)
 programacao = playlist(id="programacao", mode="randomize", reload_mode="watch", "@DIR@")

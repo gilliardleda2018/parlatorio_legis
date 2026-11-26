@@ -1,4 +1,6 @@
-# LEGIS em uma nova Câmara Municipal
+# LEGIS em uma nova Câmara Municipal (com Docker)
+
+> **Recomendado:** o pacote completo para Debian limpo, com a rádio da Câmara e sem Docker: `curl -fsSLO https://github.com/gilliardleda2018/parlatorio_legis/releases/latest/download/instalar-legis.sh && sudo bash instalar-legis.sh`. Este roteiro é a alternativa em contêineres.
 
 Instalação completa em um servidor Debian, com um comando. Leva de 15 a 40 minutos, a maior parte baixando imagens e modelos.
 
