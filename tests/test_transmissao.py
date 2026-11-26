@@ -171,3 +171,22 @@ class Transmissao(TesteComServidor):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OuvinteLento(unittest.TestCase):
+    """Regressão: um ouvinte lento (ex.: legendas carregando o modelo) não pode travar a rádio."""
+
+    def test_fila_cheia_nao_trava_a_distribuicao(self):
+        import queue as q_mod
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
+        import transmissao
+        t = transmissao.Transmissor(lambda: None)
+        lento, normal = q_mod.Queue(maxsize=2), q_mod.Queue()
+        lento.put(b"a"); lento.put(b"b")  # cheio
+        t.ouvintes = {lento, normal}
+        inicio = time.time()
+        t._distribuir(b"x")
+        self.assertLess(time.time() - inicio, 1)
+        self.assertEqual(normal.get_nowait(), b"x")
+        self.assertNotIn(lento, t.ouvintes)

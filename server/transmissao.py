@@ -217,9 +217,13 @@ class Transmissor:
         for q in list(self.ouvintes):
             try:
                 q.put_nowait(bloco)
-            except queue.Full:  # ouvinte lento demais: desliga para não acumular memória
+            except queue.Full:  # ouvinte lento demais: desliga sem nunca travar a transmissão dos outros
                 self.ouvintes.discard(q)
-                q.put(None)
+                try:
+                    q.get_nowait()
+                    q.put_nowait(None)
+                except (queue.Empty, queue.Full):
+                    pass
 
     def _fechar_ouvintes(self):
         for q in list(self.ouvintes):
@@ -235,7 +239,7 @@ class Transmissor:
             return None
         if len(self.ouvintes) >= MAX_OUVINTES:
             raise RuntimeError("Limite de conexões diretas atingido: ouça pela rádio.")
-        q: queue.Queue = queue.Queue(maxsize=400)
+        q: queue.Queue = queue.Queue(maxsize=4000)  # blocos pequenos (um quadro MP3): ~1,5 min
         self.ouvintes.add(q)
 
         def gerar():

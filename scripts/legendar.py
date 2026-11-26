@@ -17,6 +17,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--modelo", default="base")
     ap.add_argument("--idioma", default="pt")
+    ap.add_argument("--formato", default="mp3", help="formato dos pedaços (a transmissão manda MP3 cortado no meio do quadro)")
     a = ap.parse_args()
     import numpy as np
     from faster_whisper import WhisperModel
@@ -31,7 +32,7 @@ def main():
             return
         dados = entrada.read(struct.unpack(">I", cab)[0])
         try:
-            pcm = subprocess.run([ffmpeg, "-v", "quiet", "-nostdin", "-i", "pipe:0", "-f", "s16le", "-ac", "1", "-ar", "16000", "-"],
+            pcm = subprocess.run([ffmpeg, "-v", "quiet", "-nostdin", "-f", a.formato, "-i", "pipe:0", "-f", "s16le", "-ac", "1", "-ar", "16000", "-"],
                                  input=dados, capture_output=True, timeout=30).stdout
             audio = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768.0
             texto = ""

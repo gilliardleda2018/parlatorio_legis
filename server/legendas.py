@@ -49,9 +49,17 @@ class Legendador:
 
     def _laco(self):
         while True:
-            blocos = self.transmissor.ouvir() if self.transmissor.ativa else None
-            if blocos is None:
+            if not self.transmissor.ativa:
                 time.sleep(2)
+                continue
+            try:
+                self._processo()  # carrega o modelo ANTES de ouvir, para não acumular atraso
+            except Exception as e:
+                self.erro = str(e)[:200]
+                time.sleep(10)
+                continue
+            blocos = self.transmissor.ouvir()
+            if blocos is None:
                 continue
             limite = int(self.transmissor_bitrate() * 1000 / 8 * SEGUNDOS)
             buffer = bytearray()
