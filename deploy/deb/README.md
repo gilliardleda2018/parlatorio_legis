@@ -4,13 +4,23 @@ Pacote para Debian 12/13 (e Ubuntu 24.04). Instala o LEGIS como serviço do sist
 
 ## Instalar
 
+**Com tela (o mais simples):** dê dois cliques no arquivo `legis_<versão>_all.deb` e instale. Ao terminar, abre sozinha a janela **Configurar o LEGIS**:
+
+1. escolha o **estado** e o **município**, numa lista que vem do IBGE e filtra enquanto você digita;
+2. marque rádio, transcrição e IA local e, se quiser, cole a chave do Tailscale;
+3. clique em **Configurar** e digite a senha de administrador.
+
+O LEGIS busca os vereadores no TSE e mostra o endereço, o PIN do presidente e o botão **Abrir o painel do presidente**. A janela também fica no menu de aplicativos (**Configurar o LEGIS**), e o atalho **LEGIS** abre o sistema no navegador. Enquanto a Câmara não estiver configurada, a janela abre de novo a cada login.
+
+**Pelo terminal** (servidor sem tela):
+
 ```bash
 sudo apt install ./legis_<versão>_all.deb
 ```
 
-Instale **pelo terminal**, como acima. Abrir o arquivo com clique duplo (instalador gráfico) instala sem fazer as perguntas: o LEGIS começa com dados de exemplo e avisa. Nesse caso, rode depois `sudo dpkg-reconfigure legis`. As perguntas são feitas e os vereadores do município entram no lugar dos de exemplo; o banco de exemplo fica guardado em `/var/lib/legis/legis.db.exemplo-<data>`.
+Já instalou sem responder às perguntas? Rode `sudo dpkg-reconfigure legis` ou abra **Configurar o LEGIS**. Os vereadores do município entram no lugar dos de exemplo, e o banco de exemplo fica guardado em `/var/lib/legis/legis.db.exemplo-<data>`.
 
-O `apt` pergunta:
+No terminal, o `apt` pergunta:
 
 | Pergunta | Para quê |
 |---|---|
@@ -60,6 +70,7 @@ Cada instalação tem a **própria rádio**, sem servidor central nem custo mens
 
 | Comando | O que faz |
 |---|---|
+| `legis-configurar` | janela de configuração (estado, município, rádio, transcrição, IA, internet) |
 | `sudo legis` | estado, endereços e PIN inicial |
 | `sudo legis logs` | registro do serviço |
 | `sudo legis reiniciar` | reinicia o serviço |

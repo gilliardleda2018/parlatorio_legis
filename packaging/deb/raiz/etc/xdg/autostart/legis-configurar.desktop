@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Configurar o LEGIS
+Comment=Abre só enquanto a Câmara não estiver configurada
+Exec=legis-configurar --se-preciso
+Icon=legis
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

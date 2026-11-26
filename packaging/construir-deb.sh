@@ -10,7 +10,7 @@ R="$OBRA/legis_${VERSAO}_all"
 
 mkdir -p "$R/DEBIAN" "$R/opt/legis" "$R/usr/share/doc/legis"
 cp -r packaging/deb/raiz/. "$R/"
-cp packaging/deb/DEBIAN/{control,templates,config,postinst,prerm,postrm} "$R/DEBIAN/"
+cp packaging/deb/DEBIAN/{control,templates,config,postinst,prerm,postrm,conffiles} "$R/DEBIAN/"
 sed -i "s/@VERSAO@/$VERSAO/" "$R/DEBIAN/control"
 for d in server public scripts; do
   cp -r "$d" "$R/opt/legis/"
@@ -21,7 +21,8 @@ cp deploy/deb/README.md "$R/usr/share/doc/legis/README.md"
 printf 'LEGIS — Sistema de Gestão Parlamentar\nCopyright Aggilli Intelligence.\nCódigo-fonte: https://github.com/gilliardleda2018/parlatorio_legis\n' > "$R/usr/share/doc/legis/copyright"
 
 find "$R/usr" -type d -exec chmod 0755 {} + ; find "$R/usr" -type f -exec chmod 0644 {} +
-chmod 0755 "$R/DEBIAN/config" "$R/DEBIAN/postinst" "$R/DEBIAN/prerm" "$R/DEBIAN/postrm" "$R/usr/sbin/legis"
+chmod 0755 "$R/DEBIAN/config" "$R/DEBIAN/postinst" "$R/DEBIAN/prerm" "$R/DEBIAN/postrm" "$R/usr/sbin/legis" "$R/usr/bin/legis-configurar"
+find "$R/etc" -type d -exec chmod 0755 {} + ; find "$R/etc" -type f -exec chmod 0644 {} +
 find "$R/opt" -type d -exec chmod 0755 {} + ; find "$R/opt" -type f -exec chmod 0644 {} +
 chmod 0755 "$R/opt/legis/scripts/"*.sh
 INSTALADO=$(du -sk "$R/opt" "$R/usr" | awk '{s+=$1} END {print s}')

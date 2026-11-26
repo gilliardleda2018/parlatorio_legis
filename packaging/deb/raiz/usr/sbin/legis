@@ -39,8 +39,8 @@ EOF
     cat <<EOF
 
  ATENÇÃO: a Câmara ainda não foi configurada (estado e município).
- Rode no terminal:  sudo dpkg-reconfigure legis
- (busca os vereadores no TSE e faz as demais perguntas)
+ Abra "Configurar o LEGIS" no menu de aplicativos
+ ou rode no terminal:  sudo dpkg-reconfigure legis
 EOF
   fi
 }

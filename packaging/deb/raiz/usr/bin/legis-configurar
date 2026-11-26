@@ -1,0 +1,440 @@
+#!/usr/bin/env python3
+"""Instalador e configurador gráfico do LEGIS.
+
+    legis-configurar              janela: estado, município, rádio, transcrição, IA e internet
+    legis-configurar --se-preciso abre só se a Câmara ainda não foi configurada (início da sessão)
+    legis-configurar --abrir      abre o LEGIS no navegador
+
+Fora do pacote (arquivo avulso), instala também: usa o legis_*.deb da mesma pasta ou de
+Downloads, ou baixa a última versão do GitHub. A parte que precisa de administrador roda
+pelo pkexec (pede a senha numa janela) com --aplicar.
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unicodedata
+import urllib.request
+import webbrowser
+from pathlib import Path
+
+REPO = "gilliardleda2018/parlatorio_legis"
+DADOS = Path("/var/lib/legis")
+ETC = Path("/etc/legis")
+INSTALADO = Path("/opt/legis/server/servidor.py").exists()
+UFS = {
+    "AC": "Acre", "AL": "Alagoas", "AP": "Amapá", "AM": "Amazonas", "BA": "Bahia", "CE": "Ceará",
+    "DF": "Distrito Federal", "ES": "Espírito Santo", "GO": "Goiás", "MA": "Maranhão", "MT": "Mato Grosso",
+    "MS": "Mato Grosso do Sul", "MG": "Minas Gerais", "PA": "Pará", "PB": "Paraíba", "PR": "Paraná",
+    "PE": "Pernambuco", "PI": "Piauí", "RJ": "Rio de Janeiro", "RN": "Rio Grande do Norte",
+    "RS": "Rio Grande do Sul", "RO": "Rondônia", "RR": "Roraima", "SC": "Santa Catarina", "SP": "São Paulo",
+    "SE": "Sergipe", "TO": "Tocantins",
+}
+
+
+def sem_acento(t: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", t) if unicodedata.category(c) != "Mn").lower()
+
+
+def slug(t: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", sem_acento(t)).strip("-")
+
+
+def baixar_json(url: str, limite: int = 5_000_000):
+    req = urllib.request.Request(url, headers={"User-Agent": "legis-configurar"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read(limite))
+
+
+def configuracao_atual() -> dict:
+    atual = {}
+    try:
+        for linha in (ETC / "instalacao.conf").read_text().splitlines():
+            if "=" in linha:
+                k, v = linha.split("=", 1)
+                atual[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return atual
+
+
+def precisa_configurar() -> bool:
+    return (DADOS / ".sem-municipio").exists() or not (ETC / "instalacao.conf").exists() or not configuracao_atual().get("MUNICIPIO")
+
+
+def endereco_local() -> str:
+    try:
+        return (ETC / "endereco-local").read_text().strip()
+    except OSError:
+        return "https://localhost"
+
+
+# ---------------------------------------------------------------- parte de administrador (pkexec)
+
+def aguardar_dpkg():
+    avisou = False
+    for _ in range(900):
+        ocupado = False
+        for comm in Path("/proc").glob("[0-9]*/comm"):
+            try:
+                if comm.read_text().strip() in ("dpkg", "apt", "apt-get", "unattended-upgr"):
+                    ocupado = True
+                    break
+            except OSError:
+                pass
+        if not ocupado:
+            return
+        if not avisou:
+            print("Aguardando outra instalação terminar...", flush=True)
+            avisou = True
+        time.sleep(2)
+
+
+def aplicar(arquivo: str) -> int:
+    """Roda como root: grava as respostas no debconf e instala/reconfigura o pacote."""
+    if os.geteuid() != 0:
+        print("--aplicar precisa de administrador (use pelo pkexec)")
+        return 1
+    caminho = Path(arquivo)
+    try:
+        cfg = json.loads(caminho.read_text())
+    finally:
+        caminho.unlink(missing_ok=True)   # contém a chave do Tailscale: apaga já
+
+    uf = str(cfg.get("uf", "")).upper()
+    if uf not in UFS:
+        print(f"Estado inválido: {uf!r}")
+        return 1
+    municipio = re.sub(r"[\r\n\t]", " ", str(cfg.get("municipio", ""))).strip()[:80]
+    nome = slug(str(cfg.get("nome") or municipio))[:40]
+    chave = re.sub(r"[^A-Za-z0-9_-]", "", str(cfg.get("chave", "")))[:200]
+    sim = lambda k: "true" if cfg.get(k) else "false"  # noqa: E731
+    selecoes = "\n".join([
+        f"legis legis/uf string {uf.lower()}",
+        f"legis legis/municipio string {municipio}",
+        f"legis legis/nome string {nome}",
+        f"legis legis/radio boolean {sim('radio')}",
+        f"legis legis/transcricao boolean {sim('transcricao')}",
+        f"legis legis/ia boolean {sim('ia')}",
+        f"legis legis/tailscale_chave password {chave}",
+    ]) + "\n"
+
+    aguardar_dpkg()
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive", LEGIS_CONFIGURADOR="1")
+    subprocess.run(["debconf-set-selections"], input=selecoes, text=True, check=True)
+
+    deb = cfg.get("deb")
+    if deb:
+        print(f"Instalando {Path(deb).name}...", flush=True)
+        cmd = ["apt-get", "install", "-y", "-o", "Dpkg::Progress-Fancy=0", str(Path(deb).resolve())]
+    else:
+        faltam = [p for p, quer in (("liquidsoap", cfg.get("radio")), ("python3-venv", cfg.get("transcricao")))
+                  if quer and subprocess.run(["dpkg", "-s", p], capture_output=True).returncode != 0]
+        if faltam:
+            print(f"Instalando {', '.join(faltam)}...", flush=True)
+            subprocess.run(["apt-get", "install", "-y", *faltam], env=env)
+        print("Configurando o LEGIS...", flush=True)
+        cmd = ["dpkg-reconfigure", "legis"]
+    return subprocess.run(cmd, env=env).returncode
+
+
+# ---------------------------------------------------------------- janela
+
+def janela():
+    try:
+        import tkinter as tk
+        from tkinter import ttk, messagebox
+    except ImportError:
+        print("Falta o Tkinter. Instale com:  sudo apt install python3-tk")
+        return 1
+
+    VERDE, VERDE_ESCURO, CINZA = "#15803d", "#166534", "#5b6470"
+    raiz = tk.Tk()
+    raiz.title("LEGIS — Configurar a Câmara" if INSTALADO else "LEGIS — Instalar")
+    raiz.minsize(560, 0)
+    estilo = ttk.Style()
+    if "clam" in estilo.theme_names():
+        estilo.theme_use("clam")
+    estilo.configure("TButton", padding=(14, 6))
+    estilo.configure("Verde.TButton", background=VERDE, foreground="white", padding=(18, 8), font=("", 11, "bold"))
+    estilo.map("Verde.TButton", background=[("active", VERDE_ESCURO), ("disabled", "#9ca3af")])
+    estilo.configure("Dica.TLabel", foreground=CINZA)
+    estilo.configure("Titulo.TLabel", font=("", 15, "bold"))
+    estilo.configure("Verde.Horizontal.TProgressbar", background=VERDE)
+
+    marca = Path("/opt/legis/public/marca")
+    for pasta in Path(__file__).resolve().parents:   # avulso: ao lado do arquivo ou no repositório
+        if not INSTALADO and (pasta / "public" / "marca").is_dir():
+            marca = pasta / "public" / "marca"
+            break
+    for icone in (marca / "legis-192.png", Path("/usr/share/icons/hicolor/192x192/apps/legis.png")):
+        if icone.exists():
+            try:
+                raiz.iconphoto(True, tk.PhotoImage(file=str(icone)))
+                break
+            except tk.TclError:
+                pass
+
+    corpo = ttk.Frame(raiz, padding=22)
+    corpo.pack(fill="both", expand=True)
+    corpo.columnconfigure(1, weight=1)
+    linha = 0
+    logo = marca / "legis.png"
+    if logo.exists():
+        try:
+            img = tk.PhotoImage(file=str(logo)).subsample(4, 4)
+            rotulo = ttk.Label(corpo, image=img)
+            rotulo.image = img
+            rotulo.grid(row=linha, column=0, columnspan=2, sticky="w")
+            linha += 1
+        except tk.TclError:
+            pass
+    ttk.Label(corpo, text="Configurar a Câmara" if INSTALADO else "Instalar o LEGIS nesta máquina",
+              style="Titulo.TLabel").grid(row=linha, column=0, columnspan=2, sticky="w", pady=(8, 2))
+    linha += 1
+    ttk.Label(corpo, style="Dica.TLabel", wraplength=500, justify="left",
+              text="Escolha o estado e o município: o LEGIS busca no TSE os vereadores eleitos "
+                   "(nome de urna, partido e foto) e no IBGE a população.").grid(
+        row=linha, column=0, columnspan=2, sticky="w", pady=(0, 14))
+    linha += 1
+
+    atual = configuracao_atual() if INSTALADO and not precisa_configurar() else {}
+    v_uf = tk.StringVar()
+    v_mun = tk.StringVar(value=atual.get("MUNICIPIO", ""))
+    v_nome = tk.StringVar(value=atual.get("NOME", ""))
+    v_radio = tk.BooleanVar(value=True)
+    v_transc = tk.BooleanVar(value=atual.get("TRANSCRICAO", "true") == "true")
+    v_ia = tk.BooleanVar(value=atual.get("IA", "false") == "true")
+    v_chave = tk.StringVar()
+    nome_editado = {"sim": bool(atual.get("NOME"))}
+    municipios: list[str] = []
+
+    def campo(rotulo, widget, dica=None):
+        nonlocal linha
+        ttk.Label(corpo, text=rotulo).grid(row=linha, column=0, sticky="w", padx=(0, 12), pady=4)
+        widget.grid(row=linha, column=1, sticky="ew", pady=4)
+        linha += 1
+        if dica:
+            ttk.Label(corpo, text=dica, style="Dica.TLabel", wraplength=400, justify="left").grid(
+                row=linha, column=1, sticky="w", pady=(0, 4))
+            linha += 1
+
+    opcoes_uf = [f"{s} — {n}" for s, n in UFS.items()]
+    cb_uf = ttk.Combobox(corpo, textvariable=v_uf, values=opcoes_uf, state="readonly", height=14)
+    campo("Estado", cb_uf)
+    cb_mun = ttk.Combobox(corpo, textvariable=v_mun, height=16)
+    campo("Município", cb_mun, "Digite para filtrar a lista.")
+    en_nome = ttk.Entry(corpo, textvariable=v_nome)
+    campo("Nome curto", en_nome, "Endereço na internet: https://NOME.<sua-tailnet>.ts.net")
+
+    ttk.Separator(corpo).grid(row=linha, column=0, columnspan=2, sticky="ew", pady=10)
+    linha += 1
+    for var, texto, dica in (
+        (v_radio, "Rádio da Câmara", "programação e sessões ao vivo em /radio.mp3"),
+        (v_transc, "Transcrição e legendas ao vivo", "cerca de 600 MB, instalado em segundo plano"),
+        (v_ia, "IA local (ata, perguntas, assistente)", "precisa do Docker e de 8 GB de RAM"),
+    ):
+        ttk.Checkbutton(corpo, text=texto, variable=var).grid(row=linha, column=0, columnspan=2, sticky="w")
+        linha += 1
+        ttk.Label(corpo, text=dica, style="Dica.TLabel").grid(row=linha, column=0, columnspan=2, sticky="w", padx=(24, 0))
+        linha += 1
+    ttk.Separator(corpo).grid(row=linha, column=0, columnspan=2, sticky="ew", pady=10)
+    linha += 1
+    en_chave = ttk.Entry(corpo, textvariable=v_chave, show="•")
+    campo("Chave do Tailscale", en_chave,
+          "Opcional: publica na internet sem abrir portas. Gere em login.tailscale.com → Settings → Keys. "
+          "É usada uma vez e não fica guardada.")
+
+    if INSTALADO and not precisa_configurar():
+        ttk.Label(corpo, style="Dica.TLabel", wraplength=500, justify="left",
+                  text="Esta Câmara já está configurada. Trocar o município aqui não substitui os "
+                       "vereadores já cadastrados.").grid(row=linha, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        linha += 1
+
+    rodape = ttk.Frame(corpo)
+    rodape.grid(row=linha, column=0, columnspan=2, sticky="ew", pady=(16, 0))
+    rodape.columnconfigure(0, weight=1)
+    linha += 1
+    estado = ttk.Label(rodape, text="", style="Dica.TLabel")
+    estado.grid(row=0, column=0, sticky="w")
+    bt_ok = ttk.Button(rodape, text="Configurar" if INSTALADO else "Instalar", style="Verde.TButton")
+    bt_ok.grid(row=0, column=2)
+    ttk.Button(rodape, text="Fechar", command=raiz.destroy).grid(row=0, column=1, padx=8)
+
+    progresso = ttk.Progressbar(corpo, mode="indeterminate", style="Verde.Horizontal.TProgressbar")
+    registro = tk.Text(corpo, height=9, width=70, wrap="word", font=("monospace", 9),
+                       background="#f4f6f5", relief="flat", padx=8, pady=6)
+    final = ttk.Frame(corpo)
+
+    # --- municípios do IBGE
+    def carregar_municipios(*_):
+        sigla = v_uf.get()[:2]
+        if not sigla:
+            return
+        cb_mun.configure(values=["carregando..."])
+        estado.configure(text=f"Buscando os municípios de {UFS[sigla]} no IBGE...")
+
+        def trabalho():
+            try:
+                dados = baixar_json(f"https://servicodados.ibge.gov.br/api/v1/localidades/estados/{sigla}/municipios?orderBy=nome")
+                nomes = [m["nome"] for m in dados]
+                msg = f"{len(nomes)} municípios"
+            except Exception:
+                nomes, msg = [], "Sem acesso ao IBGE: digite o nome do município."
+            raiz.after(0, lambda: (municipios.clear(), municipios.extend(nomes),
+                                   cb_mun.configure(values=nomes), estado.configure(text=msg)))
+        threading.Thread(target=trabalho, daemon=True).start()
+
+    def filtrar(evento):
+        if evento.keysym in ("Up", "Down", "Return", "Escape", "Tab"):
+            return
+        t = sem_acento(v_mun.get())
+        cb_mun.configure(values=[m for m in municipios if t in sem_acento(m)] if t else municipios)
+        atualizar_nome()
+
+    def atualizar_nome(*_):
+        if not nome_editado["sim"]:
+            v_nome.set(slug(v_mun.get()))
+
+    cb_uf.bind("<<ComboboxSelected>>", carregar_municipios)
+    cb_mun.bind("<KeyRelease>", filtrar)
+    cb_mun.bind("<<ComboboxSelected>>", atualizar_nome)
+    en_nome.bind("<Key>", lambda e: nome_editado.update(sim=True))
+    if atual.get("UF", "").upper() in UFS:
+        v_uf.set(f"{atual['UF'].upper()} — {UFS[atual['UF'].upper()]}")
+        carregar_municipios()
+
+    # --- aplicar
+    def escrever(texto):
+        registro.insert("end", texto)
+        registro.see("end")
+
+    def concluir(codigo, saida):
+        progresso.stop()
+        progresso.grid_remove()
+        if codigo != 0:
+            bt_ok.configure(state="normal", text="Tentar de novo")
+            estado.configure(text="Não deu certo — veja o registro abaixo.")
+            return
+        estado.configure(text="")
+        bt_ok.grid_remove()
+        registro.grid_remove()   # deu certo: o resultado no lugar do registro técnico
+        url = re.search(r"Rede da Câmara:\s+(https://\S+)", saida)
+        web = re.search(r"Internet:\s+(https://\S+)", saida)
+        pin = re.search(r"PIN inicial:\s*(\d+)", saida)
+        local = url.group(1) if url else endereco_local()
+        for w in final.winfo_children():
+            w.destroy()
+        ttk.Label(final, text="✔ LEGIS pronto", foreground=VERDE, font=("", 14, "bold")).pack(anchor="w")
+        info = [f"Na rede da Câmara:  {local}"]
+        if web:
+            info.append(f"Na internet:  {web.group(1)}")
+        if pin:
+            info.append(f"PIN inicial do presidente:  {pin.group(1)}  (troque no primeiro acesso)")
+        info.append("Vereadores: PIN inicial 0000 (troca obrigatória)")
+        if v_transc.get() or v_ia.get() or v_chave.get():
+            info.append("Transcrição, IA e internet terminam de instalar em segundo plano (alguns minutos).")
+        for t in info:
+            ttk.Label(final, text=t, wraplength=520, justify="left").pack(anchor="w", pady=1)
+        ttk.Button(final, text="Abrir o painel do presidente", style="Verde.TButton",
+                   command=lambda: webbrowser.open(local.rstrip("/") + "/presidente")).pack(anchor="w", pady=(10, 0))
+        final.grid(row=linha + 1, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+
+    def executar(cfg):
+        saida = []
+
+        def mostrar(t):
+            saida.append(t)
+            raiz.after(0, escrever, t)
+        try:
+            if not INSTALADO and not cfg.get("deb"):
+                cfg["deb"] = obter_deb(mostrar)
+            fd, arq = tempfile.mkstemp(prefix="legis-", suffix=".json")
+            with os.fdopen(fd, "w") as f:
+                json.dump(cfg, f)
+            proprio = "/usr/bin/legis-configurar" if INSTALADO else str(Path(__file__).resolve())
+            cmd = ["pkexec", proprio, "--aplicar", arq] if INSTALADO else \
+                  ["pkexec", sys.executable, proprio, "--aplicar", arq]
+            mostrar("Pedindo a senha de administrador...\n")
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            for ln in proc.stdout:
+                if "\r" in ln:
+                    ln = ln.split("\r")[-1]
+                mostrar(ln)
+            codigo = proc.wait()
+            Path(arq).unlink(missing_ok=True)
+            if codigo in (126, 127):
+                mostrar("Senha não confirmada.\n")
+        except Exception as e:  # mostra o erro na própria janela
+            mostrar(f"\nErro: {e}\n")
+            codigo = 1
+        raiz.after(0, concluir, codigo, "".join(saida))
+
+    def confirmar():
+        sigla = v_uf.get()[:2]
+        mun = v_mun.get().strip()
+        if not sigla or not mun or mun == "carregando...":
+            messagebox.showwarning("LEGIS", "Escolha o estado e o município.", parent=raiz)
+            return
+        if municipios and sem_acento(mun) not in {sem_acento(m) for m in municipios}:
+            if not messagebox.askyesno("LEGIS", f"“{mun}” não está na lista do IBGE para {sigla}. Continuar assim mesmo?", parent=raiz):
+                return
+        if not shutil.which("pkexec"):
+            messagebox.showerror("LEGIS", "Falta o pkexec (pacote polkitd / pkexec). Instale com:\n\nsudo apt install pkexec", parent=raiz)
+            return
+        cfg = {"uf": sigla, "municipio": mun, "nome": v_nome.get().strip(), "radio": v_radio.get(),
+               "transcricao": v_transc.get(), "ia": v_ia.get(), "chave": v_chave.get().strip()}
+        bt_ok.configure(state="disabled")
+        estado.configure(text="Instalando..." if not INSTALADO else "Configurando...")
+        progresso.grid(row=linha, column=0, columnspan=2, sticky="ew", pady=(14, 6))
+        registro.grid(row=linha + 1, column=0, columnspan=2, sticky="nsew")
+        progresso.start(12)
+        threading.Thread(target=executar, args=(cfg,), daemon=True).start()
+
+    bt_ok.configure(command=confirmar)
+    raiz.mainloop()
+    return 0
+
+
+def obter_deb(mostrar) -> str:
+    """Modo avulso: usa o .deb ao lado deste arquivo ou em Downloads; senão baixa a última versão."""
+    for pasta in (Path(__file__).resolve().parent, Path.home() / "Downloads", Path.home() / "Transferências"):
+        debs = sorted(pasta.glob("legis_*_all.deb"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if debs:
+            mostrar(f"Usando {debs[0]}\n")
+            return str(debs[0])
+    mostrar("Buscando a última versão no GitHub...\n")
+    rel = baixar_json(f"https://api.github.com/repos/{REPO}/releases/latest")
+    ativo = next(a for a in rel["assets"] if a["name"].endswith("_all.deb"))
+    destino = Path(tempfile.gettempdir()) / ativo["name"]
+    req = urllib.request.Request(ativo["browser_download_url"], headers={"User-Agent": "legis-configurar"})
+    with urllib.request.urlopen(req, timeout=60) as r, open(destino, "wb") as f:
+        shutil.copyfileobj(r, f)
+    destino.chmod(0o644)
+    mostrar(f"Baixado {ativo['name']} ({destino.stat().st_size // 1024} KB)\n")
+    return str(destino)
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ["--aplicar"] and len(args) == 2:
+        sys.exit(aplicar(args[1]))
+    if args[:1] == ["--se-preciso"]:
+        if not INSTALADO or not precisa_configurar():
+            return
+    if args[:1] == ["--abrir"]:
+        webbrowser.open(endereco_local())
+        return
+    if args[:1] in (["-h"], ["--help"]):
+        print(__doc__)
+        return
+    sys.exit(janela())
+
+
+if __name__ == "__main__":
+    main()

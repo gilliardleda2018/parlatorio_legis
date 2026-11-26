@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Aggilli Intelligence</vendor>
+  <action id="br.com.aggillintelligence.legis.configurar">
+    <description>Configure LEGIS</description>
+    <description xml:lang="pt_BR">Configurar o LEGIS</description>
+    <message>Installing and configuring LEGIS requires administrator rights</message>
+    <message xml:lang="pt_BR">Para instalar e configurar o LEGIS, digite a senha de administrador</message>
+    <icon_name>legis</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/legis-configurar</annotate>
+  </action>
+</policyconfig>

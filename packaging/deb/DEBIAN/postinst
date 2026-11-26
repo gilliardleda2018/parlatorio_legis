@@ -116,6 +116,26 @@ if [ -d /run/systemd/system ]; then
   fi
 fi
 
+# endereço local para os atalhos do menu (legível por todos; legis.env não é)
+HTTPS_P=$(grep '^PORTA_HTTPS=' "$ENVF" | cut -d= -f2)
+if [ "${HTTPS_P:-443}" = 443 ]; then echo "https://localhost" > "$ETC/endereco-local"; else echo "https://localhost:$HTTPS_P" > "$ETC/endereco-local"; fi
+chmod 644 "$ETC/endereco-local" "$ETC/instalacao.conf"
+
+# instalado sem município (ex.: clique duplo no .deb, que não pergunta nada): abre o configurador
+# gráfico na sessão de quem está usando a tela. Não abre quando é o próprio configurador que reconfigura.
+if [ -f "$DADOS/.sem-municipio" ] && [ -z "${LEGIS_CONFIGURADOR:-}" ] && command -v loginctl >/dev/null; then
+  for SID in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+    TIPO=$(loginctl show-session "$SID" -p Type --value 2>/dev/null || true)
+    ATIVA=$(loginctl show-session "$SID" -p Active --value 2>/dev/null || true)
+    U=$(loginctl show-session "$SID" -p Name --value 2>/dev/null || true)
+    if [ "$ATIVA" = yes ] && { [ "$TIPO" = x11 ] || [ "$TIPO" = wayland ]; } && [ -n "$U" ] && [ "$U" != root ]; then
+      systemd-run --user --machine="$U@.host" --collect --quiet /usr/bin/legis-configurar --se-preciso >/dev/null 2>&1 \
+        && echo "LEGIS: a janela de configuração foi aberta na tela de $U." || true
+      break
+    fi
+  done
+fi
+
 /usr/sbin/legis resumo || true
 echo "${EXTRAS:-}"
 exit 0

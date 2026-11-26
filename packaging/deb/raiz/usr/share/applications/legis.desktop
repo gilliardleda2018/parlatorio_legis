@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=LEGIS
+Comment=Sistema de Gestão Parlamentar
+Exec=legis-configurar --abrir
+Icon=legis
+Terminal=false
+Categories=Office;

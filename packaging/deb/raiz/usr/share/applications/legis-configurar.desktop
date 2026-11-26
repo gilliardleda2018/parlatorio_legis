@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Configurar o LEGIS
+Comment=Estado, município, rádio, transcrição, IA e publicação na internet
+Exec=legis-configurar
+Icon=legis
+Terminal=false
+Categories=Office;Settings;
+Keywords=câmara;vereadores;legis;
