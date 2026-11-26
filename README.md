@@ -297,6 +297,17 @@ Sem sessão no ar, a estação segue a programação normal. Não há senha nem 
 
 Enquanto estiver no ar, a tela inicial e a transparência mostram a faixa **Ao vivo** com o player e o nome de quem está na tribuna. A senha do servidor de rádio fica só no servidor (nunca vai para as telas). Precisa do `ffmpeg` no servidor (o Docker já traz).
 
+## YouTube ao vivo
+
+Ao clicar em **📡 Transmitir**, a sessão também vai para o canal da Câmara no YouTube, junto com a rádio ou sozinha:
+
+- **Com câmera:** escolha a câmera ou a placa de captura no cartão de transmissão (aba **Sessão**). O computador da mesa envia a imagem com o áudio da mesa de som, e o LEGIS põe por cima uma faixa com o nome da Câmara, o selo AO VIVO, o orador (nome, partido e fase) e o cronômetro.
+- **Sem câmera:** o LEGIS monta uma **tela automática** com o nome e o brasão da Câmara, a foto, o nome e o partido de quem está na tribuna, a fase, o cronômetro e a votação em curso, sempre atualizados.
+
+Para configurar, abra o **YouTube Studio → Criar → Transmitir ao vivo → Stream**, copie a **chave de transmissão** e cole em **Configurações → YouTube ao vivo**. Na primeira vez, o YouTube pode levar até 24 h para liberar as lives do canal. Em "Link público", ponha o endereço da live (por exemplo `https://www.youtube.com/@suacamara/live`), e as páginas públicas mostram **▶ Assistir no YouTube** enquanto estiver no ar.
+
+A chave fica só no servidor e nunca vai para as telas. O vídeo sai em H.264 720p a 30 quadros por segundo, com áudio AAC, pelo RTMPS do YouTube. Isso usa cerca de 2,5 Mbps de upload com câmera e 1,5 Mbps com a tela automática. A codificação ocupa cerca de um núcleo do processador com câmera e bem menos com a tela automática.
+
 ## Transcrição dos discursos
 
 Cada fala gravada é transcrita automaticamente depois que termina. O texto aparece no painel (Relatórios → Gravações das falas), onde a presidência lê, corrige e decide se publica. Só os discursos publicados entram na busca pública (**Transparência → O que foi dito na tribuna**) e na página de cada parlamentar. A ata em PDF traz a íntegra e marca o que ainda é transcrição automática não revisada.

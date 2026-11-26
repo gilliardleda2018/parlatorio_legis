@@ -586,18 +586,45 @@ function desenharMesaEGravacao() {
    partes de 1 s ao servidor, que converte para MP3 e publica no Icecast/AzuraCast. */
 const Tr = { stream: null, rec: null, envio: Promise.resolve(), querendo: false, falhas: 0, bytes: 0 };
 setInterval(() => { if (PL.estado?.transmissaoStatus?.ativa) desenharTransmissao(); }, 5000);
+const VMIME = ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm'].find(t => window.MediaRecorder?.isTypeSupported(t));
+async function listarCameras() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  const atual = localStorage.getItem('legis.camera') || '';
+  const lista = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  $('trCamera').innerHTML = '<option value="">Sem câmera: tela automática (orador, foto e cronômetro)</option>' +
+    lista.map((d, k) => `<option value="${esc(d.deviceId || 'padrao')}">📷 ${esc(d.label || 'Câmera ' + (k + 1))}</option>`).join('');
+  $('trCamera').value = [...$('trCamera').options].some(o => o.value === atual) ? atual : '';
+}
+$('trCamera').onchange = () => localStorage.setItem('legis.camera', $('trCamera').value);
+navigator.mediaDevices?.addEventListener?.('devicechange', listarCameras);
+listarCameras();
 async function trAlternar() {
   const st = PL.estado.transmissaoStatus || {};
   if (Tr.querendo || st.ativa || st.conectando) return trParar();
   if (!MIME) return PL.avisar('Este navegador não capta áudio. Use Chrome, Edge ou Firefox.', true);
-  if (!PL.estado.transmissao?.configurada) { document.querySelector('[data-aba="config"]').click(); $('cartaoTransmissaoCfg').scrollIntoView({ behavior: 'smooth' }); return PL.avisar('Configure o servidor de rádio primeiro.', true); }
+  const yt = PL.estado.youtube || {};
+  if (!PL.estado.transmissao?.configurada && !(yt.configurado && yt.ligado)) { document.querySelector('[data-aba="config"]').click(); $('cartaoTransmissaoCfg').scrollIntoView({ behavior: 'smooth' }); return PL.avisar('Configure a rádio ou o YouTube primeiro.', true); }
+  const cam = yt.configurado && yt.ligado ? $('trCamera').value : '';
+  if (cam && !VMIME) return PL.avisar('Este navegador não envia vídeo. Use Chrome, Edge ou Firefox.', true);
   try {
     const id = $('gravDispositivo').value;
-    Tr.stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: id ? { exact: id } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-  } catch (e) { return PL.avisar('Sem acesso à entrada de áudio: ' + e.message, true); }
+    Tr.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { deviceId: id ? { exact: id } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      video: cam ? { deviceId: cam !== 'padrao' ? { exact: cam } : undefined, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false });
+  } catch (e) { return PL.avisar((cam ? 'Sem acesso à câmera ou à entrada de áudio: ' : 'Sem acesso à entrada de áudio: ') + e.message, true); }
+  Tr.video = Tr.stream.getVideoTracks().length > 0;
+  if (Tr.video) { $('trPrevia').srcObject = Tr.stream; $('trPrevia').classList.remove('oculto'); listarCameras(); }
   Tr.querendo = true; Tr.falhas = 0;
-  await PL.acao('presidente', 'transmissaoLigar').catch(() => { trParar(); });
+  await PL.acao('presidente', 'transmissaoLigar', { camera: Tr.video }).catch(() => { trParar(); });
   desenharTransmissao();
+}
+async function ytSalvar() {
+  await PL.acao('presidente', 'youtubeConfigurar', { chave: $('ytChave').value, url: $('ytUrl').value, link: $('ytLink').value, ligado: $('ytLigado').checked })
+    .then(() => { PL.avisar('YouTube salvo.'); carregarTransmissao(); }).catch(() => {});
+}
+async function ytRemoverChave() {
+  if (!confirm('Remover a chave do YouTube deste servidor?')) return;
+  await PL.acao('presidente', 'youtubeRemoverChave').then(() => { PL.avisar('Chave removida.'); carregarTransmissao(); }).catch(() => {});
 }
 function trSincronizar() {
   const st = PL.estado.transmissaoStatus || {};
@@ -606,11 +633,12 @@ function trSincronizar() {
   desenharTransmissao();
 }
 function trComecarEnvio() {
-  const rec = new MediaRecorder(Tr.stream, { mimeType: MIME, audioBitsPerSecond: 128000 });
+  const tipo = Tr.video ? VMIME : MIME;
+  const rec = new MediaRecorder(Tr.stream, { mimeType: tipo, audioBitsPerSecond: 128000, ...(Tr.video ? { videoBitsPerSecond: 2500000 } : {}) });
   Tr.envio = Promise.resolve();
   rec.ondataavailable = e => {
     if (!e.data.size || Tr.rec !== rec) return;
-    Tr.envio = Tr.envio.then(() => api('/api/transmissao/parte', e.data, MIME.split(';')[0]))
+    Tr.envio = Tr.envio.then(() => api('/api/transmissao/parte', e.data, tipo.split(';')[0]))
       .then(r => { Tr.falhas = 0; Tr.bytes = r.bytes; })
       .catch(err => { if (++Tr.falhas >= 3 && Tr.rec === rec) { PL.avisar(err.message, true); trParar(); } });
   };
@@ -621,7 +649,8 @@ async function trParar(avisarServidor = true) {
   Tr.querendo = false;
   const rec = Tr.rec; Tr.rec = null;
   if (rec && rec.state !== 'inactive') rec.stop();
-  Tr.stream?.getTracks().forEach(t => t.stop()); Tr.stream = null;
+  Tr.stream?.getTracks().forEach(t => t.stop()); Tr.stream = null; Tr.video = false;
+  $('trPrevia').srcObject = null; $('trPrevia').classList.add('oculto');
   if (avisarServidor) await PL.acao('presidente', 'transmissaoDesligar').catch(() => {});
   desenharTransmissao();
 }
@@ -638,8 +667,18 @@ function desenharTransmissao() {
     : st.ativa ? `No ar há ${min} min · ${(Math.max(st.bytes, aqui ? Tr.bytes : 0) / 1048576).toFixed(1)} MB enviados${S.transmissao.publico ? ` · <a href="${esc(S.transmissao.publico)}" target="_blank" rel="noopener">ouvir</a>` : ''}`
     : st.erro ? `<span class="n-fim">${esc(st.erro)}</span>`
     : S.transmissao?.configurada ? 'Usa a mesma entrada de áudio da gravação e envia para o servidor de rádio configurado.'
-    : 'Configure o servidor de rádio em Configurações → Transmissão ao vivo.';
+    : (S.youtube?.configurado && S.youtube?.ligado) ? 'Usa a mesma entrada de áudio da gravação e envia ao YouTube (a rádio não está configurada).'
+    : 'Configure a rádio ou o YouTube em Configurações.';
   $('trCfgEstado').innerHTML = S.transmissao?.configurada ? '<span class="chip sim">configurada</span>' : '<span class="chip">não configurada</span>';
+  const yt = S.youtube || {}, ys = S.youtubeStatus || {};
+  $('trCamera').classList.toggle('oculto', !(yt.configurado && yt.ligado));
+  $('trCamera').disabled = aqui || st.ativa;
+  $('trYoutube').innerHTML = !(yt.configurado && yt.ligado) ? ''
+    : ys.ativa ? `<span class="rec">▶ YouTube no ar</span> · ${ys.modo === 'camera' ? 'câmera' : 'tela automática'}${yt.link ? ` · <a href="${esc(yt.link)}" target="_blank" rel="noopener">assistir</a>` : ''}`
+    : ys.erro ? `<span class="n-fim">YouTube: ${esc(ys.erro)}</span>`
+    : (aqui || st.ativa) ? '<span class="chip ambar">YouTube conectando…</span>' : '▶ Também vai para o YouTube.';
+  $('ytCfgEstado').innerHTML = yt.configurado ? `<span class="chip ${yt.ligado ? 'sim' : ''}">${yt.ligado ? 'ligado' : 'chave salva, desligado'}</span>` : '<span class="chip">sem chave</span>';
+  $('ytRemover').classList.toggle('oculto', !yt.configurado);
 }
 PL.aoMudar(() => trSincronizar());
 addEventListener('beforeunload', e => { if (Tr.rec) { e.preventDefault(); e.returnValue = ''; } });
@@ -654,6 +693,9 @@ async function carregarTransmissao() {
   $('trUsuario').value = c.usuario; $('trSenha').value = ''; $('trSenha').placeholder = c.temSenha ? '•••••• (mantida; digite para trocar)' : '';
   $('trBitrate').value = c.bitrate; $('trPublico').value = c.publico; $('trNome').value = c.nome; $('trTls').checked = c.tls;
   if (!c.ffmpeg) $('trCfgEstado').innerHTML = '<span class="chip nao">servidor sem ffmpeg</span>';
+  const y = c.youtube || {};
+  $('ytUrl').value = y.url || ''; $('ytLink').value = y.link || ''; $('ytLigado').checked = y.ligado !== false;
+  $('ytChave').value = ''; $('ytChave').placeholder = y.temChave ? '•••••• (mantida; cole outra para trocar)' : 'xxxx-xxxx-xxxx-xxxx-xxxx';
   trVisibilidade();
 }
 function trPreset() {

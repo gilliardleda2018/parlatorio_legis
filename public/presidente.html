@@ -207,8 +207,11 @@
           <div class="cartao neutro" id="cartaoTransmissao">
             <h2>Transmissão ao vivo<span class="esp"></span><span id="trEstado"></span></h2>
             <div class="coluna" style="gap:10px">
+              <select class="campo" id="trCamera" aria-label="Câmera para o YouTube"><option value="">Sem câmera: tela automática (orador, foto e cronômetro)</option></select>
+              <video id="trPrevia" class="oculto" muted playsinline autoplay style="width:100%;border-radius:10px;background:#000;aspect-ratio:16/9"></video>
               <button class="botao" id="trBotao" onclick="trAlternar()">📡 Transmitir a sessão ao vivo</button>
               <small class="suave" id="trAjuda">Usa a mesma entrada de áudio da gravação e envia para o servidor de rádio configurado em Configurações → Transmissão ao vivo.</small>
+              <small class="suave" id="trYoutube"></small>
             </div>
           </div>
           <div class="cartao neutro">
@@ -445,6 +448,20 @@
               <input class="campo" id="trPublico" placeholder="https://radio.suacamara.leg.br/listen/camara/radio.mp3"></label>
             <label class="linha trDestino" style="margin-top:6px">Conexão segura (TLS) com o servidor de rádio<input type="checkbox" id="trTls"></label>
             <div class="grupo" style="justify-content:flex-end;margin-top:12px"><button class="botao principal" onclick="trSalvar()">Salvar transmissão</button></div>
+          </div>
+          <div class="cartao" id="cartaoYoutube">
+            <h2>YouTube ao vivo<span class="esp"></span><span id="ytCfgEstado"></span></h2>
+            <p class="detalhe" style="margin-top:0">Ao clicar em 📡 Transmitir, a sessão vai também para o canal da Câmara no YouTube: com a câmera escolhida no cartão
+              de transmissão ou, sem câmera, com uma tela automática (nome da Câmara, foto e nome do orador, fase e cronômetro). No
+              <b>YouTube Studio → Criar → Transmitir ao vivo → Stream</b>, copie a <b>chave de transmissão</b>. Na primeira vez, o YouTube pode levar até 24 h para liberar as lives do canal.</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+              <label class="rot">Chave de transmissão<input class="campo" id="ytChave" type="password" autocomplete="new-password" placeholder="xxxx-xxxx-xxxx-xxxx-xxxx"></label>
+              <label class="rot">Servidor<input class="campo" id="ytUrl" placeholder="rtmps://a.rtmps.youtube.com:443/live2"></label>
+            </div>
+            <label class="rot" style="margin-top:10px">Link público do canal ao vivo (aparece nas páginas públicas enquanto estiver no ar)
+              <input class="campo" id="ytLink" placeholder="https://www.youtube.com/@suacamara/live"></label>
+            <label class="linha" style="margin-top:6px">Transmitir também no YouTube ao clicar em 📡 Transmitir<input type="checkbox" id="ytLigado" checked></label>
+            <div class="grupo" style="justify-content:flex-end;margin-top:12px"><button class="botao fantasma" id="ytRemover" onclick="ytRemoverChave()">Remover chave</button><button class="botao principal" onclick="ytSalvar()">Salvar YouTube</button></div>
           </div>
           <div class="cartao" id="cartaoRodape">
             <h2>Rodapé das páginas públicas</h2>

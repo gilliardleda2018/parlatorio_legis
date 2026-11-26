@@ -44,6 +44,7 @@ import seguranca
 import backup as backup_mod
 import transcricao
 import transmissao
+import youtube
 import akn
 import conhecimento
 import ia
@@ -291,6 +292,8 @@ def NOVOS_CAMPOS() -> dict:
         "transmissao": {"configurada": False, "publico": "", "nome": ""},
         "_transmissao": {"preset": "azuracast", "host": "", "porta": 8005, "mount": "/", "usuario": "", "senha": "",
                          "tls": False, "bitrate": 128},
+        "youtube": {"configurado": False, "ligado": True, "link": ""},   # sem a chave: ela fica em _youtube
+        "_youtube": {"url": youtube.URL_PADRAO, "chave": ""},
     }
 
 
@@ -1930,6 +1933,7 @@ def pacote() -> str:
     pub["gravacoes"] = [grav_publica(g) for g in grav_da_sessao(S["sessao"]["id"])]
     pub["transcricaoMotor"] = transcritor.descricao()
     pub["transmissaoStatus"] = transmissor.status() if "transmissor" in globals() else {"ativa": False}
+    pub["youtubeStatus"] = canal_youtube.status() if "canal_youtube" in globals() else {"ativa": False}
     pub["iaMotor"] = ia.descricao()
     pub["radioLocal"] = RADIO_LOCAL
     pub["camaraConfigurada"] = camara_configurada()
@@ -2162,6 +2166,61 @@ def _transmissao_mudou():
 transmissor = transmissao.Transmissor(_transmissao_mudou)
 
 
+def _quadro_youtube() -> dict:
+    """Retrato da sessão para a imagem do YouTube (orador, aparte, votação, fase)."""
+    with trava:
+        q = {"casa": S["casa"]["nome"], "titulo": S["casa"]["titulo"], "logoV": S["casa"].get("logoV") or 0,
+             "fase": fase(S["faseAtual"])["nome"] if S.get("faseAtual") else "", "orador": None, "votacao": None}
+        i, o = S.get("interr"), S.get("orador")
+        alvo = (i, TIPOS.get(i["tipo"], "Aparte")) if i and i.get("pid") else (o, None) if o and o.get("pid") else (None, None)
+        if alvo[0]:
+            t, rotulo = alvo
+            p = next((x for x in S["parls"] if x["id"] == t["pid"]), None)
+            if p:
+                q["orador"] = {"id": p["id"], "nome": p["nome"], "partido": p["partido"], "fotoV": p.get("fotoV") or 0,
+                               "fase": rotulo or fase(t.get("fase") or S["faseAtual"])["nome"], "restante": restante(t)}
+        v = S.get("votacao")
+        if v and v.get("aberta"):
+            q["votacao"] = {"numero": v.get("numero"), "ementa": v.get("ementa")}
+        return q
+
+
+def _imagem_youtube(chave: str) -> bytes | None:
+    with trava:
+        linha = db.execute("select dados from imagens where chave = ?", (chave,)).fetchone()
+    return linha[0] if linha else None
+
+
+canal_youtube = youtube.YouTube(_transmissao_mudou, _quadro_youtube, _imagem_youtube)
+
+
+@acao("presidente")
+def youtubeConfigurar(ator, chave=None, url="", link="", ligado=True):
+    cfg = S["_youtube"]
+    try:
+        cfg["url"] = youtube.validar_url(url)
+        if chave is not None and str(chave).strip():
+            cfg["chave"] = youtube.validar_chave(chave)
+    except ValueError as e:
+        raise Erro(str(e))
+    link = str(link or "").strip()
+    if link and not re.fullmatch(r"https://[^\s<>\"']{3,300}", link):
+        raise Erro("O link público deve começar com https:// (ex.: https://www.youtube.com/@suacamara/live).")
+    S["youtube"].update(configurado=bool(cfg["chave"]), ligado=bool(ligado), link=link)
+    registrar("presidente", "youtubeConfigurar", {"url": cfg["url"], "ligado": bool(ligado)})
+
+
+@acao("presidente")
+def youtubeRemoverChave(ator):
+    canal_youtube.desligar(avisar=False)
+    S["_youtube"]["chave"] = ""
+    S["youtube"]["configurado"] = False
+
+
+def _youtube_vai() -> bool:
+    return bool(S["youtube"]["configurado"] and S["youtube"]["ligado"] and S["_youtube"]["chave"])
+
+
 @acao("presidente")
 def transmissaoConfigurar(ator, preset="azuracast", host="", porta=8005, mount="/", usuario="", senha=None, tls=False,
                           bitrate=128, publico="", nome=""):
@@ -2202,21 +2261,35 @@ def transmissaoConfigurar(ator, preset="azuracast", host="", porta=8005, mount="
 
 
 @acao("presidente")
-def transmissaoLigar(ator):
+def transmissaoLigar(ator, camera=False):
     if not shutil.which("ffmpeg"):
         raise Erro("O servidor precisa do ffmpeg para transmitir (apt install ffmpeg).")
-    if not S["transmissao"]["configurada"]:
-        raise Erro("Configure o servidor de rádio (endereço e senha) antes de transmitir.")
+    vai_youtube = _youtube_vai()
+    if not S["transmissao"]["configurada"] and not vai_youtube:
+        raise Erro("Configure a rádio ou o YouTube em Configurações antes de transmitir.")
+    # sem rádio configurada, o áudio ainda vira MP3 aqui dentro (legendas e /aovivo), sem enviar a lugar nenhum
+    cfg = S["_transmissao"] if S["transmissao"]["configurada"] else {**S["_transmissao"], "preset": "local"}
     try:
-        transmissor.ligar_em_segundo_plano(S["_transmissao"], f"{S['casa']['nome']} · {S['casa']['titulo']}")
+        transmissor.ligar_em_segundo_plano(cfg, f"{S['casa']['nome']} · {S['casa']['titulo']}")
     except RuntimeError as e:
         raise Erro(str(e))
-    registrar("presidente", "transmissaoLigar", {})
+    if vai_youtube:
+        url, chave = S["_youtube"]["url"], S["_youtube"]["chave"]
+
+        def ligar_youtube():
+            try:
+                canal_youtube.ligar(url, chave, bool(camera))
+            except (RuntimeError, ValueError, OSError) as e:
+                canal_youtube.erro = str(e)
+            _transmissao_mudou()
+        threading.Thread(target=ligar_youtube, daemon=True).start()
+    registrar("presidente", "transmissaoLigar", {"camera": bool(camera), "youtube": vai_youtube})
 
 
 @acao("presidente")
 def transmissaoDesligar(ator):
     transmissor.desligar(avisar=False)
+    canal_youtube.desligar(avisar=False)
     registrar("presidente", "transmissaoDesligar", {})
 
 
@@ -2226,7 +2299,9 @@ def ao_vivo() -> dict:
     if o and o.get("pid"):
         p = next((x for x in S["parls"] if x["id"] == o["pid"]), None)
         falando = p and {"nome": p["nome"], "partido": p["partido"]}
-    return {"ativa": transmissor.ativa and bool(S["transmissao"]["publico"]), "publico": S["transmissao"]["publico"],
+    yt = S["youtube"]["link"] if canal_youtube.ativa and S["youtube"]["link"] else None
+    return {"ativa": (transmissor.ativa and bool(S["transmissao"]["publico"])) or bool(yt), "publico": S["transmissao"]["publico"],
+            "youtube": yt,
             "nome": S["transmissao"]["nome"], "casa": S["casa"]["nome"], "titulo": S["casa"]["titulo"], "falando": falando,
             "desde": transmissor.desde if transmissor.ativa else None,
             "radio": "/radio.mp3" if RADIO_LOCAL else None}
@@ -2702,6 +2777,8 @@ class Manipulador(BaseHTTPRequestHandler):
                 if not ator or ator["papel"] != "presidente":
                     return self._json(403, {"erro": "Só o painel do presidente."})
                 cfg = {k: v for k, v in S["_transmissao"].items() if k != "senha"}
+                cfg["youtube"] = {"url": S["_youtube"]["url"], "temChave": bool(S["_youtube"]["chave"]),
+                                  "link": S["youtube"]["link"], "ligado": S["youtube"]["ligado"]}
                 return self._json(200, {**cfg, "temSenha": bool(S["_transmissao"]["senha"]), "publico": S["transmissao"]["publico"],
                                         "nome": S["transmissao"]["nome"], "presets": transmissao.PRESETS,
                                         "bitrates": transmissao.BITRATES, "ffmpeg": bool(shutil.which("ffmpeg"))})
@@ -3002,6 +3079,12 @@ class Manipulador(BaseHTTPRequestHandler):
             transmissor.enviar(dados)
         except RuntimeError as e:
             return self._json(409, {"erro": str(e)})
+        try:
+            canal_youtube.enviar(dados)
+        except RuntimeError as e:   # o YouTube cai sozinho; a rádio e as legendas continuam
+            canal_youtube.desligar(avisar=False)
+            canal_youtube.erro = str(e)
+            _transmissao_mudou()
         return self._json(200, {"ok": True, "bytes": transmissor.bytes})
 
     def _discursos(self):

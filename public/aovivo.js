@@ -24,12 +24,14 @@
       }
       return;
     }
-    if (!d || !d.ativa || !d.publico) { faixa.hidden = true; return; }
+    if (!d || !d.ativa || !(d.publico || d.youtube)) { faixa.hidden = true; return; }
     faixa.hidden = false;
     const info = `<b>${esc(d.nome || d.casa)}</b> · ${esc(d.titulo)}${d.falando ? ` · na tribuna: <b>${esc(d.falando.nome)}</b> (${esc(d.falando.partido)})` : ''}`;
-    if (url !== d.publico) {
-      url = d.publico;
-      faixa.innerHTML = `<span class="sinal"><i></i>Ao vivo</span><span class="info"></span><audio controls preload="none" src="${esc(url)}"></audio>
+    if (url !== (d.publico || '') + '|' + (d.youtube || '')) {
+      url = (d.publico || '') + '|' + (d.youtube || '');
+      faixa.innerHTML = `<span class="sinal"><i></i>Ao vivo</span><span class="info"></span>
+        ${d.youtube ? `<a class="botao" href="${esc(d.youtube)}" target="_blank" rel="noopener" style="text-decoration:none">▶ Assistir no YouTube</a>` : ''}
+        ${d.publico ? `<audio controls preload="none" src="${esc(d.publico)}"></audio>` : ''}
         <div class="leg" aria-live="polite" title="Legenda automática"></div>`;
     }
     faixa.querySelector('.info').innerHTML = info;
