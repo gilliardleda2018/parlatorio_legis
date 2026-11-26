@@ -26,6 +26,7 @@ import sys
 import sqlite3
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import urllib.parse
@@ -110,13 +111,37 @@ def abrir_banco() -> sqlite3.Connection:
 
 
 db = abrir_banco()
+_atomico = threading.local()  # marca a thread que está dentro de atomico()
+
+
+def commit():
+    """Grava no banco, menos dentro de atomico(): aí tudo é gravado no fim, ou desfeito se der erro."""
+    if not getattr(_atomico, "ativo", False):
+        db.commit()
+
+
+def atomico(fn, *args, **kwargs):
+    """Executa fn (com a trava): ou tudo vale, estado e banco, ou nada muda e a exceção sobe."""
+    antes = json.dumps(S)
+    _atomico.ativo = True
+    try:
+        resultado = fn(*args, **kwargs)
+    except BaseException:
+        db.rollback()
+        S.clear()
+        S.update(json.loads(antes))
+        raise
+    finally:
+        _atomico.ativo = False
+    db.commit()
+    return resultado
 
 
 # gravações ficam numa tabela própria: sobrevivem ao arquivamento da sessão
 def grav_salvar(g: dict):
     db.execute("insert or replace into gravacoes (id, sessao, criado, json) values (?, ?, ?, ?)",
                (g["id"], g["sessao"], g["criado"], json.dumps(g, ensure_ascii=False)))
-    db.commit()
+    commit()
 
 
 def grav_obter(gid: str) -> dict | None:
@@ -129,7 +154,7 @@ def proj_salvar(p: dict):
     p["atualizado"] = agora()
     db.execute("insert or replace into projetos (id, atualizado, json) values (?, ?, ?)",
                (p["id"], p["atualizado"], json.dumps(p, ensure_ascii=False)))
-    db.commit()
+    commit()
 
 
 def proj_obter(pid: str) -> dict | None:
@@ -367,6 +392,18 @@ def presente(pid: str) -> bool:
 
 def sinal(tipo: str):
     S["sinal"] = {"n": S["sinal"]["n"] + 1, "tipo": tipo}
+
+
+def _bool(v) -> bool:
+    """Booleano vindo da tela ou da API: aceita true/false, 1/0 e "true"/"false" (bool("false") daria True)."""
+    if isinstance(v, str):
+        t = v.strip().lower()
+        if t in ("true", "1", "sim", "on"):
+            return True
+        if t in ("false", "0", "nao", "não", "off", ""):
+            return False
+        raise Erro(f"Valor inválido: {v!r} (use verdadeiro ou falso).")
+    return bool(v)
 
 
 TIPOS = {"aparte": "Aparte", "ordem": "Questão de ordem", "pelaordem": "Pela ordem"}
@@ -706,7 +743,7 @@ def mesaSalvar(ator, cfg):
             continue
         v = cfg[k]
         if isinstance(padrao, bool):
-            novo[k] = bool(v)
+            novo[k] = _bool(v)
         elif k in ("porta", "canalTribuna"):
             novo[k] = int(v or 0)
         elif k in ("valorAberto", "valorFechado"):
@@ -741,7 +778,7 @@ def gravacaoRemover(ator, id):
 def _apagar_gravacao(g: dict):
     (GRAVACOES / f"{g['id']}.{g['ext']}").unlink(missing_ok=True)
     db.execute("delete from gravacoes where id = ?", (g["id"],))
-    db.commit()
+    commit()
 
 
 # --- presença e pedidos
@@ -867,7 +904,7 @@ def projetoRemover(ator, id):
     if any(m["id"] == id for m in S["pauta"]):
         raise Erro("Retire o projeto da pauta antes.")
     db.execute("delete from projetos where id = ?", (id,))
-    db.commit()
+    commit()
     S["projetosRev"] += 1
 
 
@@ -941,7 +978,7 @@ def retirarProposta(ator, id):
     if not p or p["situacao"] != "proposta" or p["autor"] != parl(ator["pid"])["nome"]:
         raise Erro("Só é possível retirar propostas suas ainda não protocoladas.")
     db.execute("delete from projetos where id = ?", (id,))
-    db.commit()
+    commit()
     S["projetosRev"] += 1
 
 
@@ -1153,7 +1190,7 @@ def configSalvar(ator, casa, cfg, fases, partidos):
     S["casa"].update({k: casa[k] for k in ("nome", "titulo", "destaque", "tema") if k in casa})
     for k, v in cfg.items():
         if k in S["cfg"]:
-            S["cfg"][k] = type(S["cfg"][k])(v)
+            S["cfg"][k] = _bool(v) if isinstance(S["cfg"][k], bool) else type(S["cfg"][k])(v)
     fs = [{"id": f.get("id") or uid(), "nome": str(f["nome"]).strip(), "min": float(f["min"]),
            "totalMin": float(f.get("totalMin") or 0)} for f in fases if str(f["nome"]).strip() and float(f["min"]) > 0]
     if not fs:
@@ -1619,7 +1656,7 @@ def _virtual_apurar(v: dict, antecipada: bool = False):
                          if antecipada else []), "gravacoes": []}
     db.execute("insert or replace into sessoes (id, titulo, inicio, fim, resumo, json) values (?, ?, ?, ?, ?, ?)",
                (r["id"], r["titulo"], r["inicio"], fim, json.dumps(resumo(r)), json.dumps(r, ensure_ascii=False)))
-    db.commit()
+    commit()
     v["encerrada"] = fim
     v["arquivo"] = r["id"]
     S["projetosRev"] += 1
@@ -1634,7 +1671,7 @@ def remotoConfigurar(ator, ativo, servidor=None):
         if not re.match(r"^https://[a-z0-9.-]+(:\d+)?$", servidor, re.I):
             raise Erro("Informe o servidor Jitsi como https://meet.suacamara.leg.br")
         S["remoto"]["servidor"] = servidor
-    S["remoto"]["ativo"] = bool(ativo)
+    S["remoto"]["ativo"] = ativo = _bool(ativo)
     if ativo and not S["_remoto"]["sala"]:
         S["_remoto"]["sala"] = "parlatorio-" + secrets.token_urlsafe(12).replace("_", "").replace("-", "")
 
@@ -1728,7 +1765,7 @@ def sessaoEncerrar(ator, proximoTitulo, manterPauta=True):
     r = retrato(fim)
     db.execute("insert or replace into sessoes (id, titulo, inicio, fim, resumo, json) values (?, ?, ?, ?, ?, ?)",
                (r["id"], r["titulo"], r["inicio"], fim, json.dumps(resumo(r)), json.dumps(r, ensure_ascii=False)))
-    db.commit()
+    commit()
     nao_votadas = [dict(m, situacao="pendente") for m in S["pauta"]
                    if m["situacao"] in ("pendente", "em_discussao", "em_votacao", "adiada")] if manterPauta else []
     S.update(filas={}, orador=None, interr=None, pedidos=[], hist=[], presenca={}, votacao=None, votacoes=[],
@@ -1751,7 +1788,7 @@ def sessaoArquivoRemover(ator, id):
     for g in grav_da_sessao(id):
         _apagar_gravacao(g)
     db.execute("delete from sessoes where id = ?", (id,))
-    db.commit()
+    commit()
 
 
 def sessao_arquivada(sid: str) -> dict | None:
@@ -1773,44 +1810,61 @@ def logo_ata() -> bytes | None:
 
 # ---------------------------------------------------------------- regras automáticas
 def tique():
-    """Avisos sonoros, corte de microfone e fim de aparte, 4 vezes por segundo."""
+    """Avisos sonoros, corte de microfone e fim de aparte, 4 vezes por segundo.
+
+    Um erro numa volta não pode parar a thread: sem ela não há corte automático nem apuração.
+    """
+    estado_tique = {"gravacoes": 0.0, "erro": None}
     while True:
         time.sleep(0.25)
-        with trava:
-            mudou = False
-            o, i = S["orador"], S["interr"]
-            if o and o["start"]:
-                r = restante(o)
-                if not o["alertou"] and 0 < r <= S["cfg"]["alerta"] * 1000:
-                    o["alertou"] = True
-                    sinal("alerta")
-                    mudou = True
-                if not o["esgotou"] and r <= 0:
-                    o["esgotou"] = True
-                    sinal("fim")
-                    mudou = True
-                    if S["cfg"]["corte"]:
-                        o["acc"], o["start"], o["mic"] = o["total"], None, False
-                        _ocorrencia("tempo_esgotado", o["pid"], "microfone cortado automaticamente")
-                        if i and not i["pausouOrador"]:
-                            _encerrar_interr(retomar=False)
-            i = S["interr"]
-            if i and i["start"] and restante(i) <= 0 and S["cfg"]["corte"]:
-                sinal("fim")
-                _encerrar_interr()
+        try:
+            _tique(estado_tique)
+        except Exception as e:
+            assinatura = f"{type(e).__name__}: {e}"
+            if assinatura != estado_tique["erro"]:  # não repete o mesmo erro 4 vezes por segundo
+                print("Erro nas regras automáticas (a thread continua):", file=sys.stderr)
+                traceback.print_exc()
+            estado_tique["erro"] = assinatura
+
+
+def _tique(estado_tique: dict):
+    with trava:
+        mudou = False
+        o, i = S["orador"], S["interr"]
+        if o and o["start"]:
+            r = restante(o)
+            if not o["alertou"] and 0 < r <= S["cfg"]["alerta"] * 1000:
+                o["alertou"] = True
+                sinal("alerta")
                 mudou = True
-            for v in S["virtuais"]:
-                if not v.get("encerrada") and not v.get("cancelada") and agora() >= v["fim"]:
-                    _virtual_apurar(v)
+            if not o["esgotou"] and r <= 0:
+                o["esgotou"] = True
+                sinal("fim")
+                mudou = True
+                if S["cfg"]["corte"]:
+                    o["acc"], o["start"], o["mic"] = o["total"], None, False
+                    _ocorrencia("tempo_esgotado", o["pid"], "microfone cortado automaticamente")
+                    if i and not i["pausouOrador"]:
+                        _encerrar_interr(retomar=False)
+        i = S["interr"]
+        if i and i["start"] and restante(i) <= 0 and S["cfg"]["corte"]:
+            sinal("fim")
+            _encerrar_interr()
+            mudou = True
+        for v in S["virtuais"]:
+            if not v.get("encerrada") and not v.get("cancelada") and agora() >= v["fim"]:
+                atomico(_virtual_apurar, v)  # se falhar, nada fica pela metade e tenta de novo na próxima volta
+                mudou = True
+        if time.time() - estado_tique["gravacoes"] >= 5:  # uma vez a cada 5 s
+            estado_tique["gravacoes"] = time.time()
+            for g in grav_da_sessao(S["sessao"]["id"]):
+                if not g["fim"] and agora() - g["ultimo"] > 60000:
+                    g["fim"], g["interrompida"] = g["ultimo"], True  # navegador que gravava caiu
+                    grav_salvar(g)
                     mudou = True
-            if int(time.time()) % 5 == 0:
-                for g in grav_da_sessao(S["sessao"]["id"]):
-                    if not g["fim"] and agora() - g["ultimo"] > 60000:
-                        g["fim"], g["interrompida"] = g["ultimo"], True  # navegador que gravava caiu
-                        grav_salvar(g)
-                        mudou = True
-            if mudou:
-                confirmar()
+        if mudou:
+            confirmar()
+        estado_tique["erro"] = None
 
 
 # ---------------------------------------------------------------- transmissão
@@ -2692,6 +2746,9 @@ class Manipulador(BaseHTTPRequestHandler):
             return self._json(404, {"erro": "Não encontrado."})
         except Erro as e:
             return self._json(400, {"erro": str(e)})
+        except Exception:  # responde em vez de derrubar a conexão; o erro fica no log
+            traceback.print_exc()
+            return self._json(500, {"erro": "Erro interno."})
 
     def _pin_guardado(self, papel: str, pid) -> str | None:
         if papel == "presidente":
@@ -2756,7 +2813,10 @@ class Manipulador(BaseHTTPRequestHandler):
         return self._json(200, {"ok": True})
 
     def _acao(self, corpo):
-        nome, args = corpo.get("nome"), dict(corpo.get("args") or {})
+        nome, args = corpo.get("nome"), corpo.get("args") or {}
+        if not isinstance(args, dict):
+            raise Erro("Parâmetros inválidos.")
+        args = dict(args)
         if nome in ACOES_COM_PIN:  # confirma o PIN antes, fora da trava (PBKDF2 é lento de propósito)
             with trava:
                 ator = self._ator()
@@ -2778,17 +2838,16 @@ class Manipulador(BaseHTTPRequestHandler):
                 return self._json(403, {"erro": "Troque o PIN padrão antes de continuar.", "codigo": "trocarPin"})
             if nome not in ACOES or ator["papel"] not in ACOES[nome][0]:
                 return self._json(403, {"erro": "Ação não permitida."})
-            antes = json.dumps(S)
             try:
-                ACOES[nome][1](ator, **args)
+                atomico(ACOES[nome][1], ator, **args)
             except Erro:
-                S.clear()
-                S.update(json.loads(antes))
                 raise
-            except TypeError:
-                S.clear()
-                S.update(json.loads(antes))
-                raise Erro("Parâmetros inválidos.")
+            except Exception as e:  # atomico já desfez estado e banco; o erro fica no log
+                print(f"Ação {nome} falhou:", file=sys.stderr)
+                traceback.print_exc()
+                if isinstance(e, (TypeError, ValueError, KeyError, AttributeError, IndexError)):
+                    raise Erro("Parâmetros inválidos.") from e
+                return self._json(500, {"erro": "Erro interno. Nada foi alterado."})
             registrar(ator["pid"] or "presidente", nome, args)
             confirmar()
         return self._json(200, {"ok": True})
