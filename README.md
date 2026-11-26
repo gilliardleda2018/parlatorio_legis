@@ -37,7 +37,7 @@ Variáveis de ambiente:
 - `PIN_PRESIDENTE`: PIN do painel do presidente (padrão 1234; troque em produção)
 - `TRANSCRICAO`: `auto` (padrão), `local`, `api`, `comando` ou `0` — veja **Transcrição dos discursos**
 - `HOST`: endereço onde o servidor escuta (padrão `0.0.0.0`; use `127.0.0.1` atrás de um proxy)
-- `PROXY_CONFIAVEL=1`: atrás de proxy (Caddy, nginx, Tailscale Funnel), usa o IP real do visitante no bloqueio por tentativas; `PROXY_IPS` diz de onde o proxy conecta (padrão `127.0.0.1,::1`; em Docker, o gateway da rede)
+- `PROXY_CONFIAVEL=1`: atrás de proxy (Caddy, nginx, Tailscale Funnel), usa o IP real do visitante no bloqueio por tentativas; `PROXY_IPS` diz de onde o proxy conecta: IPs ou faixas (padrão `127.0.0.1,::1`; em Docker, a rede do contêiner, ex. `172.26.0.0/16`)
 - `TROCA_PIN=0`: período de testes — deixa entrar com o PIN padrão (0000) sem obrigar a troca. Não use em produção.
 - `PARLATORIO_BANCO`: caminho do banco SQLite (padrão `dados/parlatorio.db`)
 
@@ -241,6 +241,23 @@ As respostas automáticas sempre mostram as fontes, e o rascunho da ata só vale
 Para rodar **dentro da Câmara** (on-premise, servidor Debian na rede do plenário, controlando a mesa de som), veja [deploy/local/README.md](deploy/local/README.md). Mesas suportadas: Behringer X32/M32, X Air, WING; Yamaha TF/DM3/DM7/QL/CL/Rivage; Allen & Heath Qu/dLive/Avantis/SQ; Soundcraft Ui; qualquer mesa OSC; Bitfocus Companion ou Node-RED por ponte HTTP; relés e centrais de conferência com URL por canal.
 
 O roteiro para a AWS (EC2 em São Paulo, HTTPS automático com Caddy no domínio da câmara) está em [deploy/aws/README.md](deploy/aws/README.md), com o instalador `deploy/aws/instalar.sh`, que serve para qualquer servidor Ubuntu.
+
+### Publicar pelo Tailscale Funnel (sem abrir portas no roteador)
+
+Com Docker, um contêiner do Tailscale com nome próprio publica o LEGIS em `https://legis.<sua-tailnet>.ts.net`, com certificado válido e sem depender de IP fixo nem do roteador. A configuração está em `deploy/tailscale/serve.json`. Gere uma chave em https://login.tailscale.com/admin/settings/keys e suba uma vez com ela (depois o login fica salvo em `dados/tailscale-legis`):
+
+```yaml
+# docker-compose.override.yml
+services:
+  tailscale-legis:
+    image: tailscale/tailscale:stable
+    hostname: legis
+    restart: unless-stopped
+    environment: { TS_AUTHKEY: "${TS_AUTHKEY:-}", TS_HOSTNAME: legis, TS_STATE_DIR: /var/lib/tailscale, TS_USERSPACE: "true", TS_SERVE_CONFIG: /config/serve.json }
+    volumes: ["./dados/tailscale-legis:/var/lib/tailscale", "./deploy/tailscale/serve.json:/config/serve.json:ro"]
+```
+
+Em `dados/parlatorio.env`, use `PROXY_CONFIAVEL=1` e `PROXY_IPS` com a faixa da rede Docker (ex.: `172.26.0.0/16`), para o bloqueio de tentativas usar o IP real do visitante.
 
 ## Transmissão ao vivo (rádio)
 

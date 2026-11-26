@@ -15,6 +15,7 @@ servidor; cada tela corrige a diferença do próprio relógio com o campo
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import math
 import os
@@ -66,7 +67,16 @@ HOST = os.environ.get("HOST", "0.0.0.0")  # 127.0.0.1 quando há um proxy (Caddy
 # Atrás de proxy, o IP real do visitante vem no X-Forwarded-For (usado no bloqueio por tentativas)
 PROXY_CONFIAVEL = os.environ.get("PROXY_CONFIAVEL", "0") == "1"
 # de onde o proxy conecta: em Docker, o túnel/proxy do host chega pelo gateway da rede (ex.: 172.26.0.1)
-PROXY_IPS = {x.strip() for x in os.environ.get("PROXY_IPS", "127.0.0.1,::1").split(",") if x.strip()}
+PROXY_IPS = [ipaddress.ip_network(x.strip(), strict=False)  # IPs ou faixas (ex.: rede Docker 172.26.0.0/16)
+             for x in os.environ.get("PROXY_IPS", "127.0.0.1,::1").split(",") if x.strip()]
+
+
+def _de_proxy(ip: str) -> bool:
+    try:
+        endereco = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(endereco in rede for rede in PROXY_IPS if rede.version == endereco.version)
 PIN_PRESIDENTE = os.environ.get("PIN_PRESIDENTE", "1234")  # PIN inicial; depois da troca vale o salvo (com hash)
 # Período de testes: TROCA_PIN=0 deixa entrar com PIN padrão (0000) sem obrigar a troca. Em produção, deixe ligado.
 TROCA_PIN_OBRIGATORIA = os.environ.get("TROCA_PIN", "1") != "0"
@@ -2554,7 +2564,7 @@ class Manipulador(BaseHTTPRequestHandler):
 
     def _ip(self) -> str:
         ip = self.client_address[0] if self.client_address else "?"
-        if PROXY_CONFIAVEL and ip in PROXY_IPS:
+        if PROXY_CONFIAVEL and _de_proxy(ip):
             encaminhado = (self.headers.get("X-Forwarded-For") or "").split(",")[-1].strip()
             if encaminhado:
                 return encaminhado[:64]  # o último é o que o nosso proxy acrescentou: não dá para forjar
