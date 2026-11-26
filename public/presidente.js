@@ -442,7 +442,7 @@ function csvVotacoes() {
 
 /* ---------------- configurações ---------------- */
 let cfgFases = [], cfgPartidos = [];
-const CORES = ['#d66060', '#1f8fff', '#19b6d8', '#4fb83b', '#2f8f5a', '#c9a227', '#8e5bd6', '#e07a2f'];
+const CORES = ['#1f8a4c', '#d66060', '#1f8fff', '#19b6d8', '#4fb83b', '#c9a227', '#8e5bd6', '#e07a2f'];
 function carregarConfig() {
   const S = PL.estado; if (!S) return;
   $('cNome').value = S.casa.nome; $('cTitulo').value = S.casa.titulo; $('cTema').value = S.casa.tema; $('cDestaque').value = S.casa.destaque;

@@ -6,8 +6,8 @@
   faixa.hidden = true;
   faixa.setAttribute('aria-live', 'polite');
   const css = document.createElement('style');
-  css.textContent = `.aovivo{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 16px;padding:12px 16px;border-radius:14px;
-      background:color-mix(in srgb,var(--destaque,#d66060) 18%,var(--cartao,#111a2b));border:1px solid color-mix(in srgb,var(--destaque,#d66060) 45%,transparent)}
+  css.textContent = `.aovivo[hidden]{display:none}.aovivo{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 16px;padding:12px 16px;border-radius:14px;
+      background:color-mix(in srgb,var(--destaque,#1f8a4c) 18%,var(--cartao,#111a2b));border:1px solid color-mix(in srgb,var(--destaque,#1f8a4c) 45%,transparent)}
     .aovivo .sinal{display:inline-flex;align-items:center;gap:8px;font-weight:800;letter-spacing:.08em;font-size:13px;text-transform:uppercase}
     .aovivo .sinal i{width:10px;height:10px;border-radius:50%;background:#ff4d4d;box-shadow:0 0 10px #ff4d4d;animation:pulsar 1.6s infinite}
     .aovivo .info{flex:1;min-width:200px;font-size:14px}.aovivo audio{height:36px;max-width:100%}

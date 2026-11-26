@@ -59,7 +59,7 @@
   css.textContent = `.disc-busca{display:flex;gap:8px;margin-bottom:12px}.disc-busca input{flex:1}
     .disc{padding:12px 0;border-top:1px solid var(--linha)}.disc-cab{font-size:14px}.disc-cab a{color:inherit}
     .disc-trecho{margin:6px 0;line-height:1.55;max-width:75ch}.disc-par{display:block;margin-bottom:8px}
-    .disc-trecho mark{background:color-mix(in srgb,var(--destaque,#d66060) 30%,transparent);color:inherit;border-radius:3px;padding:0 2px}
+    .disc-trecho mark{background:color-mix(in srgb,var(--destaque,#1f8a4c) 30%,transparent);color:inherit;border-radius:3px;padding:0 2px}
     .disc-acoes{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.disc-acoes audio{height:32px;max-width:100%}`;
   document.head.append(css);
   window.Discursos = { montar };

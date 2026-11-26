@@ -95,7 +95,7 @@ async function carregar() {
   if (!r.ok) { $('conteudo').innerHTML = '<div class="cartao"><p>Parlamentar não encontrado. <a href="/parlamentares">Ver todos</a></p></div>'; return; }
   D = await r.json();
   const c = D.casa, raiz = document.documentElement;
-  raiz.style.setProperty('--destaque', c.destaque || '#d66060');
+  raiz.style.setProperty('--destaque', c.destaque || '#1f8a4c');
   raiz.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
   $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg';
   $('casaNav').textContent = c.nome;

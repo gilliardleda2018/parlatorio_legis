@@ -186,7 +186,7 @@ const PL = (() => {
   /* ----- tema ----- */
   function aplicarTema() {
     const c = estado.casa, raiz = document.documentElement;
-    raiz.style.setProperty('--destaque', c.destaque || '#d66060');
+    raiz.style.setProperty('--destaque', c.destaque || '#1f8a4c');
     if (!raiz.dataset.temaFixo) raiz.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
     document.querySelectorAll('[data-logo]').forEach(img => { img.src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg'; });
     document.querySelectorAll('[data-casa]').forEach(el => { el.textContent = c.nome; });

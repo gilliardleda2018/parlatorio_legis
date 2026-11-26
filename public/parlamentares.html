@@ -46,7 +46,7 @@ let D;
 (async () => {
   D = await (await fetch('/api/transparencia')).json();
   const c = D.casa;
-  document.documentElement.style.setProperty('--destaque', c.destaque || '#d66060');
+  document.documentElement.style.setProperty('--destaque', c.destaque || '#1f8a4c');
   document.documentElement.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
   $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg';
   $('casaNav').textContent = c.nome; document.title = `Parlamentares — ${c.nome}`;

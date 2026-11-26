@@ -182,7 +182,7 @@ def estado_inicial() -> dict:
              for k, (n, p) in enumerate(nomes)]
     return {
         "rev": 0,
-        "casa": {"nome": "Câmara Municipal", "titulo": "45ª Sessão Ordinária", "destaque": "#d66060",
+        "casa": {"nome": "Câmara Municipal", "titulo": "45ª Sessão Ordinária", "destaque": "#1f8a4c",
                  "tema": "escuro", "logoV": 0},
         "cfg": {"alerta": 60, "aparte": 60, "ordem": 180, "desconta": True, "corte": True, "som": True,
                 "autoInscricao": False, "exigePresenca": True, "presencaCelular": True,
@@ -2543,7 +2543,7 @@ class Manipulador(BaseHTTPRequestHandler):
                 logo = logo_ata()
             if not r:
                 return self._json(404, {"erro": "Sessão não encontrada."})
-            pdf = gerar_ata(r, logo)
+            pdf = gerar_ata(r, logo, cor=S["casa"].get("destaque", ""))
             nome = f"Ata - {r['titulo']} - {time.strftime('%Y-%m-%d', time.localtime(r['inicio'] / 1000))}.pdf"
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")

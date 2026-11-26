@@ -201,7 +201,7 @@ async function carregarPublico() { D = await (await fetch('/api/transparencia'))
 
 function aplicarCasa() {
   const c = D.casa, raiz = document.documentElement;
-  raiz.style.setProperty('--destaque', c.destaque || '#d66060');
+  raiz.style.setProperty('--destaque', c.destaque || '#1f8a4c');
   raiz.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
   $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/logo.svg';
   $('casaNav').textContent = c.nome;

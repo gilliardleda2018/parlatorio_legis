@@ -22,6 +22,7 @@ _ESPECIAIS = {"—": 1000, "–": 556, "“": 333, "”": 333, "‘": 222, "’"
 
 A4 = (595.28, 841.89)
 CINZA = (0.42, 0.47, 0.55)
+DESTAQUE = (0.12, 0.54, 0.30)  # verde #1f8a4c, cor padrão das casas
 ESCURO = (0.08, 0.12, 0.2)
 LINHA = (0.82, 0.85, 0.9)
 ZEBRA = (0.955, 0.965, 0.98)
@@ -72,6 +73,7 @@ def quebrar(s: str, maximo: float, tam: float, negrito=False) -> list[str]:
 
 class PDF:
     def __init__(self, titulo_rodape: str = ""):
+        self.cor = DESTAQUE
         self.L, self.A = A4
         self.m = 48
         self.paginas: list[list[str]] = []
@@ -123,7 +125,7 @@ class PDF:
         self.espaco(14)
         self.texto(self.m, self.y - 12, f"{numero}. {titulo.upper()}", 11, True, ESCURO)
         self.y -= 18
-        self.linha(self.m, self.y, self.L - self.m, self.y, (0.84, 0.38, 0.38), 1.2)
+        self.linha(self.m, self.y, self.L - self.m, self.y, self.cor, 1.2)
         self.espaco(6)
 
     def tabela(self, colunas, linhas, tam=8.5):
@@ -250,7 +252,16 @@ def _dur(seg):
     return f"{h}h{m:02d}min" if h else f"{m:02d}:{s:02d}"
 
 
-def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = None) -> bytes:
+def _rgb(hexa: str) -> tuple[float, float, float]:
+    h = (hexa or "").lstrip("#")
+    try:
+        return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)) if len(h) == 6 else DESTAQUE
+    except ValueError:
+        return DESTAQUE
+
+
+def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = None, cor: str = "") -> bytes:
+    destaque = _rgb(cor)
     gerado_em = gerado_em or int(time.time() * 1000)
     parls = {p["id"]: p for p in r["parls"]}
     nome = lambda pid: parls.get(pid, {}).get("nome", "(removido)")
@@ -259,6 +270,7 @@ def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = N
         materias.setdefault(v["materia"], {"numero": v["numero"], "ementa": v["ementa"]})
     pdf = PDF(f"{r['casa']} · {r['titulo']} · gerada pelo Parlatório Legis em "
               f"{time.strftime('%d/%m/%Y %H:%M', time.localtime(gerado_em / 1000))}")
+    pdf.cor = destaque
 
     # cabeçalho
     topo = pdf.y
@@ -270,7 +282,7 @@ def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = N
             pdf.jpeg(logo_jpeg, pdf.m, topo - alt, alt * w / h, alt)
             x_txt = pdf.m + alt * w / h + 14
     pdf.texto(x_txt, topo - 16, r["casa"].upper(), 13, True)
-    pdf.texto(x_txt, topo - 34, f"ATA DA {r['titulo'].upper()}", 11.5, True, (0.84, 0.38, 0.38))
+    pdf.texto(x_txt, topo - 34, f"ATA DA {r['titulo'].upper()}", 11.5, True, destaque)
     fim = r.get("fim")
     pdf.texto(x_txt, topo - 50, (f"Sessão virtual · votação de {time.strftime('%d/%m/%Y %H:%M', time.localtime(r['inicio'] / 1000))} "
               f"a {time.strftime('%d/%m/%Y %H:%M', time.localtime(fim / 1000))}" if r.get("virtual") else
