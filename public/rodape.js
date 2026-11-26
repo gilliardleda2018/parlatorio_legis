@@ -65,7 +65,7 @@ const Rodape = (() => {
         <div class="col"><div class="marca-r"><img src="${logoCasa}" alt="Brasão">${esc(casa?.nome || 'Câmara Municipal')}</div>${contatos(c)}</div>
         <div class="col dir"><a class="marca-r" href="${esc(a.site || 'https://www.aggillintelligence.com.br')}" target="_blank" rel="noopener noreferrer" style="color:var(--texto)">
           <span><small>Desenvolvido por</small>Aggilli Intelligence</span><img src="/marca/logo.svg" alt="Aggilli Intelligence"></a>${contatos(a)}</div>
-      </div><div class="fim"><span class="selo-legis" style="margin-bottom:10px"><img class="legis-auto" src="/marca/legis-claro.webp" alt="LEGIS — Sistema de Gestão Parlamentar" style="height:48px;width:auto"></span><br>LEGIS · Sistema de Gestão Parlamentar</div>`;
+      </div><div class="fim"><span class="selo-legis" style="width:120px;margin-bottom:6px"><img class="legis-auto" src="/marca/legis-claro.webp" alt="LEGIS — Sistema de Gestão Parlamentar"></span><br>LEGIS · Sistema de Gestão Parlamentar</div>`;
     document.body.append(f);
   }
   return { mostrar };

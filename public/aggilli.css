@@ -58,8 +58,8 @@ h1, h2, h3 { margin: 0; text-wrap: balance }
 .selo-legis img { display: block; width: 100% !important; height: auto !important; max-width: none; background: none; padding: 0; border-radius: 0 }
 /* logotipo LEGIS no canto superior esquerdo de todas as telas */
 .nav .selo-nav { display: inline-flex; align-items: center; padding-right: 14px; margin-right: 6px; border-right: 1px solid rgba(255,255,255,.35) }
-.nav .selo-nav img { height: 40px; width: auto; display: block }
-@media (max-width: 720px) { .nav .selo-nav img { height: 28px } .nav .selo-nav { padding-right: 8px } }
+.nav .selo-nav img { height: 32px; width: auto; display: block }
+@media (max-width: 720px) { .nav .selo-nav img { height: 24px } .nav .selo-nav { padding-right: 8px } }
 [data-tema="claro"] .cartao img.legis-auto, [data-tema="claro"] .rodape-pub img.legis-auto { content: url(/marca/legis.webp) }
 .nav .item { color: #fff; text-decoration: none; font-weight: 600; font-size: 15px; padding: 8px 12px; border-radius: 8px; background: none; border: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 6px }
 .nav .item:hover { background: rgba(255,255,255,.15) }
