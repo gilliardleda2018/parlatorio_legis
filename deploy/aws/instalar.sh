@@ -75,12 +75,20 @@ EOF
 
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMINIO {
-	encode gzip
-	request_body {
-		max_size 64MB
+	# /eventos é o canal ao vivo (SSE): sem gzip, senão o Caddy segura os dados e as telas não atualizam
+	handle /eventos {
+		reverse_proxy 127.0.0.1:8090 {
+			flush_interval -1
+		}
 	}
-	reverse_proxy 127.0.0.1:8090 {
-		flush_interval -1
+	handle {
+		encode gzip
+		request_body {
+			max_size 64MB
+		}
+		reverse_proxy 127.0.0.1:8090 {
+			flush_interval -1
+		}
 	}
 }
 EOF
