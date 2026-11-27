@@ -122,10 +122,12 @@ fi
 if [ -z "$DEB" ]; then
   echo "Baixando a última versão do LEGIS..."
   TMP=$(mktemp -d)
-  URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | python3 -c \
-    "import json,sys; print(next(a['browser_download_url'] for a in json.load(sys.stdin)['assets'] if a['name'].endswith('_all.deb')))")
-  curl -fsSL -o "$TMP/$(basename "$URL")" "$URL"
-  DEB="$TMP/$(basename "$URL")"
+  # nome e endereço vêm da API: o "+" da versão aparece como %2B no endereço, mas o .sha256 usa o nome real
+  read -r NOME_DEB URL < <(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | python3 -c \
+    "import json,sys; a=next(a for a in json.load(sys.stdin)['assets'] if a['name'].endswith('_all.deb')); print(a['name'], a['browser_download_url'])")
+  [ -n "${URL:-}" ] || { echo "Não encontrei o pacote na última versão do GitHub."; exit 1; }
+  curl -fsSL -o "$TMP/$NOME_DEB" "$URL"
+  DEB="$TMP/$NOME_DEB"
   if curl -fsSL -o "$DEB.sha256" "$URL.sha256" 2>/dev/null; then
     (cd "$TMP" && sha256sum -c "$(basename "$DEB").sha256" >/dev/null) || { echo "O arquivo baixado não confere (SHA-256). Tente de novo."; exit 1; }
     echo "  ${VERDE}✔${FIM} $(basename "$DEB") (SHA-256 conferido)"
