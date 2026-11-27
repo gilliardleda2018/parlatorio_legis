@@ -56,6 +56,7 @@ import cidadania
 import analise
 import regimento
 import resumo as resumo_mod
+import tramitacao
 from texto import _sem_acento
 from mesa import CFG_PADRAO, DRIVERS as DRIVERS_MESA, PRESETS, Mesa
 
@@ -1453,7 +1454,7 @@ def sessaoZerar(ator, manterPauta=True):
     for m in S["pauta"]:  # a sessão descartada não conta no banco de projetos
         p = proj_obter(m["id"])
         if p:
-            p["historico"] = [h for h in p["historico"] if h["ts"] < inicio]
+            p["historico"] = [h for h in p["historico"] if h["ts"] < inicio or h.get("evento") == "tramitacao"]
             p["situacao"] = "em_pauta" if manterPauta else "em_tramitacao"
             proj_salvar(p)
     if not manterPauta:
@@ -2897,6 +2898,319 @@ def materiaAnexo(ator, id, nome="", dataUrl=""):
     S["projetosRev"] += 1
 
 
+# --- protocolo eletrônico, tramitação com comissões e pedidos ao Executivo (regras em tramitacao.py)
+tramitacao.completar(S)
+LIMITE_PDF_RESPOSTA = 2_800_000
+
+
+def _quem(ator) -> str:
+    return "Presidência" if ator["papel"] == "presidente" else parl(ator["pid"])["nome"]
+
+
+def _nomes_parls() -> dict:
+    return {p["id"]: p["nome"] for p in S["parls"]}
+
+
+def _tram(mid, regra, *args):
+    """Lê a matéria, aplica a regra e só então grava: um erro não deixa o banco de projetos pela metade."""
+    p = proj_obter(mid) if isinstance(mid, str) and mid.isalnum() else None
+    if not p:
+        raise Erro("Matéria não encontrada.")
+    try:
+        r = regra(p, *args)
+    except tramitacao.ErroTramitacao as e:
+        raise Erro(str(e))
+    proj_salvar(p)
+    for m in S["pauta"]:
+        if m["id"] == p["id"]:
+            m.update(numero=p["numero"], ementa=p["ementa"])
+    S["projetosRev"] += 1
+    return r
+
+
+def _regra(fn, *args):
+    try:
+        return fn(*args)
+    except tramitacao.ErroTramitacao as e:
+        raise Erro(str(e))
+
+
+def _numeros() -> list[str]:
+    return [p.get("numero", "") for p in proj_todos()]
+
+
+def _nova_proposta(ator, tipo, ementa, texto, justificativa, autor, autor_pid, provisorio=True) -> dict:
+    cfg = S["tramitacao"]
+    dados = _regra(tramitacao.dados_proposta, cfg, tipo, ementa, texto, justificativa)
+    numero = tramitacao.proximo_numero(cfg, "PROP", time.localtime().tm_year, _numeros()) if provisorio else ""
+    p = proj_novo(numero=numero, autor=autor, autorPid=autor_pid, situacao="proposta", **dados)
+    p["tram"]["etapaEm"] = agora()
+    return p
+
+
+@acao("parlamentar")
+def protocoloEnviar(ator, tipo, ementa, texto="", justificativa="", id=None):
+    """O vereador protocola pelo app, sempre em seu nome; a secretaria confere, numera e protocola."""
+    autor = parl(ator["pid"])["nome"]
+    if id:  # proposta devolvida, corrigida pelo autor
+        p = proj_obter(id) if isinstance(id, str) and id.isalnum() else None
+        if not p or p.get("autorPid") != ator["pid"]:
+            raise Erro("Proposta não encontrada.")
+        return _tram(id, tramitacao.reenviar, S["tramitacao"], tipo, ementa, texto, justificativa, agora(), autor)
+    pendentes = sum(1 for p in proj_todos() if p.get("autorPid") == ator["pid"] and p["situacao"] == "proposta")
+    if pendentes >= tramitacao.MAX_PROPOSTAS_PENDENTES:
+        raise Erro("Você tem muitas propostas aguardando protocolo. Aguarde a secretaria.")
+    p = _nova_proposta(ator, tipo, ementa, texto, justificativa, autor, ator["pid"])
+    tramitacao.evento(p, agora(), "recebida", f"Proposta ({tramitacao.tipo(S['tramitacao'], p['tram']['tipo'])['nome']}) enviada pelo autor", autor)
+    proj_salvar(p)
+    S["projetosRev"] += 1
+
+
+@acao("presidente")
+def tramNova(ator, tipo, ementa, texto="", justificativa="", autor="", autorPid=None):
+    """A secretaria protocola direto (matéria do Executivo, da Mesa, de comissão ou entregue em papel)."""
+    if autorPid:
+        autor = parl(autorPid)["nome"]
+    autor = str(autor or "").strip()
+    if not 3 <= len(autor) <= 120:
+        raise Erro("Informe a autoria.")
+    p = _nova_proposta(ator, tipo, ementa, texto, justificativa, autor, autorPid or None, provisorio=False)
+    _regra(tramitacao.protocolar, p, S["tramitacao"], p["tram"]["tipo"], agora(), _quem(ator), _numeros())
+    proj_salvar(p)
+    S["projetosRev"] += 1
+
+
+@acao("presidente")
+def tramProtocolar(ator, id, tipo=None):
+    _tram(id, tramitacao.protocolar, S["tramitacao"], tipo, agora(), _quem(ator), _numeros())
+
+
+@acao("presidente")
+def tramDevolver(ator, id, motivo):
+    _tram(id, tramitacao.devolver, motivo, agora(), _quem(ator))
+
+
+@acao("presidente")
+def tramIniciar(ator, id, tipo=""):
+    _tram(id, tramitacao.iniciar, S["tramitacao"], tipo, agora(), _quem(ator))
+
+
+@acao("presidente")
+def tramAvancar(ator, id, etapa, resultado=None, obs="", forcar=False):
+    _tram(id, tramitacao.avancar, etapa, agora(), _quem(ator), resultado, obs, bool(forcar))
+
+
+@acao("presidente")
+def tramDistribuir(ator, id, comissoes):
+    _tram(id, tramitacao.distribuir, S["tramitacao"], comissoes, agora(), _quem(ator))
+
+
+@acao("presidente")
+def tramRelator(ator, id, comissao, relator):
+    _tram(id, tramitacao.designar_relator, S["tramitacao"], comissao, relator, parl(relator)["nome"], agora(), _quem(ator))
+
+
+@acao("presidente", "parlamentar")
+def tramParecer(ator, id, comissao, voto, texto):
+    """Parecer do relator: o vereador só envia onde é relator; a presidência pode registrar por ele."""
+    _tram(id, tramitacao.registrar_parecer, S["tramitacao"], comissao, voto, texto, agora(), _quem(ator),
+          ator["pid"] if ator["papel"] == "parlamentar" else None)
+
+
+@acao("presidente")
+def tramVista(ator, id, comissao, pid):
+    _tram(id, tramitacao.pedir_vista, S["tramitacao"], comissao, pid, parl(pid)["nome"], agora(), _quem(ator))
+
+
+@acao("presidente")
+def tramVistaDevolver(ator, id, comissao):
+    _tram(id, tramitacao.devolver_vista, S["tramitacao"], comissao, agora(), _quem(ator))
+
+
+@acao("presidente")
+def tramComissaoSalvar(ator, nome, membros, presidente=None, id=None):
+    cfg = S["tramitacao"]
+    dados = _regra(tramitacao.validar_comissao, cfg, nome, membros, presidente, {p["id"] for p in S["parls"]}, id)
+    if id:
+        _regra(tramitacao.comissao, cfg, id).update(dados)
+    else:
+        if len(cfg["comissoes"]) >= tramitacao.MAX_COMISSOES:
+            raise Erro("Limite de comissões atingido.")
+        cfg["comissoes"].append({"id": uid(), **dados})
+
+
+@acao("presidente")
+def tramComissaoRemover(ator, id):
+    cfg = S["tramitacao"]
+    c = _regra(tramitacao.comissao, cfg, id)
+    if any(tramitacao.etapa(p) == "em_comissao" and any(x["comissao"] == id and x["situacao"] not in ("concluida", "parecer_rejeitado")
+                                                       for x in p["tram"]["comissoes"]) for p in proj_todos()):
+        raise Erro("Há matérias aguardando parecer nesta comissão.")
+    if any(r["comissao"] == id and not r["fim"] for r in cfg["reunioes"]):
+        raise Erro("Encerre a reunião aberta desta comissão antes.")
+    cfg["comissoes"].remove(c)
+
+
+@acao("presidente")
+def tramConfigurar(ator, tipos, prazos):
+    S["tramitacao"]["tipos"], S["tramitacao"]["prazos"] = _regra(tramitacao.validar_config, tipos, prazos)
+
+
+@acao("presidente")
+def tramReuniaoAbrir(ator, comissao):
+    _regra(tramitacao.reuniao_abrir, S["tramitacao"], comissao, uid(), agora())
+
+
+@acao("presidente")
+def tramReuniaoPresenca(ator, id, pid, presente=True):
+    cfg = S["tramitacao"]
+    _regra(tramitacao.reuniao_presenca, cfg, _regra(tramitacao.reuniao, cfg, id), pid, bool(presente))
+
+
+@acao("presidente")
+def tramReuniaoVotar(ator, id, materia, votos):
+    cfg = S["tramitacao"]
+    r = _regra(tramitacao.reuniao, cfg, id)
+    if r["fim"]:
+        raise Erro("Reunião encerrada.")
+    r["itens"].append(_tram(materia, tramitacao.votar_parecer, cfg, r, votos, agora(), _quem(ator)))
+
+
+@acao("presidente")
+def tramReuniaoEncerrar(ator, id):
+    r = _regra(tramitacao.reuniao, S["tramitacao"], id)
+    if r["fim"]:
+        raise Erro("Reunião já encerrada.")
+    r["fim"] = agora()
+
+
+@acao("presidente")
+def tramEnviarExecutivo(ator, id, prazoDias=None, oficio=""):
+    _tram(id, tramitacao.enviar_executivo, S["tramitacao"], prazoDias, oficio, agora(), _quem(ator))
+
+
+@acao("presidente")
+def tramRespostaExecutivo(ator, id, texto, recebidaEm="", nome="", dataUrl=""):
+    """Resposta da prefeitura: resumo e, se houver, o ofício em PDF (público na página de fiscalização)."""
+    recebida = agora()
+    if recebidaEm:
+        try:
+            recebida = int(time.mktime(time.strptime(str(recebidaEm)[:10], "%Y-%m-%d")) * 1000) + 12 * 3600_000
+        except ValueError:
+            raise Erro("Data de recebimento inválida.")
+        recebida = min(recebida, agora())
+    dados, anexo = None, None
+    if dataUrl:
+        cab, _, b64 = str(dataUrl).partition(",")
+        if cab != "data:application/pdf;base64":
+            raise Erro("Envie a resposta em PDF.")
+        try:
+            dados = base64.b64decode(b64, validate=True)
+        except ValueError:
+            raise Erro("Arquivo inválido.")
+        if not dados.startswith(b"%PDF") or len(dados) > LIMITE_PDF_RESPOSTA:
+            raise Erro("PDF inválido ou maior que 2,8 MB.")
+        anexo = {"nome": str(nome or "resposta.pdf")[:120], "v": agora(), "bytes": len(dados)}
+    _tram(id, tramitacao.responder_executivo, texto, recebida, agora(), _quem(ator), anexo)
+    if dados:
+        db.execute("insert or replace into imagens (chave, mime, dados) values (?, ?, ?)", (f"resposta-{id}", "application/pdf", dados))
+        db.commit()
+
+
+def tram_get(h, caminho: str):
+    """Rotas GET /api/tramitacao/… (h é o Manipulador). Devolve None quando o caminho não é delas."""
+    m = re.fullmatch(r"/api/tramitacao/(comprovante|resposta)/([A-Za-z0-9]+)\.pdf", caminho)
+    if m:
+        with trava:
+            p = proj_obter(m.group(2))
+            casa, cor = S["casa"]["nome"], S["casa"].get("destaque", "")
+            tipos = {t["sigla"]: t["nome"] for t in S["tramitacao"]["tipos"]}
+            linha = db.execute("select dados from imagens where chave = ?", (f"resposta-{m.group(2)}",)).fetchone() \
+                if m.group(1) == "resposta" else None
+        if m.group(1) == "comprovante":
+            if not p or not p.get("protocolo"):
+                return h._json(404, {"erro": "Protocolo não encontrado."})
+            pdf = tramitacao.comprovante_pdf(p, casa, cor, tipos.get((p.get("tram") or {}).get("tipo"), ""))
+            nome = re.sub(r"[^A-Za-z0-9]+", "-", p["protocolo"]["numero"]).strip("-")
+            h._enviar(200, pdf, "application/pdf", {"Content-Disposition": f'inline; filename="protocolo-{nome}.pdf"', "Cache-Control": "no-store"})
+            return True
+        if not linha or not p or p["situacao"] == "proposta":
+            return h._json(404, {"erro": "Anexo não encontrado."})
+        h._enviar(200, linha[0], "application/pdf", {"Content-Disposition": "inline", "X-Content-Type-Options": "nosniff"})
+        return True
+    if caminho == "/api/tramitacao/painel":
+        with trava:
+            ator = h._ator()
+            if not ator or ator["papel"] != "presidente":
+                return h._json(401, {"erro": "Entre no painel do presidente."})
+            cfg, nomes, ts = json.loads(json.dumps(S["tramitacao"])), _nomes_parls(), agora()
+            projetos = proj_todos()
+        materias, propostas, sem = [], [], []
+        for p in projetos:
+            if p["situacao"] == "proposta":
+                propostas.append({**tramitacao.resumo(p, cfg, ts, nomes), "texto": p.get("texto", ""),
+                                  "justificativa": p.get("justificativa", ""), "instrumento": p.get("instrumento", "")})
+            elif p.get("tram"):
+                materias.append(tramitacao.resumo(p, cfg, ts, nomes))
+            elif p["situacao"] in ("em_tramitacao", "em_pauta"):
+                sem.append({k: p.get(k) for k in ("id", "numero", "ementa", "autor", "situacao", "saplUrl")})
+        return h._json(200, {"cfg": cfg, "etapas": tramitacao.ETAPAS, "transicoes": {k: sorted(v) for k, v in tramitacao.TRANSICOES.items()},
+                             "votosParecer": tramitacao.VOTOS_PARECER, "materias": materias, "propostas": propostas,
+                             "semTramitacao": sem, "alertas": tramitacao.alertas(projetos, cfg, ts, nomes),
+                             "placar": tramitacao.placar(projetos, ts), "agora": ts})
+    if caminho == "/api/tramitacao/minhas":
+        with trava:
+            ator = h._ator()
+            if not ator or ator["papel"] != "parlamentar":
+                return h._json(401, {"erro": "Entre com seu PIN de parlamentar."})
+            pid, nome = ator["pid"], parl(ator["pid"])["nome"]
+            cfg, nomes, ts = json.loads(json.dumps(S["tramitacao"])), _nomes_parls(), agora()
+            projetos = proj_todos()
+        minhas, relatorias = [], []
+        for p in projetos:
+            if p.get("tram") and (p.get("autorPid") == pid or (not p.get("autorPid") and p.get("autor") == nome)):
+                minhas.append({**tramitacao.resumo(p, cfg, ts, nomes), "texto": p.get("texto", ""), "justificativa": p.get("justificativa", "")})
+            if tramitacao.etapa(p) == "em_comissao":
+                for c in tramitacao.resumo(p, cfg, ts, nomes)["comissoes"]:
+                    if c["relatorPid"] == pid and c["situacao"] in ("com_relator", "parecer"):
+                        relatorias.append({"materia": p["id"], "numero": p["numero"], "ementa": p["ementa"], "autor": p.get("autor"),
+                                           "texto": p.get("texto", ""), **c})
+        return h._json(200, {"tipos": cfg["tipos"], "votosParecer": tramitacao.VOTOS_PARECER, "etapas": tramitacao.ETAPAS,
+                             "minhas": sorted(minhas, key=lambda x: -(x.get("etapaEm") or x.get("criado") or 0)), "relatorias": relatorias,
+                             "comissoes": [{"nome": c["nome"], "presidente": c.get("presidente") == pid} for c in cfg["comissoes"] if pid in c["membros"]],
+                             "limites": tramitacao.LIMITES, "agora": ts})
+    if caminho == "/api/tramitacao/publico":
+        with trava:
+            cfg, nomes, ts = json.loads(json.dumps(S["tramitacao"])), _nomes_parls(), agora()
+            projetos = [p for p in proj_todos() if p["situacao"] != "proposta" and p.get("tram")]
+            casa = {k: S["casa"][k] for k in ("nome", "logoV", "destaque", "tema")}
+            rodape = json.loads(json.dumps(S["rodape"]))
+        executivo = {t["sigla"] for t in cfg["tipos"] if t["executivo"]}
+        lista = [tramitacao.resumo(p, cfg, ts, nomes) for p in projetos]
+        for x in lista:
+            if x["executivo"] and x["executivo"].get("resposta"):
+                x["executivo"]["resposta"].pop("por", None)
+        return h._json(200, {"casa": casa, "rodape": rodape, "tipos": cfg["tipos"], "prazos": cfg["prazos"],
+                             "placar": tramitacao.placar(projetos, ts), "agora": ts,
+                             "pedidos": [x for x in lista if x["tipo"] in executivo or x["executivo"]],
+                             "materias": [{k: x[k] for k in ("id", "numero", "ementa", "autor", "tipo", "tipoNome", "etapa", "etapaNome",
+                                                             "etapaEm", "resultado")} for x in lista],
+                             "comissoes": [{"nome": c["nome"], "membros": [nomes.get(m, "—") for m in c["membros"]],
+                                            "presidente": nomes.get(c.get("presidente"))} for c in cfg["comissoes"]]})
+    m = re.fullmatch(r"/api/tramitacao/materia/([A-Za-z0-9]+)", caminho)
+    if m:
+        with trava:
+            p = proj_obter(m.group(1))
+            cfg, nomes, ts = json.loads(json.dumps(S["tramitacao"])), _nomes_parls(), agora()
+            casa = {k: S["casa"][k] for k in ("nome", "logoV", "destaque", "tema")}
+        if not p or p["situacao"] == "proposta":
+            return h._json(404, {"erro": "Matéria não encontrada."})
+        return h._json(200, {"casa": casa, "materia": {**tramitacao.resumo(p, cfg, ts, nomes), "texto": p.get("texto", ""),
+                                                       "justificativa": p.get("justificativa", "")},
+                             "linhaDoTempo": tramitacao.linha_do_tempo(p), "agora": ts})
+    return None
+
+
 # --- perguntas sobre discursos e assistente do cidadão
 base_conhecimento = conhecimento.Base()
 _perguntas_recentes: dict[str, list[float]] = {}
@@ -3483,6 +3797,8 @@ class Manipulador(BaseHTTPRequestHandler):
     def _get_novos(self, caminho: str):
         """Rotas GET dos recursos novos; devolve None quando o caminho não é deles."""
         qs = urllib.parse.parse_qs(urlparse(self.path).query)
+        if caminho.startswith("/api/tramitacao/"):
+            return tram_get(self, caminho)
         if caminho.startswith("/api/resumo/"):
             sessao = caminho.rsplit("/", 1)[1]
             with trava:
