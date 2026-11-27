@@ -1125,8 +1125,53 @@ def votacaoAbrir(ator, materia_id, tipo, quorum):
         "id": uid(), "materia": materia_id, "numero": m["numero"], "ementa": m["ementa"], "tipo": tipo,
         "quorum": quorum, "aberta": True, "inicio": agora(), "fim": None, "votos": {}, "votantes": [],
         "contagem": {"sim": 0, "nao": 0, "abst": 0}, "resultado": None, "membros": _membros(),
-        "presentes": len(S["presenca"]),
+        "presentes": len(S["presenca"]), "orientacoes": {},
     }
+
+
+ORIENTACOES = {"sim": "Sim", "nao": "Não", "liberado": "Liberado", "obstrucao": "Obstrução"}
+
+
+def bancada(p: dict) -> str:
+    """Bancada que o líder orienta: o bloco parlamentar, se houver; senão o partido."""
+    return (p.get("bloco") or p.get("partido") or "").strip()
+
+
+@acao("parlamentar", "presidente")
+def orientar(ator, orientacao, bancada_nome=None):
+    """Orientação de bancada na votação nominal (como na Câmara): o líder orienta a sua; a Mesa registra por qualquer uma."""
+    v = S["votacao"]
+    if not v or not v["aberta"] or v["tipo"] != "nominal":
+        raise Erro("Orientação só em votação nominal aberta.")
+    if orientacao not in ORIENTACOES and orientacao != "":
+        raise Erro("Orientação inválida.")
+    if ator["papel"] == "parlamentar":
+        eu = parl(ator["pid"])
+        if not eu.get("lider"):
+            raise Erro("Só o líder orienta a bancada.")
+        nome = bancada(eu)
+    else:
+        nome = str(bancada_nome or "").strip()
+        if nome not in {bancada(p) for p in S["parls"]}:
+            raise Erro("Bancada inválida.")
+    v.setdefault("orientacoes", {})
+    if orientacao:
+        v["orientacoes"][nome] = {"o": orientacao, "por": ator.get("pid"), "ts": agora()}
+    else:
+        v["orientacoes"].pop(nome, None)
+
+
+def _divergencias(v) -> list[str]:
+    """Quem votou diferente da orientação Sim/Não da própria bancada (votação nominal)."""
+    if v.get("tipo") != "nominal":
+        return []
+    saida = []
+    for pid, voto in v.get("votos", {}).items():
+        p = next((x for x in S["parls"] if x["id"] == pid), None)
+        o = (v.get("orientacoes") or {}).get(bancada(p) if p else "", {}).get("o")
+        if o in ("sim", "nao") and voto != o:
+            saida.append(pid)
+    return saida
 
 
 def _votar(pid, valor):
@@ -1175,6 +1220,7 @@ def votacaoEncerrar(ator, resultado=None):
         v["resultado"] = _apurar(v)
     v["aberta"] = False
     v["fim"] = agora()
+    v["divergencias"] = _divergencias(v)
     m = next((x for x in S["pauta"] if x["id"] == v["materia"]), None)
     if m:
         m["situacao"] = v["resultado"] if v["resultado"] != "sem_quorum" else "adiada"

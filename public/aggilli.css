@@ -141,3 +141,10 @@ input[type=color] { width: 44px; height: 32px; padding: 2px; border-radius: 6px;
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important }
   .pisca { animation: none }
 }
+
+/* orientação de bancada na votação nominal */
+.orientacoes{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:10px 0}
+.orientacoes .rot{font-size:.75em;text-transform:uppercase;letter-spacing:.08em;opacity:.7;margin-right:4px}
+.orient{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border-radius:99px;font-size:.85em;background:rgba(127,127,127,.18)}
+.orient.sim{background:rgba(31,138,76,.22)}.orient.nao{background:rgba(200,40,40,.22)}.orient.obstrucao{background:rgba(220,150,20,.25)}
+.divergiu{outline:2px dashed rgba(220,150,20,.9);outline-offset:-2px}

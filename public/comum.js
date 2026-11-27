@@ -164,6 +164,15 @@ const PL = (() => {
   const SITUACOES = { pendente: 'Pendente', em_discussao: 'Em discussão', em_votacao: 'Em votação', aprovada: 'Aprovada', rejeitada: 'Rejeitada', adiada: 'Adiada', retirada: 'Retirada', sem_quorum: 'Sem quórum' };
   const QUORUNS = { simples: 'Maioria simples', absoluta: 'Maioria absoluta', dois_tercos: 'Dois terços' };
   const VOTOS = { sim: 'Sim', nao: 'Não', abst: 'Abstenção' };
+  const ORIENTACOES = { sim: 'Sim', nao: 'Não', liberado: 'Liberado', obstrucao: 'Obstrução' };
+  const bancada = p => ((p && (p.bloco || p.partido)) || '').trim();
+  /* faixa com a orientação de cada bancada na votação nominal (painel, telão e celular) */
+  const orientacoesHtml = v => {
+    const o = Object.entries((v && v.orientacoes) || {});
+    if (!o.length) return '';
+    return '<div class="orientacoes"><span class="rot">Orientação</span>' + o.sort((a, b) => a[0].localeCompare(b[0])).map(([b, x]) =>
+      `<span class="orient ${x.o}"><b>${esc(b)}</b> ${ORIENTACOES[x.o] || x.o}</span>`).join('') + '</div>';
+  };
   const MICS = { aberto: 'Microfone aberto', fechado: 'Microfone fechado', cortado: 'Microfone cortado', tribuna: 'Na tribuna' };
   const OCORRENCIAS = { congelar: 'Tempo congelado', descongelar: 'Tempo descongelado', corte: 'Microfone cortado', liberacao: 'Microfone liberado',
     tempo_esgotado: 'Tempo esgotado', plenario_congelado: 'Plenário congelado', plenario_retomado: 'Sessão retomada',
@@ -269,7 +278,7 @@ const PL = (() => {
 
   return {
     conectar, agora, entrar, quemSou, sair, acao, esc, tempo, hora, relogio, decorrido, restante, nivel, pintar,
-    parl, fase, corPartido, avatar, sigla, TIPOS, SITUACOES, QUORUNS, VOTOS, quorum, usadoNaFase, bipe, avisar, lerImagem,
+    parl, fase, corPartido, avatar, sigla, TIPOS, SITUACOES, QUORUNS, VOTOS, ORIENTACOES, bancada, orientacoesHtml, quorum, usadoNaFase, bipe, avisar, lerImagem,
     MICS, OCORRENCIAS, mic, micChip, gravando, token: papel => localStorage.getItem(tokenChave(papel)),
     video, sincronizarMicrofone, encerrarVideo, temVideo: () => !!jitsi,
     exigirTrocaPin, pedirPin, esquecerPin,

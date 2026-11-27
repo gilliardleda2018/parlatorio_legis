@@ -138,11 +138,11 @@ function desenhar() {
     const grade = v.tipo === 'simbolica' ? '' : S.parls.map(p => {
       const voto = v.votos[p.id], votou = v.votantes.includes(p.id), aus = !S.presenca[p.id];
       const rotulo = voto ? PL.VOTOS[voto] : votou ? 'Votou' : aus ? 'Ausente' : v.aberta ? 'Aguardando' : 'Não votou';
-      return `<div class="p ${voto || ''} ${aus && !votou ? 'aus' : ''}">${avatar(p)}<span class="nm"><span>${esc(p.nome)}</span><small>${sigla(p.partido)}<span class="v">${rotulo}</span></small></span></div>`;
+      return `<div class="p ${voto || ''} ${aus && !votou ? 'aus' : ''} ${(v.divergencias || []).includes(p.id) ? 'divergiu' : ''}">${avatar(p)}<span class="nm"><span>${esc(p.nome)}</span><small>${sigla(p.partido)}<span class="v">${rotulo}</span></small></span></div>`;
     }).join('');
     $('conteudo').innerHTML = `<div class="vot">
       <div class="lado"><div class="tit">${v.aberta ? 'Votação em andamento' : 'Resultado da votação'} · ${esc(PL.QUORUNS[v.quorum])}</div>
-        <div class="mat">${esc(v.numero)}</div><div class="ementa">${esc(v.ementa)}</div>${placar}
+        <div class="mat">${esc(v.numero)}</div><div class="ementa">${esc(v.ementa)}</div>${placar}${v.tipo === 'nominal' ? PL.orientacoesHtml(v) : ''}
         ${v.resultado ? `<div class="res ${v.resultado}">${PL.SITUACOES[v.resultado].toUpperCase()}</div>` : ''}</div>
       <div class="grade">${grade}</div></div>`;
   } else if (o || i) {

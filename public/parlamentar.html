@@ -169,6 +169,10 @@ function desenhar() {
             onclick="votar('${x}')">${PL.VOTOS[x]}</button>`).join('')}</div>
           ${meuVoto ? `<p class="detalhe">Seu voto: <b>${PL.VOTOS[meuVoto]}</b>. Você pode mudar enquanto a votação estiver aberta.</p>` : ''}
           ${v.tipo === 'secreta' ? '<p class="detalhe">Votação secreta: o voto não pode ser alterado depois de confirmado.</p>' : ''}`}
+      ${v.tipo === 'nominal' ? PL.orientacoesHtml(v) : ''}
+      ${v.tipo === 'nominal' && p.lider ? (() => { const b = PL.bancada(p), atual = (v.orientacoes || {})[b]?.o;
+        return `<div style="margin-top:10px"><div class="detalhe">Como líder, oriente a bancada <b>${esc(b)}</b>:</div><div class="grupo" style="margin-top:6px">${Object.entries(PL.ORIENTACOES).map(([k, n]) =>
+          `<button class="botao pq ${atual === k ? 'principal' : ''}" onclick="orientar('${k}')">${n}</button>`).join('')}${atual ? `<button class="botao pq fantasma" onclick="orientar('')">Retirar</button>` : ''}</div></div>`; })() : ''}
     </div>`;
   } else if (v && !v.aberta) {
     html += `<div class="cartao neutro"><h2>Resultado</h2><b>${esc(v.numero)}</b>: <span class="chip ${v.resultado === 'aprovada' ? 'sim' : v.resultado === 'rejeitada' ? 'nao' : 'ambar'}">${PL.SITUACOES[v.resultado]}</span></div>`;
@@ -373,6 +377,7 @@ function desenharMinhas() {
     </div>`).join('') : '<div class="cartao neutro"><p class="vazio" style="margin:0">Você ainda não tem projetos ou propostas. Veja a aba “Ideias de projetos”.</p></div>';
 }
 
+function orientar(o) { PL.acao('parlamentar', 'orientar', { orientacao: o }).catch(() => {}); }
 function votar(x) {
   const v = PL.estado.votacao;
   if (v.tipo === 'secreta' && !confirm(`Confirmar voto “${PL.VOTOS[x]}”? Na votação secreta não é possível alterar.`)) return;

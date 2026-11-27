@@ -274,7 +274,7 @@ function desenharPauta() {
     if (v.tipo === 'nominal') {
       corpo = `<div class="votos">${S.parls.map(p => {
         const voto = v.votos[p.id], aus = !presentes[p.id];
-        return `<div class="voto ${aus ? 'ausente' : ''}">${avatar(p)}<span class="nm" title="${esc(p.nome)}">${esc(p.nome)}</span>
+        return `<div class="voto ${aus ? 'ausente' : ''} ${(v.divergencias || []).includes(p.id) ? 'divergiu' : ''}" ${(v.divergencias || []).includes(p.id) ? 'title="Votou diferente da orientação da bancada"' : ''}>${avatar(p)}<span class="nm" title="${esc(p.nome)}">${esc(p.nome)}</span>
           ${v.aberta && !aus ? `<span class="bts">${['sim', 'nao', 'abst'].map(x => `<button class="${x} ${voto === x ? 'on' : ''}" title="${PL.VOTOS[x]}" onclick="A('votarPor',{pid:'${p.id}',valor:'${x}'})">${x === 'abst' ? 'A' : x === 'sim' ? 'S' : 'N'}</button>`).join('')}</span>`
             : `<span class="chip ${voto || ''}">${voto ? PL.VOTOS[voto] : aus ? 'Ausente' : '—'}</span>`}</div>`;
       }).join('')}</div>`;
@@ -284,6 +284,12 @@ function desenharPauta() {
     $('votacao').innerHTML = `<h2>Votação ${v.aberta ? 'aberta' : 'encerrada'}<span class="esp"></span><span class="chip">${v.tipo}</span><span class="chip">${PL.QUORUNS[v.quorum]}</span></h2>
       <div><b>${esc(v.numero)}</b> — ${esc(v.ementa)}</div>
       ${v.tipo === 'simbolica' ? '' : placar}
+      ${v.tipo === 'nominal' ? PL.orientacoesHtml(v) : ''}
+      ${v.tipo === 'nominal' && v.aberta ? `<div class="grupo" style="margin:4px 0 8px"><span class="detalhe">Registrar orientação:</span>
+        <select class="campo" id="orBancada" style="width:auto">${[...new Set(S.parls.map(PL.bancada))].filter(Boolean).sort().map(b => `<option>${esc(b)}</option>`).join('')}</select>
+        <select class="campo" id="orValor" style="width:auto">${Object.entries(PL.ORIENTACOES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}<option value="">(retirar)</option></select>
+        <button class="botao pq" onclick="A('orientar',{orientacao:$('orValor').value,bancada_nome:$('orBancada').value})">Registrar</button></div>` : ''}
+      ${!v.aberta && (v.divergencias || []).length ? `<p class="detalhe">${v.divergencias.length} voto(s) diferente(s) da orientação da bancada (contorno tracejado).</p>` : ''}
       ${v.resultado ? `<div class="resultado ${v.resultado}">${PL.SITUACOES[v.resultado].toUpperCase()}</div>` : ''}
       ${corpo}
       <div class="grupo" style="margin-top:14px;justify-content:flex-end">
