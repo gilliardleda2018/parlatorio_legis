@@ -13,7 +13,7 @@
 # (sudo bash instalar-legis.sh --perguntar) ou passe as respostas como variáveis:
 #   UF=ma MUNICIPIO="Tuntum"   estado e município (vereadores eleitos do TSE, com fotos; população do IBGE)
 #   NOME=tuntum                nome curto: https://tuntum.local na rede e https://tuntum.<tailnet>.ts.net na internet
-#   RADIO=s TRANSCRICAO=s IA=n rádio da Câmara, transcrição e legendas, IA local (padrão: s, s e automático)
+#   TRANSCRICAO=s IA=n         transcrição e legendas, IA local (padrão: s e automático). A rádio vem sempre.
 #   TS_AUTHKEY=tskey-auth-...  publica na internet pelo Tailscale (opcional)
 #   SEM_HOSTNAME=1             não troca o nome da máquina
 #   DEB=/caminho/legis.deb     usa este pacote em vez de baixar a última versão
@@ -95,7 +95,7 @@ MUNICIPIO="${MUNICIPIO:-}"
 perguntar NOME "Nome curto do endereço (letras minúsculas)" "$(slug "${MUNICIPIO:-legis}")"
 NOME="$(slug "$NOME")"; NOME="${NOME:-legis}"
 MEMORIA_GB=$(awk '/MemTotal/ {printf "%d", $2/1024/1024 + 0.5}' /proc/meminfo)
-perguntar RADIO "Instalar a rádio da Câmara? (s/n)" "s"
+RADIO="${RADIO:-s}"   # a rádio da Câmara vem sempre com o pacote
 perguntar TRANSCRICAO "Transcrição dos discursos e legendas ao vivo, cerca de 600 MB? (s/n)" "s"
 perguntar IA "IA local (ata, perguntas, assistente), precisa de 8 GB de RAM — esta máquina tem ${MEMORIA_GB} GB? (s/n)" "$([ "$MEMORIA_GB" -ge 7 ] && echo s || echo n)"
 if [ -z "${TS_AUTHKEY+x}" ] && tem_tty; then
@@ -145,7 +145,6 @@ legis legis/ia boolean $(sim "$IA" && echo true || echo false)
 legis legis/tailscale_chave password $TS_AUTHKEY
 EOF
 EXTRAS=(avahi-daemon)
-sim "$RADIO" && EXTRAS+=(liquidsoap)
 sim "$TRANSCRICAO" && EXTRAS+=(python3-venv)
 if { sim "$IA" || [ -n "$TS_AUTHKEY" ]; } && ! command -v docker >/dev/null; then
   EXTRAS+=(docker.io)   # IA local e Tailscale rodam em contêiner; não mexe num Docker oficial já instalado

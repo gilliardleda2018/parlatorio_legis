@@ -10,7 +10,7 @@ No servidor, como administrador, dentro desta pasta:
 sudo bash instalar-legis.sh
 ```
 
-É automático: não pergunta nada. Instala o LEGIS, a rádio da Câmara, a transcrição e as legendas, e a IA local se a máquina tiver 8 GB de RAM. A cidade é escolhida no primeiro acesso ao painel do presidente, e os vereadores vêm do TSE.
+É automático: não pergunta nada. Instala o LEGIS com a rádio da Câmara já criada, a transcrição e as legendas, e a IA local se a máquina tiver 8 GB de RAM. A cidade é escolhida no primeiro acesso ao painel do presidente, e os vereadores vêm do TSE.
 
 Para escolher tudo na instalação, rode `sudo bash instalar-legis.sh --perguntar`. Também dá para passar as respostas, por exemplo `sudo UF=ma MUNICIPIO=Tuntum NOME=tuntum TS_AUTHKEY=tskey-auth-... bash instalar-legis.sh`:
 
@@ -18,7 +18,6 @@ Para escolher tudo na instalação, rode `sudo bash instalar-legis.sh --pergunta
 |---|---|
 | Estado e município | o LEGIS busca no TSE os vereadores eleitos em 2024 (nome, partido e foto) e no IBGE a população. Pode deixar em branco: o painel do presidente pergunta a cidade no primeiro acesso |
 | Nome curto | endereço `https://NOME.local` na rede da Câmara (o nome da máquina passa a ser esse) |
-| Rádio da Câmara | rádio própria: toca a programação e entra sozinha com a sessão ao vivo |
 | Transcrição e legendas | transcreve os discursos e legenda a transmissão (cerca de 600 MB) |
 | IA local | rascunho da ata, perguntas e assistente do cidadão, no próprio servidor (8 GB de RAM) |
 | Chave do Tailscale | opcional: publica na internet em `https://NOME.<sua-tailnet>.ts.net` sem abrir portas |

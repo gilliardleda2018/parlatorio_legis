@@ -22,11 +22,11 @@ Description: Nome curto do endereço:
 Template: legis/radio
 Type: boolean
 Default: true
-Description: Instalar a rádio da Câmara?
+Description: Rádio da Câmara (sempre criada com o pacote)
  Cada Câmara ganha a própria rádio, no próprio servidor: toca a programação
  (vinhetas e músicas enviadas pelo painel) e entra automaticamente com a
  sessão ao vivo. Os ouvintes usam o mesmo endereço do site (/radio.mp3).
- Usa o Liquidsoap, instalado junto com o pacote.
+ Não é perguntada; para desligar, pré-configure legis/radio como false.
 
 Template: legis/transcricao
 Type: boolean

@@ -235,7 +235,6 @@ def janela():
     ttk.Separator(corpo).grid(row=linha, column=0, columnspan=2, sticky="ew", pady=10)
     linha += 1
     for var, texto, dica in (
-        (v_radio, "Rádio da Câmara", "programação e sessões ao vivo em /radio.mp3"),
         (v_transc, "Transcrição e legendas ao vivo", "cerca de 600 MB, instalado em segundo plano"),
         (v_ia, "IA local (ata, perguntas, assistente)", "precisa do Docker e de 8 GB de RAM"),
     ):
@@ -387,7 +386,7 @@ def janela():
         if not shutil.which("pkexec"):
             messagebox.showerror("LEGIS", "Falta o pkexec (pacote polkitd / pkexec). Instale com:\n\nsudo apt install pkexec", parent=raiz)
             return
-        cfg = {"uf": sigla, "municipio": mun, "nome": v_nome.get().strip(), "radio": v_radio.get(),
+        cfg = {"uf": sigla, "municipio": mun, "nome": v_nome.get().strip(), "radio": True,
                "transcricao": v_transc.get(), "ia": v_ia.get(), "chave": v_chave.get().strip()}
         bt_ok.configure(state="disabled")
         estado.configure(text="Instalando..." if not INSTALADO else "Configurando...")
