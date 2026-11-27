@@ -247,6 +247,33 @@ sudo bash instalar-legis.sh
 
 Sem internet boa no local, leve o **pacote completo** `legis-completo-<versão>.tar.gz` (instalador, `.deb` e LEIA-ME) num pendrive e rode `sudo bash instalar-legis.sh` dentro da pasta. O servidor ainda precisa de internet para baixar as dependências do Debian. Instalação sem perguntas: `sudo UF=ma MUNICIPIO=Tuntum NOME=tuntum RADIO=s TRANSCRICAO=s IA=n bash instalar-legis.sh`. Para gerar o pacote: `bash packaging/construir-pacote.sh`. Para publicar uma versão nova (testes, pacote e release no GitHub): `bash packaging/publicar-versao.sh "Título"`.
 
+## Pacote de uma Câmara (tudo em um arquivo só)
+
+Para entregar a uma Câmara, gere o pacote dela. É **um único `.deb`** que já traz o município, o nome da Câmara, o brasão, os vereadores eleitos com foto (TSE) e a população (IBGE):
+
+```bash
+bash packaging/construir-cidade.sh MA "Tuntum" --brasao brasao.png --youtube-link https://www.youtube.com/@camaratuntum/live
+```
+
+Sai em `dist/cidades/tuntum/`: `legis-tuntum_<versão>_all.deb`, o `.sha256` e `legis-tuntum-completo-<versão>.tar.gz` (com o instalador e o LEIA-ME). No servidor da Câmara (Debian 12/13 ou Ubuntu 24.04 limpo), dois cliques no `.deb`, ou:
+
+```bash
+sudo YOUTUBE_CHAVE=xxxx-xxxx-xxxx-xxxx bash instalar-legis.sh      # dentro da pasta do .tar.gz
+```
+
+Não pergunta nada e não depende do TSE na hora. Já sai pronto:
+
+| | |
+|---|---|
+| LEGIS | Câmara, brasão, vereadores com foto e PINs iniciais |
+| Rádio da Câmara | sobe, reinicia e para junto com o LEGIS |
+| Videoconferência (Jitsi) | servidor próprio da Câmara, só para quem está logado no LEGIS; a sessão híbrida já aponta para ele |
+| YouTube ao vivo | com a chave passada na instalação (`YOUTUBE_CHAVE=…`), o botão Transmitir já manda a sessão para o canal. A chave nunca vai dentro do pacote; sem ela, cola-se no painel |
+| Transcrição e legendas, IA local | transcrição sempre; IA se houver 8 GB de RAM |
+| Internet | com `TS_AUTHKEY=tskey-auth-…`, publica em `https://tuntum.<tailnet>.ts.net` |
+
+Transcrição, IA, Jitsi e internet terminam em segundo plano. Acompanhe com `sudo legis estado`.
+
 ## Instalador .deb (Debian 12/13, Ubuntu 24.04)
 
 ```bash

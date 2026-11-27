@@ -58,6 +58,10 @@ sudo DEBIAN_FRONTEND=noninteractive apt install -y ./legis_<versão>_all.deb
 
 O `apt` termina em poucos minutos. Transcrição, IA e publicação na internet são instaladas **em segundo plano**. Acompanhe com `sudo legis estado`.
 
+## Pacote de uma Câmara
+
+`bash packaging/construir-cidade.sh MA "Tuntum" --brasao brasao.png` gera `legis-tuntum_<versão>_all.deb`: o mesmo pacote, com o município, a Câmara, o brasão e os vereadores eleitos (com fotos) dentro. Instala sem perguntas e sem consultar o TSE. Veja o README principal, seção "Pacote de uma Câmara".
+
 ## Depois de instalar
 
 ```bash

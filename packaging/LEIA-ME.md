@@ -10,7 +10,7 @@ No servidor, como administrador, dentro desta pasta:
 sudo bash instalar-legis.sh
 ```
 
-É automático: não pergunta nada. Instala o LEGIS com a rádio da Câmara já criada, a transcrição e as legendas, e a IA local se a máquina tiver 8 GB de RAM. A cidade é escolhida no primeiro acesso ao painel do presidente, e os vereadores vêm do TSE.
+É automático: não pergunta nada. Instala o LEGIS com a rádio da Câmara já criada (sobe junto com o LEGIS), a videoconferência própria (Jitsi), a transcrição e as legendas, e a IA local se a máquina tiver 8 GB de RAM. A cidade é escolhida no primeiro acesso ao painel do presidente, e os vereadores vêm do TSE.
 
 Para escolher tudo na instalação, rode `sudo bash instalar-legis.sh --perguntar`. Também dá para passar as respostas, por exemplo `sudo UF=ma MUNICIPIO=Tuntum NOME=tuntum TS_AUTHKEY=tskey-auth-... bash instalar-legis.sh`:
 
@@ -20,6 +20,8 @@ Para escolher tudo na instalação, rode `sudo bash instalar-legis.sh --pergunta
 | Nome curto | endereço `https://NOME.local` na rede da Câmara (o nome da máquina passa a ser esse) |
 | Transcrição e legendas | transcreve os discursos e legenda a transmissão (cerca de 600 MB) |
 | IA local | rascunho da ata, perguntas e assistente do cidadão, no próprio servidor (8 GB de RAM) |
+| Videoconferência (Jitsi) | servidor próprio da Câmara para a sessão híbrida (`JITSI=s`, padrão com 4 GB de RAM) |
+| Chave do YouTube | `YOUTUBE_CHAVE=…`: o botão Transmitir já manda a sessão para o canal da Câmara |
 | Chave do Tailscale | opcional: publica na internet em `https://NOME.<sua-tailnet>.ts.net` sem abrir portas |
 
 Leva alguns minutos. Transcrição, IA e publicação na internet terminam em segundo plano: acompanhe com `sudo legis estado`.
