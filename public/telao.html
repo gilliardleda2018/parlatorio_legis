@@ -128,13 +128,15 @@ function desenhar() {
     <div class="t2">${S.congelado.motivo ? esc(S.congelado.motivo) + '<br>' : ''}Microfones fechados · aguarde a presidência</div></div>`;
   $('presenca').innerHTML = `Presentes <b class="tnum">${q.presentes}/${q.n}</b><br>${q.ok ? 'Quórum atingido' : 'Sem quórum'}`;
   const m = S.pauta.find(x => x.id === S.materiaAtual);
-  const faixaMateria = m ? `<div class="materia"><b>${esc(m.numero)}</b> — ${esc(m.ementa)}</div>` : '';
+  const secao = PL.SECOES_PAUTA[m?.secao ?? 'ordem_do_dia'];
+  const faixaMateria = m ? `<div class="materia">${esc(secao)} · <b>${esc(m.numero)}</b> — ${esc(m.ementa)}</div>` : '';
 
   if (v) {
     const c = v.contagem;
     const placar = v.tipo === 'simbolica' ? '<div class="ementa">Votação simbólica</div>'
       : c ? `<div class="placar"><div class="sim"><b class="tnum">${c.sim}</b>SIM</div><div class="nao"><b class="tnum">${c.nao}</b>NÃO</div><div class="abst"><b class="tnum">${c.abst}</b>ABST.</div></div>`
-      : `<div class="placar"><div style="grid-column:1/-1"><b class="tnum">${v.votantes.length}</b>VOTOS REGISTRADOS</div></div>`;
+      : '';
+    const progresso = v.tipo === 'simbolica' ? '' : `<div class="tit">${v.votantes.length} voto(s) registrado(s) · ${v.presentes}/${v.membros} presentes na abertura</div>`;
     const grade = v.tipo === 'simbolica' ? '' : S.parls.map(p => {
       const voto = v.votos[p.id], votou = v.votantes.includes(p.id), aus = !S.presenca[p.id];
       const rotulo = voto ? PL.VOTOS[voto] : votou ? 'Votou' : aus ? 'Ausente' : v.aberta ? 'Aguardando' : 'Não votou';
@@ -142,7 +144,7 @@ function desenhar() {
     }).join('');
     $('conteudo').innerHTML = `<div class="vot">
       <div class="lado"><div class="tit">${v.aberta ? 'Votação em andamento' : 'Resultado da votação'} · ${esc(PL.QUORUNS[v.quorum])}</div>
-        <div class="mat">${esc(v.numero)}</div><div class="ementa">${esc(v.ementa)}</div>${placar}
+        <div class="mat">${esc(v.numero)}</div><div class="ementa">${esc(v.ementa)}</div>${placar}${progresso}
         ${v.resultado ? `<div class="res ${v.resultado}">${PL.SITUACOES[v.resultado].toUpperCase()}</div>` : ''}</div>
       <div class="grade">${grade}</div></div>`;
   } else if (o || i) {

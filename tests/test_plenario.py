@@ -1,5 +1,6 @@
 import json
 import socket
+import sqlite3
 import struct
 import threading
 import time
@@ -32,6 +33,54 @@ class Votacao(TesteComServidor):
         self.assertIsNone(publico["contagem"])
         self.ok(s.acao(P, "votacaoEncerrar"))
         self.assertEqual(s.estado()["votacao"]["resultado"], "rejeitada")
+
+        with sqlite3.connect(f"{s.dir.name}/teste.db") as db:
+            registros = [json.loads(args) for args, in db.execute("select args from eventos where acao = 'votar' order by rowid")]
+        self.assertEqual(registros[0]["valor"], "sim")
+        self.assertNotIn("valor", registros[-1])
+
+
+class OrdemDoDia(TesteComServidor):
+    def test_fluxo_da_pauta_ao_arquivo(self):
+        s, P = self.s, self.P
+        pauta = s.estado()["pauta"]
+        expediente, deliberacao, ultima = [m["id"] for m in pauta]
+        atual = s.req("/api/sessao-publica/atual")
+        self.assertEqual([m["secao"] for m in atual["pauta"]], ["ordem_do_dia"] * 3)
+        self.erro(s.acao(P, "materiaSalvar", numero="PL inválido", ementa="Teste", secao=[]), 400, "Seção")
+        self.ok(s.acao(P, "materiaSalvar", id=expediente, numero=pauta[0]["numero"],
+                       ementa=pauta[0]["ementa"], secao="expediente"))
+        self.ok(s.acao(P, "materiaMover", id=expediente, d=1))
+        self.assertEqual([m["id"] for m in s.estado()["pauta"]], [expediente, deliberacao, ultima])
+        self.ok(s.acao(P, "materiaMover", id=deliberacao, d=1))
+        self.assertEqual([m["id"] for m in s.estado()["pauta"]], [expediente, ultima, deliberacao])
+
+        self.ok(s.acao(P, "setFase", id="od"))
+        self.ok(s.acao(P, "setFase", id="od"))
+        self.ok(s.acao(P, "materiaAtual", id=deliberacao))
+        self.ok(s.acao(P, "votacaoAbrir", materia_id=deliberacao, tipo="simbolica", quorum="simples"))
+        self.erro(s.acao(P, "materiaAtual", id=expediente), 400, "votação aberta")
+        self.erro(s.acao(P, "materiaSituacao", id=deliberacao, situacao="adiada"), 400, "votação aberta")
+        self.ok(s.acao(P, "votacaoEncerrar", resultado="aprovada"))
+        self.ok(s.acao(P, "materiaAtual", id=expediente))
+        self.assertIsNone(s.estado()["votacao"])
+        t = s.entrar("parlamentar", self.ids[0])
+        self.erro(s.acao(t, "materiaSituacao", id=expediente, situacao="adiada"), 403)
+        self.ok(s.acao(P, "materiaSituacao", id=expediente, situacao="adiada", motivo=" Análise da comissão "))
+        self.ok(s.acao(P, "sessaoEncerrar", proximoTitulo="Próxima", manterPauta=True))
+
+        arquivada = s.req(f"/api/sessao-publica/{atual['id']}")
+        self.assertEqual([e["tipo"] for e in arquivada["andamento"]],
+                         ["fase", "discussao", "votacao_aberta", "votacao_encerrada", "discussao", "materia", "encerramento"])
+        self.assertIn("Análise da comissão", arquivada["andamento"][-2]["rotulo"])
+        self.assertEqual(arquivada["pauta"][0]["secao"], "expediente")
+        self.assertEqual(arquivada["votacoes"][0]["resultado"], "aprovada")
+        proxima = s.req("/api/sessao-publica/atual")
+        self.assertEqual(proxima["andamento"], [])
+        self.assertEqual([(m["id"], m["secao"], m["situacao"]) for m in proxima["pauta"]],
+                         [(expediente, "expediente", "pendente"), (ultima, "ordem_do_dia", "pendente")])
+        pdf = s.req(f"/api/ata/{atual['id']}.pdf", token=P, bruto=True)
+        self.assertTrue(pdf.startswith(b"%PDF-1.4"))
 
 
 class Tribuna(TesteComServidor):

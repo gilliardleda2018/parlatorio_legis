@@ -35,7 +35,7 @@ import urllib.parse
 from urllib.parse import urlparse
 
 import tls
-from ata import gerar_ata
+from ata import gerar_ata, SECOES_PAUTA, SITUACOES
 import estatisticas
 import recomendacao
 import sapl as sapl_cli
@@ -188,6 +188,8 @@ def salvar():
 
 def registrar(autor: str, acao: str, args: dict):
     limpo = {k: v for k, v in args.items() if k not in ("dataUrl", "pin")}
+    if acao in ("votar", "votarPor") and (S["votacao"] or {}).get("tipo") == "secreta":
+        limpo.pop("valor", None)
     db.execute(
         "insert into eventos (ts, autor, acao, args) values (?, ?, ?, ?)",
         (agora(), autor, acao, json.dumps(limpo, ensure_ascii=False)),
@@ -271,6 +273,7 @@ def NOVOS_CAMPOS() -> dict:
         "micsManuais": {},      # pid -> True: microfone de bancada liberado pelo presidente
         "micsCortados": [],     # pids com microfone cortado (tumulto, advertência)
         "congelado": None,      # plenário congelado: {inicio, motivo, oradorRodando, interrRodando}
+        "andamento": [],        # fases, discussões e deliberações da sessão
         "ocorrencias": [],      # cortes, congelamentos e tempo esgotado, para a ata
         "sessao": {"id": secrets.token_hex(8), "inicio": agora()},  # sessão em andamento
         "relevancia": {"populacao": 100000, "pesos": dict(estatisticas.PESOS_PADRAO)},
@@ -429,10 +432,16 @@ def acao(*papeis):
     return reg
 
 
+def registrar_andamento(tipo, rotulo, ts=None):
+    S["andamento"].append({"ts": agora() if ts is None else ts, "tipo": tipo, "rotulo": rotulo})
+
+
 # --- fases e fila
 @acao("presidente")
 def setFase(ator, id):
-    fase(id)
+    f = fase(id)
+    if S["faseAtual"] != id or not S["andamento"]:
+        registrar_andamento("fase", f"Fase: {f['nome']}")
     S["faseAtual"] = id
 
 
@@ -868,19 +877,29 @@ def atenderPedido(ator, id, aprovar):
 
 
 # --- pauta
+def secao_pauta(secao):
+    if not isinstance(secao, str) or secao not in SECOES_PAUTA:
+        raise Erro("Seção da pauta inválida.")
+    return secao
+
+
 @acao("presidente")
-def materiaSalvar(ator, numero, ementa, autor="", id=None):
+def materiaSalvar(ator, numero, ementa, autor="", id=None, secao=None):
     """Matéria criada pela pauta: vira também projeto no banco (sem ficha social ainda)."""
+    if secao is not None:
+        secao = secao_pauta(secao)
     if not numero.strip():
         raise Erro("Informe o número da matéria.")
     if id:
         m = materia(id)
         m.update(numero=numero.strip(), ementa=ementa.strip(), autor=autor.strip())
+        if secao is not None:
+            m["secao"] = secao
         p = proj_obter(id) or proj_novo(id=id)
     else:
         p = proj_novo(situacao="em_pauta")
         S["pauta"].append({"id": p["id"], "numero": numero.strip(), "ementa": ementa.strip(),
-                           "autor": autor.strip(), "situacao": "pendente"})
+                           "autor": autor.strip(), "situacao": "pendente", "secao": secao or "ordem_do_dia"})
     p.update(numero=numero.strip(), ementa=ementa.strip(), autor=autor.strip())
     proj_salvar(p)
     S["projetosRev"] += 1
@@ -931,7 +950,8 @@ def projetoRemover(ator, id):
 
 
 @acao("presidente")
-def pautaIncluir(ator, id):
+def pautaIncluir(ator, id, secao="ordem_do_dia"):
+    secao = secao_pauta(secao)
     p = proj_obter(id)
     if not p:
         raise Erro("Projeto não encontrado.")
@@ -940,7 +960,7 @@ def pautaIncluir(ator, id):
     if p["situacao"] in ("aprovada", "rejeitada"):
         raise Erro("Projeto já votado.")
     S["pauta"].append({"id": id, "numero": p["numero"], "ementa": p["ementa"], "autor": p["autor"], "situacao": "pendente",
-                       **({"anexo": p["anexo"]} if p.get("anexo") else {})})
+                       "secao": secao, **({"anexo": p["anexo"]} if p.get("anexo") else {})})
     p["situacao"] = "em_pauta"
     proj_salvar(p)
     S["projetosRev"] += 1
@@ -1057,28 +1077,52 @@ def materiaRemover(ator, id):
 @acao("presidente")
 def materiaMover(ator, id, d):
     p = S["pauta"]
-    i = next((k for k, m in enumerate(p) if m["id"] == id), None)
-    if i is None:
+    m = next((m for m in p if m["id"] == id), None)
+    if m is None:
         return
+    secao = m.get("secao", "ordem_do_dia")
+    posicoes = [k for k, item in enumerate(p) if item.get("secao", "ordem_do_dia") == secao]
+    i = posicoes.index(p.index(m))
     j = i + int(d)
-    if 0 <= j < len(p):
-        p[i], p[j] = p[j], p[i]
+    if 0 <= j < len(posicoes):
+        a, b = posicoes[i], posicoes[j]
+        p[a], p[b] = p[b], p[a]
 
 
 @acao("presidente")
 def materiaAtual(ator, id=None):
+    v = S["votacao"]
+    if v and v["aberta"] and id != v["materia"]:
+        raise Erro("Encerre a votação aberta antes de mudar a matéria em discussão.")
     if id:
         m = materia(id)
         if m["situacao"] == "pendente":
             m["situacao"] = "em_discussao"
+        if S["materiaAtual"] != id:
+            registrar_andamento("discussao", f"Matéria em discussão: {m['numero']}")
+            if v and not v["aberta"]:
+                S["votacao"] = None
     S["materiaAtual"] = id
 
 
 @acao("presidente")
-def materiaSituacao(ator, id, situacao):
+def materiaSituacao(ator, id, situacao, motivo=""):
     if situacao not in ("pendente", "em_discussao", "aprovada", "rejeitada", "adiada", "retirada"):
         raise Erro("Situação inválida.")
-    materia(id)["situacao"] = situacao
+    v = S["votacao"]
+    if v and v["aberta"] and v["materia"] == id:
+        raise Erro("Encerre a votação aberta antes de alterar a situação.")
+    m = materia(id)
+    if m["situacao"] == situacao:
+        return
+    m["situacao"] = situacao
+    detalhe = str(motivo or "").strip()[:300]
+    rotulo = f"{m['numero']}: {SITUACOES[situacao]}"
+    registrar_andamento("materia", f"{rotulo} — {detalhe}" if detalhe else rotulo)
+    if situacao in ("adiada", "retirada") and S["materiaAtual"] == id:
+        S["materiaAtual"] = None
+        if v and not v["aberta"] and v["materia"] == id:
+            S["votacao"] = None
     p = proj_obter(id)
     if p and situacao in ("aprovada", "rejeitada", "retirada"):
         p["situacao"] = situacao
@@ -1127,6 +1171,7 @@ def votacaoAbrir(ator, materia_id, tipo, quorum):
         "contagem": {"sim": 0, "nao": 0, "abst": 0}, "resultado": None, "membros": _membros(),
         "presentes": len(S["presenca"]),
     }
+    registrar_andamento("votacao_aberta", f"Votação aberta: {m['numero']}", S["votacao"]["inicio"])
 
 
 def _votar(pid, valor):
@@ -1175,6 +1220,7 @@ def votacaoEncerrar(ator, resultado=None):
         v["resultado"] = _apurar(v)
     v["aberta"] = False
     v["fim"] = agora()
+    registrar_andamento("votacao_encerrada", f"{v['numero']}: {SITUACOES[v['resultado']]}", v["fim"])
     m = next((x for x in S["pauta"] if x["id"] == v["materia"]), None)
     if m:
         m["situacao"] = v["resultado"] if v["resultado"] != "sem_quorum" else "adiada"
@@ -1194,6 +1240,7 @@ def votacaoEncerrar(ator, resultado=None):
 def votacaoCancelar(ator):
     v = S["votacao"]
     if v and v["aberta"]:
+        registrar_andamento("votacao_cancelada", f"Votação cancelada: {v['numero']}")
         m = next((x for x in S["pauta"] if x["id"] == v["materia"]), None)
         if m:
             m["situacao"] = "em_discussao"
@@ -1314,7 +1361,7 @@ def imagem(ator, alvo, dataUrl=None):
 @acao("presidente")
 def sessaoZerar(ator, manterPauta=True):
     S.update(filas={}, orador=None, interr=None, pedidos=[], hist=[], presenca={}, votacao=None, votacoes=[],
-             micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[], presencaModo={})
+             micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[], andamento=[], presencaModo={})
     inicio = S["sessao"]["inicio"]
     for m in S["pauta"]:  # a sessão descartada não conta no banco de projetos
         p = proj_obter(m["id"])
@@ -1457,8 +1504,10 @@ def _sapl_pauta(cli, sessao_id: int, substituir: bool):
     _sapl_atualiza(total=len(itens), mensagem=f"{len(itens)} item(ns) de pauta na sessão do SAPL.")
     projetos = []
     for k, it in enumerate(itens, 1):
-        projetos.append(_sapl_salvar_materia(cli, cli.materia(it["materia"]), siglas, nomes_parl))
-        _sapl_atualiza(feitos=k, log=f"{projetos[-1]['numero']} ({'expediente' if it['origem'] == 'expediente' else 'ordem do dia'})")
+        p = _sapl_salvar_materia(cli, cli.materia(it["materia"]), siglas, nomes_parl)
+        secao = it["origem"]
+        projetos.append((p, secao))
+        _sapl_atualiza(feitos=k, log=f"{p['numero']} ({SECOES_PAUTA[secao]})")
     with trava:
         if S["votacao"] and S["votacao"]["aberta"]:
             raise sapl_cli.ErroSapl("Há votação aberta: a pauta não foi alterada.")
@@ -1470,10 +1519,10 @@ def _sapl_pauta(cli, sessao_id: int, substituir: bool):
                     proj_salvar(p)
             S["pauta"] = [] if not S["materiaAtual"] else [m for m in S["pauta"] if m["id"] == S["materiaAtual"]]
         ja = {m["id"] for m in S["pauta"]}
-        for p in projetos:
+        for p, secao in projetos:
             if p["id"] not in ja:
                 S["pauta"].append({"id": p["id"], "numero": p["numero"], "ementa": p["ementa"], "autor": p["autor"],
-                                   "situacao": "pendente"})
+                                   "situacao": "pendente", "secao": secao})
                 ja.add(p["id"])
                 if p["situacao"] in ("em_tramitacao", "proposta"):
                     p["situacao"] = "em_pauta"
@@ -1771,13 +1820,13 @@ def agendador_backup():
 def retrato(fim=None) -> dict:
     """Tudo o que a ata precisa da sessão em andamento (cópia independente do estado)."""
     marcos = [*S["presenca"].values(), *(h["inicio"] for h in S["hist"]), *(o["ts"] for o in S["ocorrencias"]),
-              *(v["inicio"] for v in S["votacoes"])]
+              *(v["inicio"] for v in S["votacoes"]), *(e["ts"] for e in S["andamento"])]
     r = {
         "id": S["sessao"]["id"], "titulo": S["casa"]["titulo"], "casa": S["casa"]["nome"],
         "inicio": min(marcos) if marcos else S["sessao"]["inicio"], "fim": fim,
         "parls": [{k: p.get(k) for k in ("id", "nome", "partido", "lider")} for p in S["parls"]],
         "presenca": S["presenca"], "pauta": S["pauta"], "hist": S["hist"], "votacoes": S["votacoes"],
-        "ocorrencias": S["ocorrencias"], "gravacoes": grav_da_sessao(S["sessao"]["id"]),
+        "ocorrencias": S["ocorrencias"], "andamento": S["andamento"], "gravacoes": grav_da_sessao(S["sessao"]["id"]),
         "resumoIA": S.get("_resumoAtual"), "video": S["sessao"].get("video"),
     }
     return json.loads(json.dumps(r))
@@ -1799,13 +1848,14 @@ def sessaoEncerrar(ator, proximoTitulo, manterPauta=True):
     _finalizar()
     fim = agora()
     r = retrato(fim)
+    r["andamento"].append({"ts": fim, "tipo": "encerramento", "rotulo": "Sessão encerrada"})
     db.execute("insert or replace into sessoes (id, titulo, inicio, fim, resumo, json) values (?, ?, ?, ?, ?, ?)",
                (r["id"], r["titulo"], r["inicio"], fim, json.dumps(resumo(r)), json.dumps(r, ensure_ascii=False)))
     db.commit()
     nao_votadas = [dict(m, situacao="pendente") for m in S["pauta"]
                    if m["situacao"] in ("pendente", "em_discussao", "em_votacao", "adiada")] if manterPauta else []
     S.update(filas={}, orador=None, interr=None, pedidos=[], hist=[], presenca={}, votacao=None, votacoes=[],
-             micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[], pauta=nao_votadas, materiaAtual=None,
+             micsManuais={}, micsCortados=[], congelado=None, ocorrencias=[], andamento=[], pauta=nao_votadas, materiaAtual=None,
              sessao={"id": secrets.token_hex(8), "inicio": agora()}, _resumoAtual=None, resumoJob=None)
     seguem = {m["id"] for m in nao_votadas}  # continuam na pauta da próxima sessão
     for m in r["pauta"]:  # histórico no banco de projetos
@@ -2516,7 +2566,9 @@ def sessao_publica(r: dict) -> dict:
     nomes = {p["id"]: p["nome"] for p in r.get("parls") or []}
     return {"id": r["id"], "titulo": r.get("titulo"), "casa": r.get("casa"), "inicio": r.get("inicio"), "fim": r.get("fim"),
             "video": video, "capitulos": capitulos, "falas": falas, "votacoes": votacoes, "nomes": nomes,
-            "pauta": [{k: m.get(k) for k in ("id", "numero", "ementa", "autor", "situacao")} for m in r.get("pauta") or []],
+            "pauta": [{k: m.get(k) for k in ("id", "numero", "ementa", "autor", "situacao")}
+                      | {"secao": m.get("secao", "ordem_do_dia")} for m in r.get("pauta") or []],
+            "andamento": r.get("andamento", []),
             "presentes": len(r.get("presenca") or {}), "membros": len(r.get("parls") or [])}
 
 
@@ -2544,7 +2596,7 @@ def aplicar_cidade(dados: dict):
     for p in S["parls"]:
         db.execute("delete from imagens where chave = ?", (p["id"],))
     novo = estado_inicial()
-    for k in ("presenca", "filas", "orador", "interr", "pedidos", "votacao"):
+    for k in ("presenca", "filas", "orador", "interr", "pedidos", "votacao", "andamento"):
         S[k] = novo[k]
     S["pauta"], S["parls"], S["_pins"] = [], [], {}
     S["_tokens"] = {t: a for t, a in S["_tokens"].items() if a.get("papel") == "presidente"}
