@@ -146,6 +146,10 @@ echo
 echo "${NEGRITO}Instalando:${FIM} ${ROTULO:-cidade escolhida no painel do presidente} · rádio: sim · transcrição: $(ok "$TRANSCRICAO") · IA local: $(ok "$IA") (${MEMORIA_GB} GB de RAM) · videoconferência: $(ok "$JITSI") · YouTube: $([ -n "$YOUTUBE_CHAVE" ] && echo "chave configurada" || echo "chave depois, no painel") · internet: $([ -n "$TS_AUTHKEY" ] && echo "Tailscale" || echo "só rede local") · endereço: https://$NOME.local"
 
 # ---- nome da máquina: https://NOME.local na rede da Câmara
+if [ -f /etc/legis/legis.env ] && [ -z "$NOME_DADO" ]; then
+  SEM_HOSTNAME=1   # atualização: a máquina já tem o LEGIS e um nome; não troca (o certificado é desse nome)
+  NOME=$(hostname)
+fi
 if [ "${SEM_HOSTNAME:-0}" != "1" ] && [ "$(hostname)" != "$NOME" ]; then
   hostnamectl set-hostname "$NOME" 2>/dev/null || hostname "$NOME" 2>/dev/null || true
   if grep -q '^127\.0\.1\.1' /etc/hosts; then sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$NOME/" /etc/hosts; else echo -e "127.0.1.1\t$NOME" >> /etc/hosts; fi
