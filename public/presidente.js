@@ -950,6 +950,7 @@ function desenharProjetos() {
       <td>${barraNota(p.relevancia)}</td>
       <td><span class="chip ${p.situacao === 'aprovada' ? 'sim' : p.situacao === 'rejeitada' ? 'nao' : p.situacao === 'em_pauta' ? 'ambar' : ''}">${SIT_PROJ[p.situacao] || p.situacao}</span></td>
       <td style="white-space:nowrap;text-align:right"><button class="botao pq" onclick="editarProjeto('${p.id}')">Ficha</button>
+        <button class="botao pq" onclick="verAnalise('${p.id}')" title="Análise prévia: comissões, alertas jurídicos e resumo simples">🔎 Análise</button>
         ${p.situacao !== 'proposta' ? `<button class="botao pq" onclick="gerirConsulta('${p.id}')" title="Texto, consulta pública e anexo">Texto e consulta</button>` : ''}
         ${['em_tramitacao', 'proposta'].includes(p.situacao) && !naPauta.has(p.id) ? `<button class="botao pq principal" onclick="A('pautaIncluir',{id:'${p.id}'})">Pautar</button>` : ''}
         ${!naPauta.has(p.id) ? `<button class="botao pq fantasma" onclick="if(confirm('Remover ${esc(p.numero)} do banco de projetos?'))A('projetoRemover',{id:'${p.id}'})">✕</button>` : ''}</td></tr>`).join('')

@@ -284,3 +284,36 @@ function responderIdeia(botao, id) {
   A('ideiaResponder', { id, situacao: g.querySelector('select').value, texto: g.querySelector('input').value });
 }
 document.querySelector('[data-aba="projetos"]').addEventListener('click', () => carregarIdeias());
+
+
+/* ---------------- análise prévia da proposição (Ulysses) ---------------- */
+let analiseAberta = null, analiseTimer = null;
+const GRAV = { alto: ['nao', 'Atenção'], medio: ['ambar', 'Conferir'], baixo: ['', 'Observar'], info: ['', 'Informação'] };
+async function verAnalise(id) {
+  analiseAberta = id; clearTimeout(analiseTimer);
+  let r; try { r = await (await apiGet(`/api/analise/${id}`)).json(); } catch (e) { return PL.avisar(e.message, true); }
+  const a = r.analise;
+  $('dlgTitulo').textContent = `Análise prévia — ${r.numero}`;
+  $('dlgOk').textContent = a && !a.emAndamento ? (a.revisada ? 'Salvar resumo' : 'Marcar como revisada') : 'Gerar análise';
+  $('dlgOk').onclick = () => {
+    if (!a || a.emAndamento === undefined && !a.comissoes) return A('projetoAnalisar', { id }).then(() => setTimeout(() => verAnalise(id), 800));
+    if (a.emAndamento) return;
+    A('projetoAnaliseRevisar', { id, resumo: $('anResumo') ? $('anResumo').value : null }).then(() => { PL.avisar('Análise revisada: o resumo passa a aparecer nas enquetes públicas.'); verAnalise(id); });
+  };
+  $('dlgCorpo').innerHTML = `<p class="detalhe" style="margin:0"><b>${esc(r.numero)}</b> — ${esc(r.ementa)}</p>
+    ${!r.temTexto ? '<p class="detalhe" style="margin:0">⚠ Sem o texto do projeto cadastrado, a análise usa só a ementa. Cadastre em “Texto e consulta”.</p>' : ''}
+    ${!a ? `<p>Gera um rascunho com as comissões sugeridas, alertas jurídicos comuns (vício de iniciativa, despesa, renúncia de receita, competência da União) ${r.ia !== 'desligada' ? 'e um resumo em linguagem simples feito pela IA (' + esc(r.ia) + ')' : ''}. <b>É só apoio</b>: não substitui o parecer jurídico nem o da comissão.</p>`
+      : a.emAndamento ? '<p class="detalhe">⏳ Analisando… (com IA pode levar até um minuto)</p>'
+      : `<div><span class="chip ${a.revisada ? 'sim' : 'ambar'}">${a.revisada ? '✓ revisada por ' + esc(a.revisor) : 'rascunho — revise antes de usar'}</span> <span class="suave" style="font-size:12px">motor: ${esc(a.motor)}</span></div>
+        ${a.aviso ? `<p class="detalhe">${esc(a.aviso)}</p>` : ''}
+        <div><b>Comissões sugeridas</b><div class="tags" style="margin-top:4px">${a.comissoes.map(c => `<span class="tag">${esc(c)}</span>`).join('')}</div>
+          <small class="suave">Ajuste conforme as comissões do seu Regimento Interno.</small></div>
+        <div><b>Alertas</b>${a.alertas.length ? a.alertas.map(x => `<div class="contrib" style="margin-top:6px"><span class="chip ${GRAV[x.gravidade][0]}">${GRAV[x.gravidade][1]}</span> <b>${esc(x.titulo)}</b>
+          <div style="font-size:14px;margin-top:4px">${esc(x.texto)}</div><small class="suave">Trecho: “${esc(x.trecho)}”</small></div>`).join('') : '<p class="detalhe">Nenhum alerta pelas regras automáticas.</p>'}</div>
+        ${a.observacoes ? `<div><b>Pontos para a comissão conferir (IA)</b><ul style="margin:4px 0">${a.observacoes.map(o => `<li>${esc(o)}</li>`).join('')}</ul></div>` : ''}
+        <label class="rot">Resumo em linguagem simples ${a.revisada ? '(público nas enquetes)' : '(revise e edite; só aparece ao público depois de revisado)'}
+          <textarea class="campo" id="anResumo" rows="4" placeholder="Escreva um resumo simples para o cidadão">${esc(a.resumo || '')}</textarea></label>
+        <div class="grupo"><button class="botao pq fantasma" onclick="A('projetoAnalisar',{id:'${id}'}).then(()=>setTimeout(()=>verAnalise('${id}'),800))">Gerar de novo</button></div>`}`;
+  if (!dlg.open) dlg.showModal();
+  if (a && a.emAndamento) analiseTimer = setTimeout(() => { if (dlg.open && analiseAberta === id) verAnalise(id); }, 3000);
+}

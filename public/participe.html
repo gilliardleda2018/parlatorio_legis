@@ -181,6 +181,7 @@ async function carregarEnquetes() {
   if (!ENQ) return;
   $('enqLista').innerHTML = ENQ.projetos.length ? ENQ.projetos.map(p => `<div class="enq" id="enq-${p.id}">
       <b>${esc(p.numero)}</b> <span class="suave">· ${esc(p.autor || '')}</span><div style="margin-top:2px">${esc(p.ementa)}</div>
+      ${p.resumo ? `<div class="detalhe" style="margin-top:4px">📝 <b>Em linguagem simples:</b> ${esc(p.resumo)}</div>` : ''}
       <div class="ops">${Object.entries(ENQ.opcoes).map(([k, n]) => `<button class="botao pq ${p.meuVoto === k ? 'escolhida' : ''}" onclick="votarEnquete('${p.id}','${k}')">${n}</button>`).join('')}</div>
       <div class="barras" id="bar-${p.id}">${p.meuVoto ? '' : `<small class="suave">${p.enquete} participação(ões). Responda para ver o resultado.</small>`}</div></div>`).join('')
     : '<p class="vazio">Nenhum projeto em tramitação no momento.</p>';

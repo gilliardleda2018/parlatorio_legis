@@ -51,6 +51,7 @@ import ia
 import legendas as legendas_mod
 import participacao
 import cidadania
+import analise
 import resumo as resumo_mod
 from texto import _sem_acento
 from mesa import CFG_PADRAO, DRIVERS as DRIVERS_MESA, PRESETS, Mesa
@@ -2381,6 +2382,50 @@ def meta_ideia() -> int:
 
 
 @acao("presidente")
+def projetoAnalisar(ator, id):
+    """Rascunho da análise prévia (regras + IA, se ligada), em segundo plano: a IA pode levar um minuto."""
+    p = proj_obter(id)
+    if not p:
+        raise Erro("Projeto não encontrado.")
+    if (p.get("analise") or {}).get("emAndamento") and agora() - p["analise"].get("gerado", 0) < 300_000:
+        raise Erro("A análise deste projeto já está sendo feita.")
+    p["analise"] = {"emAndamento": True, "gerado": agora()}
+    proj_salvar(p)
+    S["projetosRev"] += 1
+    copia = json.loads(json.dumps(p))
+
+    def rodar():
+        try:
+            r = analise.analisar(copia)
+        except Exception as e:  # nunca deixa a análise "em andamento" para sempre
+            r = {**analise.regras(copia), "resumo": None, "observacoes": None, "motor": "regras", "gerado": agora(),
+                 "revisada": False, "revisor": None, "aviso": f"Falha na IA: {e.__class__.__name__}"}
+        with trava:
+            q = proj_obter(id)
+            if q:
+                q["analise"] = r
+                proj_salvar(q)
+                S["projetosRev"] += 1
+                confirmar()
+    threading.Thread(target=rodar, daemon=True).start()
+
+
+@acao("presidente")
+def projetoAnaliseRevisar(ator, id, resumo=None, revisada=True):
+    """Revisão humana: só a análise revisada (e o resumo editado) aparece para o público."""
+    p = proj_obter(id)
+    a = (p or {}).get("analise") or {}
+    if not a or a.get("emAndamento"):
+        raise Erro("Gere a análise antes de revisar.")
+    if resumo is not None:
+        a["resumo"] = " ".join(str(resumo).split())[:900] or None
+    a.update(revisada=bool(revisada), revisor="Mesa Diretora" if revisada else None, revisadaEm=agora() if revisada else None)
+    p["analise"] = a
+    proj_salvar(p)
+    S["projetosRev"] += 1
+
+
+@acao("presidente")
 def perguntasAbrir(ator, abertas=True):
     S["perguntasAbertas"] = bool(abertas)
     if not abertas:
@@ -3295,11 +3340,23 @@ class Manipulador(BaseHTTPRequestHandler):
             except ValueError:
                 desde = 0
             return self._json(200, {"ativa": transmissor.ativa, "ligadas": legendador.ligado, "itens": legendador.desde(desde)})
+        m = re.fullmatch(r"/api/analise/([A-Za-z0-9]+)", caminho)
+        if m:
+            with trava:
+                ator = self._ator()
+                if not ator or ator["papel"] != "presidente":
+                    return self._json(401, {"erro": "Entre como presidente."})
+                p = proj_obter(m.group(1))
+                if not p:
+                    return self._json(404, {"erro": "Projeto não encontrado."})
+                return self._json(200, {"analise": p.get("analise"), "ia": ia.descricao(), "temTexto": bool(p.get("texto")),
+                                        "numero": p["numero"], "ementa": p["ementa"]})
         if caminho == "/api/enquetes":
             with trava:
                 ip = self._ip()
                 lista = [{k: p.get(k) for k in ("id", "numero", "ementa", "autor", "situacao")}
-                         | {"enquete": cidadania.enquete_resultado(db, p["id"])["total"], "meuVoto": cidadania.enquete_meu_voto(db, p["id"], ip)}
+                         | {"enquete": cidadania.enquete_resultado(db, p["id"])["total"], "meuVoto": cidadania.enquete_meu_voto(db, p["id"], ip),
+                            "resumo": (p.get("analise") or {}).get("resumo") if (p.get("analise") or {}).get("revisada") else None}
                          for p in proj_todos() if p["situacao"] == "em_tramitacao"]
             lista.sort(key=lambda x: -x["enquete"])
             return self._json(200, {"projetos": lista[:60], "opcoes": cidadania.ENQUETE})
