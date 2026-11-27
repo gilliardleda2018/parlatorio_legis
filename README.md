@@ -274,6 +274,16 @@ Não pergunta nada e não depende do TSE na hora. Já sai pronto:
 
 Transcrição, IA, Jitsi e internet terminam em segundo plano. Acompanhe com `sudo legis estado`.
 
+### Painel dos pacotes
+
+Para quem gera e entrega os pacotes, há um painel no navegador:
+
+```bash
+python3 packaging/painel.py          # abre http://127.0.0.1:8099
+```
+
+Nele dá para cadastrar uma Câmara (estado, município da lista do IBGE, nome, brasão, link do YouTube) e gerar o pacote dela. Também mostra quais pacotes estão desatualizados em relação ao código atual, gera de novo um ou todos, baixa os arquivos, copia o comando de instalação e gera e publica a versão geral no GitHub (com confirmação). Cada tarefa mostra o registro ao vivo. A configuração das Câmaras fica em `dados/camaras/` (fora do Git) e os pacotes em `dist/`. Só atende no próprio computador (127.0.0.1).
+
 ## Instalador .deb (Debian 12/13, Ubuntu 24.04)
 
 ```bash

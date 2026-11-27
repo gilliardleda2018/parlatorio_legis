@@ -73,7 +73,7 @@ db_input low legis/tailscale_chave || true
 db_go || true
 EOF
 
-DESTINO="dist/cidades/$SLUG"
+DESTINO="${DIST_CIDADES:-dist/cidades}/$SLUG"
 rm -rf "$DESTINO" && mkdir -p "$DESTINO"
 echo "== Pacote"
 CIDADE_DIR="$OBRA" CIDADE_SLUG="$SLUG" CIDADE_ROTULO="$CAMARA_OK ($MUN_OK/$UF_OK)" DESTINO="$DESTINO" \
