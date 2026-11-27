@@ -2968,6 +2968,10 @@ def dados_abertos_sessoes() -> list[dict]:
     return saida
 
 
+# --- acompanhar (feeds, agenda, e-mail), opinião na pauta, Tribuna Livre, citações LexML e OAI-PMH: server/acompanhar.py
+import acompanhar
+acompanhar.instalar(globals())
+
 # ---------------------------------------------------------------- HTTP
 class Manipulador(BaseHTTPRequestHandler):
     server_version = "ParlatorioLegis/2"
@@ -3089,6 +3093,9 @@ class Manipulador(BaseHTTPRequestHandler):
         if caminho == "/aovivo":
             return self._aovivo_audio()
         novo = self._get_novos(caminho)
+        if novo is not None:
+            return novo
+        novo = acompanhar.get(self, caminho)   # feeds, agenda, OAI-PMH, pauta cidadã e Tribuna Livre
         if novo is not None:
             return novo
         if caminho == "/api/aovivo":
@@ -3974,6 +3981,8 @@ class Manipulador(BaseHTTPRequestHandler):
                 return self._transmissao_parte()
             if caminho == "/api/radio/arquivo":
                 return self._radio_arquivo()
+            if acompanhar.form(self, caminho) is not None:   # formulários de confirmação/descadastro (não são JSON)
+                return
             corpo = self._ler()
             if caminho == "/api/entrar":
                 return self._entrar(corpo)
@@ -3989,6 +3998,9 @@ class Manipulador(BaseHTTPRequestHandler):
             if caminho == "/api/trocar-pin":
                 return self._trocar_pin(corpo)
             novo = self._post_novos(caminho, corpo)
+            if novo is not None:
+                return novo
+            novo = acompanhar.post(self, caminho, corpo)
             if novo is not None:
                 return novo
             return self._json(404, {"erro": "Não encontrado."})

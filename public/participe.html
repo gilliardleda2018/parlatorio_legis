@@ -42,7 +42,7 @@
 </div></nav>
 <main>
   <nav class="abas-part" aria-label="Formas de participar">
-    <a href="#consulta-publica">Consulta pública</a><a href="#enquetes">Enquetes</a><a href="#ideias">Ideia Legislativa</a><a href="#ao-vivo">Perguntas ao vivo</a>
+    <a href="#consulta-publica">Consulta pública</a><a href="#enquetes">Enquetes</a><a href="#ideias">Ideia Legislativa</a><a href="#ao-vivo">Perguntas ao vivo</a><a href="#pauta-cidada">Opine na pauta</a><a href="#tribuna-livre">Tribuna Livre</a>
   </nav>
   <section class="cartao" id="ao-vivo-cartao" hidden>
     <h2 id="ao-vivo">Perguntas ao vivo<span class="esp"></span><span class="chip sim">recebendo agora</span></h2>
@@ -83,10 +83,32 @@
         <button class="botao principal">Publicar ideia</button></form></details>
     <div id="ideiaLista"></div>
   </section>
+  <section class="cartao" id="pauta-cidada" style="margin-top:16px">
+    <h2>Opine na pauta da próxima sessão</h2>
+    <p class="detalhe" style="margin-top:0" id="pautaCidadaTitulo"></p>
+    <p class="detalhe" style="margin-top:0">Diga se você é a favor, contra ou neutro em cada item que os vereadores vão discutir, e por quê. As opiniões aparecem depois da moderação da presidência e o placar pode ser mostrado no telão do plenário.</p>
+    <div id="pautaCidadaLista"><p class="vazio">Carregando…</p></div>
+  </section>
+  <section class="cartao" id="tribuna-livre" style="margin-top:16px">
+    <h2>Tribuna Livre</h2>
+    <p class="detalhe" style="margin-top:0">Peça para usar a palavra na Tribuna Livre da próxima sessão, como prevê o Regimento Interno. A presidência confirma as inscrições e define a ordem; o contato não é publicado.</p>
+    <form class="form-contrib" id="tribunaForm">
+      <div class="linha2"><input class="campo" name="nome" required minlength="3" maxlength="80" placeholder="Seu nome" aria-label="Seu nome" autocomplete="name">
+        <input class="campo" name="entidade" required minlength="2" maxlength="100" placeholder="Entidade, associação ou bairro" aria-label="Entidade, associação ou bairro"></div>
+      <input class="campo" name="tema" required minlength="5" maxlength="200" placeholder="Tema da fala" aria-label="Tema da fala">
+      <input class="campo" name="contato" required maxlength="120" placeholder="E-mail ou telefone para contato (não é publicado)" aria-label="E-mail ou telefone para contato (não é publicado)">
+      <input class="isca" name="site" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button class="botao principal">Pedir inscrição</button>
+    </form>
+    <p class="vazio" id="tribunaFechada" hidden>As inscrições para a Tribuna Livre estão fechadas no momento.</p>
+    <h3 style="margin:14px 0 4px;font-size:15px">Inscritos confirmados</h3>
+    <div id="tribunaLista"></div>
+  </section>
 </main>
 <script src="/rodape.js"></script>
 <script src="/aovivo.js"></script>
 <script src="/assistente.js"></script>
+<script src="/participe-pauta.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

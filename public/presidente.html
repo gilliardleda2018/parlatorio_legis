@@ -228,6 +228,18 @@
             <small class="suave">As pessoas enviam em <a href="/participe#ao-vivo" target="_blank" rel="noopener">/participe</a>; nada aparece ao público nem no telão antes da sua aprovação.</small>
             <div id="pqLista" style="margin-top:8px"></div>
           </div>
+          <div class="cartao neutro" id="cartaoPautaCidada">
+            <h2>Opinião do cidadão na pauta<span class="esp"></span><span id="pcEstado"></span></h2>
+            <label class="linha">Mostrar o placar do item em discussão no telão<input type="checkbox" id="pcTelao" onchange="A('placarTelao',{mostrar:this.checked})"></label>
+            <small class="suave">Enviadas em <a href="/participe#pauta-cidada" target="_blank" rel="noopener">/participe</a>; só as aprovadas aparecem ao público e contam no placar do telão. O e-mail só aparece aqui.</small>
+            <div id="pcLista" style="margin-top:8px"></div>
+          </div>
+          <div class="cartao neutro" id="cartaoTribunaLivre">
+            <h2>Tribuna Livre<span class="esp"></span><span id="tlEstado"></span></h2>
+            <label class="linha">Receber inscrições online<input type="checkbox" id="tlAbertas" onchange="A('tribunaAbrir',{abertas:this.checked})"></label>
+            <small class="suave">Aprove e ordene quem usa a palavra; a lista pública (<a href="/participe#tribuna-livre" target="_blank" rel="noopener">/participe</a>) mostra só os aprovados, sem contato.</small>
+            <div id="tlLista" style="margin-top:8px"></div>
+          </div>
           <div class="cartao neutro">
             <h2>Mesa de som<span class="esp"></span><span id="mesaEstado"></span></h2>
             <div id="mesaLog" class="suave tnum" style="font-size:12px;line-height:1.6"></div>
@@ -323,6 +335,24 @@
         <p class="detalhe" style="margin-top:0">Propostas enviadas em <a href="/participe#ideias" target="_blank" rel="noopener">/participe</a>. As que atingem a meta de apoios no prazo vêm para a análise da Mesa: responda dizendo o encaminhamento (virou projeto, arquivada…).</p>
         <label class="linha">Meta de apoios (0 = automática, 0,3% da população)<input class="campo" type="number" min="0" id="idMeta" style="width:110px"><button class="botao pq" onclick="A('ideiaMeta',{meta:+$('idMeta').value}).then(carregarIdeias)">Salvar</button></label>
         <div id="idLista"></div>
+      </div>
+      <div class="cartao neutro" id="cartaoNormasMunicipais" style="margin-top:16px">
+        <h2>Normas municipais (links automáticos e LexML)</h2>
+        <p class="detalhe" style="margin-top:0">Leis, decretos e resoluções do município. Quando um projeto ou ata cita uma norma cadastrada, a citação vira link para <a href="/normas" target="_blank" rel="noopener">/normas</a>; as federais apontam para o LexML. <span id="nmLocal"></span></p>
+        <form class="grupo" onsubmit="event.preventDefault(); PresCidadao.salvarNorma(this)">
+          <select class="campo" name="tipo" id="nmTipo" style="width:auto" aria-label="Tipo"></select>
+          <input class="campo" name="numero" placeholder="Número" style="width:100px" aria-label="Número">
+          <input class="campo" name="data" placeholder="Data (AAAA-MM-DD ou ano)" style="width:170px" required aria-label="Data">
+          <input class="campo" name="ementa" placeholder="Ementa" style="flex:1;min-width:180px" aria-label="Ementa">
+          <input class="campo" name="link" placeholder="Link do texto oficial (opcional)" style="flex:1;min-width:160px" aria-label="Link">
+          <button class="botao pq principal">Salvar</button></form>
+        <details style="margin-top:8px"><summary class="botao pq" style="display:inline-flex;cursor:pointer">Importar CSV</summary>
+          <form style="display:grid;gap:6px;margin-top:6px" onsubmit="event.preventDefault(); PresCidadao.importar(this)">
+            <small class="suave">Cabeçalho: <code>tipo;numero;data;ementa;link</code> (vírgula também serve). Tipos: lei, lei complementar, decreto, decreto legislativo, resolução, lei orgânica.</small>
+            <input type="file" accept=".csv,text/csv" aria-label="Arquivo CSV">
+            <textarea class="campo" rows="4" placeholder="tipo;numero;data;ementa;link&#10;lei;1234;2020-03-10;Institui o programa…;" aria-label="CSV"></textarea>
+            <button class="botao pq">Importar</button></form></details>
+        <div id="nmLista" style="margin-top:8px"></div>
       </div>
     </section>
 
@@ -596,5 +626,6 @@
 <script src="/comum.js"></script>
 <script src="/presidente.js"></script>
 <script src="/presidente2.js"></script>
+<script src="/presidente-cidadao.js"></script>
 </body>
 </html>

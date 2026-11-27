@@ -100,7 +100,7 @@
   <div class="tiles" id="tiles"></div>
 
   <section class="cartao" id="projetos">
-    <h2>Projetos por relevância social</h2>
+    <h2>Projetos por relevância social<span class="esp"></span><span data-acompanhar data-feed="/feeds/projetos.atom" data-titulo="Projetos" style="text-transform:none;letter-spacing:0"></span></h2>
     <p class="detalhe" style="margin-top:0">A nota (0–100) combina pessoas beneficiadas, abrangência, grupos vulneráveis atendidos e urgência, conforme a ficha social de cada projeto.
       São estimativas com fonte declarada: servem para comparar e priorizar, não substituem a análise do mérito.</p>
     <div class="filtros">
@@ -153,7 +153,7 @@
 
   <section class="cartao neutro" id="discursos"></section>
 
-  <section class="cartao neutro" id="sessoes"><h2>Sessões realizadas</h2><div style="overflow-x:auto"><table class="tab" id="tabSessoes"></table></div></section>
+  <section class="cartao neutro" id="sessoes"><h2>Sessões realizadas<span class="esp"></span><span data-acompanhar data-feed="/feeds/sessoes.atom" data-agenda="/agenda.ics" data-titulo="Sessões" style="text-transform:none;letter-spacing:0;font-weight:600"></span></h2><div style="overflow-x:auto"><table class="tab" id="tabSessoes"></table></div></section>
   <p class="suave" style="text-align:center;font-size:13px" id="rodape"></p>
 </main>
 <div id="dica" role="tooltip"></div>
@@ -161,6 +161,7 @@
 <script src="/assistente.js"></script>
 <script src="/aovivo.js"></script>
 <script src="/discursos.js"></script>
+<script src="/acompanhar.js"></script>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -247,6 +248,7 @@ function desenharProjetos() {
         <div class="em">${esc(p.ementa)}</div>
         <div class="tags">${(p.areas || []).map(a => `<span class="tag">${esc(D.areas[a])}</span>`).join('')}${(p.vulneraveis || []).map(v => `<span class="tag" style="background:color-mix(in srgb,var(--c-vulneraveis) 30%,var(--cartao3))">${esc(D.vulneraveisNomes[v])}</span>`).join('')}</div>
         <details><summary>Detalhes</summary>
+          <a href="/projeto/${esc(p.id)}">Página do projeto</a> · <a href="/feeds/projeto/${esc(p.id)}.atom">📡 acompanhar</a><br>
           ${p.autor ? 'Autoria: ' + esc(p.autor) + '<br>' : ''}${p.abrangencia ? 'Abrangência: ' + esc(D.abrangenciaNomes[p.abrangencia]) + '<br>' : ''}${p.urgencia ? 'Urgência: ' + esc(D.urgenciaNomes[p.urgencia]) + '<br>' : ''}
           ${p.fonte ? 'Fonte da estimativa: ' + esc(p.fonte) + '<br>' : ''}
           ${p.textoUrl ? `<a href="${esc(urlSegura(p.textoUrl))}" target="_blank" rel="noopener noreferrer">Texto original</a> · ` : ''}${p.saplUrl ? `<a href="${esc(urlSegura(p.saplUrl))}" target="_blank" rel="noopener noreferrer">Tramitação no SAPL</a><br>` : ''}

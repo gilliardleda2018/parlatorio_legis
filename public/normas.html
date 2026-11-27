@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Normas municipais — LEGIS</title>
+<meta name="description" content="Leis, decretos e resoluções do município, com identificador LexML.">
+<link rel="icon" type="image/png" href="/marca/legis-32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px }
+  .norma { padding: 10px 0; border-top: 1px solid var(--linha) } .norma:target { outline: 2px solid var(--destaque); border-radius: 8px; padding: 10px }
+  .norma code { font-size: 12px; word-break: break-all }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img id="logoNav" src="/marca/legis-icone.png" alt=""><span><span id="casaNav">Câmara Municipal</span><small>Normas municipais</small></span></a>
+  <span class="esp"></span>
+  <a class="item" href="/transparencia">Transparência</a><a class="item" href="/participe">Participe</a><a class="item" href="/dados">Dados abertos</a>
+</div></nav>
+<main>
+  <section class="cartao">
+    <h2>Normas municipais</h2>
+    <p class="detalhe" style="margin-top:0">Catálogo mantido pela Câmara. Cada norma tem um nome uniforme LexML (<code>urn:lex</code>); os projetos e atas que citam estas normas ganham link para cá.
+      Os metadados também saem por OAI-PMH em <a href="/oai?verb=Identify">/oai</a>.</p>
+    <input class="campo" id="busca" placeholder="Buscar por número, ano ou assunto…" aria-label="Buscar norma" style="width:100%;margin-bottom:8px">
+    <div id="lista"><p class="vazio">Carregando…</p></div>
+  </section>
+</main>
+<script src="/rodape.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const urlSegura = u => { const t = String(u ?? '').trim(); return /^https?:\/\//i.test(t) ? t : ''; };
+let D = null;
+function desenhar() {
+  const q = $('busca').value.toLowerCase();
+  const lista = D.normas.filter(n => !q || `${n.nome} ${n.ementa} ${n.ano}`.toLowerCase().includes(q));
+  $('lista').innerHTML = lista.length ? lista.map(n => `<div class="norma" id="n-${esc(n.id)}"><b>${esc(n.nome)}</b>${n.data ? ` <span class="suave">· ${new Date(n.data + 'T12:00').toLocaleDateString('pt-BR')}</span>` : ''}
+      <div>${esc(n.ementa || '')}</div>
+      ${n.urn ? `<code>${esc(n.urn)}</code>` : ''} ${urlSegura(n.link) ? ` · <a href="${esc(urlSegura(n.link))}" target="_blank" rel="noopener noreferrer">texto oficial</a>` : ''}</div>`).join('')
+    : '<p class="vazio">Nenhuma norma cadastrada.</p>';
+  if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+}
+async function carregar() {
+  D = await fetch('/api/normas-municipais').then(r => r.json());
+  $('casaNav').textContent = D.casa;
+  desenhar();
+  const t = await fetch('/api/transparencia').then(x => x.json()).catch(() => null);
+  if (t) Rodape.mostrar(t.rodape, t.casa);
+}
+$('busca').addEventListener('input', desenhar);
+carregar();
+</script>
+</body>
+</html>
