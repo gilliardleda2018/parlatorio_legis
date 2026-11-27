@@ -1,4 +1,5 @@
 name: Pacote de uma Câmara
+run-name: "Pacote de ${{ inputs.camara || inputs.municipio }} (${{ inputs.uf }})"
 
 # Formulário em Actions → "Pacote de uma Câmara" → Run workflow. Gera o pacote da Câmara (município,
 # Câmara, brasão e vereadores eleitos do TSE com foto) e publica na release camara-<nome>, com um comando
