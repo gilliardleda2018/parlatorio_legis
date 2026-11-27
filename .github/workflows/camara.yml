@@ -18,8 +18,6 @@ on:
         required: true
         type: string
       camara:
-    permissions:
-      contents: write   # só este job publica releases
         description: "Nome da Câmara (em branco: Câmara Municipal de <município>)"
         required: false
         type: string
@@ -43,6 +41,8 @@ concurrency:
 jobs:
   camara:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # só este job publica releases
     steps:
       - uses: actions/checkout@v4
       - name: Gerar e publicar o pacote da Câmara

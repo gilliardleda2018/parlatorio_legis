@@ -382,7 +382,7 @@ class _SMTPFalso(socketserver.StreamRequestHandler):
                 while (l := self.rfile.readline()) not in (b".\r\n", b""):
                     dados.append(l)
                 m = email.message_from_bytes(b"".join(dados), policy=email.policy.default)
-                self.caixa.append(f"List-Unsubscribe: {m['List-Unsubscribe']}\nSubject: {m['Subject']}\n\n{m.get_body().get_content()}")
+                self.caixa.append(f"List-Unsubscribe: {str(m['List-Unsubscribe']).strip()}\nSubject: {m['Subject']}\n\n{m.get_body().get_content()}")
                 w("250 guardado")
             elif cmd == "QUIT":
                 w("221 tchau")
