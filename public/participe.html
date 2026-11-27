@@ -19,6 +19,19 @@
   .form-contrib .linha2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
   .isca { position: absolute; left: -9999px }
   @media (max-width: 640px) { .form-contrib .linha2 { grid-template-columns: 1fr } }
+  .abas-part { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px }
+  .abas-part a { text-decoration: none; padding: 8px 14px; border-radius: 99px; background: var(--cartao2); font-weight: 600; font-size: 14px }
+  .enq { padding: 12px 0; border-bottom: 1px solid var(--linha) } .enq:last-child { border: 0 }
+  .enq .ops { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px }
+  .enq .ops button.escolhida { outline: 2px solid var(--destaque); font-weight: 700 }
+  .barras { display: grid; gap: 4px; margin-top: 8px; font-size: 13px }
+  .barras div { display: grid; grid-template-columns: 170px 1fr 48px; gap: 8px; align-items: center }
+  .barras i { display: block; height: 10px; border-radius: 6px; background: var(--destaque) }
+  .ideia { background: var(--cartao2); border-radius: 12px; padding: 12px 14px; margin-top: 10px }
+  .meta { height: 10px; border-radius: 6px; background: var(--linha); overflow: hidden; margin: 8px 0 4px }
+  .meta i { display: block; height: 100%; background: var(--destaque) }
+  .pergunta { border-left: 3px solid var(--destaque); padding: 6px 0 6px 12px; margin-top: 10px }
+  @media (max-width: 640px) { .barras div { grid-template-columns: 1fr 48px } .barras div i { grid-column: 1 / -1 } }
 </style>
 </head>
 <body>
@@ -28,12 +41,48 @@
   <a class="item" href="/transparencia">Transparência</a><a class="item" href="/parlamentares">Parlamentares</a><a class="item ativo" href="/participe">Participe</a><a class="item" href="/dados">Dados abertos</a>
 </div></nav>
 <main>
-  <section class="cartao">
+  <nav class="abas-part" aria-label="Formas de participar">
+    <a href="#consulta-publica">Consulta pública</a><a href="#enquetes">Enquetes</a><a href="#ideias">Ideia Legislativa</a><a href="#ao-vivo">Perguntas ao vivo</a>
+  </nav>
+  <section class="cartao" id="ao-vivo-cartao" hidden>
+    <h2 id="ao-vivo">Perguntas ao vivo<span class="esp"></span><span class="chip sim">recebendo agora</span></h2>
+    <p class="detalhe" style="margin-top:0" id="avTitulo"></p>
+    <form class="form-contrib" onsubmit="event.preventDefault(); perguntar(this)">
+      <div class="linha2"><input class="campo" name="nome" placeholder="Seu nome" required minlength="3" maxlength="80" autocomplete="name">
+        <input class="campo" name="bairro" placeholder="Bairro ou povoado (opcional)" maxlength="60"></div>
+      <textarea class="campo" name="texto" rows="2" placeholder="Sua pergunta à Câmara (até 500 caracteres)" required minlength="10" maxlength="500"></textarea>
+      <input class="isca" name="site" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button class="botao principal">Enviar pergunta</button>
+      <small class="suave">A presidência escolhe as perguntas que serão lidas; as aprovadas aparecem abaixo e podem ir para o telão do plenário.</small>
+    </form>
+    <div id="avLista"></div>
+  </section>
+  <section class="cartao" id="consulta-publica">
     <h2>Consulta pública</h2>
     <p class="detalhe" style="margin-top:0">Leia o texto de cada projeto, comente o artigo que quiser e apoie as sugestões de outras pessoas. A autoria do projeto ou a Mesa Diretora responde cada contribuição dizendo se ela foi acatada.</p>
     <div class="consulta-lista" id="lista"><p class="vazio">Carregando…</p></div>
   </section>
   <section class="cartao neutro oculto" id="detalhe" style="margin-top:16px"></section>
+  <section class="cartao" id="enquetes" style="margin-top:16px">
+    <h2>Enquetes: o que você acha destes projetos?</h2>
+    <p class="detalhe" style="margin-top:0">Dê sua opinião sobre os projetos em tramitação. Você pode mudar a resposta enquanto o projeto tramita.
+      <b>Enquete não é pesquisa de opinião</b>: não tem rigor estatístico e serve para os vereadores conhecerem a percepção de quem participa.</p>
+    <div id="enqLista"><p class="vazio">Carregando…</p></div>
+  </section>
+  <section class="cartao" id="ideias" style="margin-top:16px">
+    <h2>Ideia Legislativa<span class="esp"></span><span class="chip" id="ideiaMeta"></span></h2>
+    <p class="detalhe" style="margin-top:0" id="ideiaExplica"></p>
+    <details><summary class="botao principal" style="display:inline-flex;cursor:pointer">💡 Propor uma ideia</summary>
+      <form class="form-contrib" onsubmit="event.preventDefault(); proporIdeia(this)">
+        <input class="campo" name="titulo" placeholder="Título da ideia (ex.: Iluminação na praça do Centro)" required minlength="8" maxlength="120">
+        <textarea class="campo" name="texto" rows="4" placeholder="Explique a ideia: o problema, a proposta e quem ganha com ela" required minlength="30" maxlength="3000"></textarea>
+        <div class="linha2"><input class="campo" name="nome" placeholder="Seu nome" required minlength="3" maxlength="80" autocomplete="name">
+          <input class="campo" name="bairro" placeholder="Bairro ou povoado (opcional)" maxlength="60"></div>
+        <input class="campo" name="email" type="email" placeholder="E-mail para saber da resposta (opcional, não é publicado)" maxlength="120" autocomplete="email">
+        <input class="isca" name="site" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <button class="botao principal">Publicar ideia</button></form></details>
+    <div id="ideiaLista"></div>
+  </section>
 </main>
 <script src="/rodape.js"></script>
 <script src="/aovivo.js"></script>
@@ -124,7 +173,84 @@ async function responder(botao, comentario) {
   if (!r.ok) return alert(j.erro || 'Não foi possível responder.');
   abrir(D.projeto.id);
 }
+/* ---------- enquetes ---------- */
+let ENQ = null;
+const pct = (n, t) => t ? Math.round(100 * n / t) : 0;
+async function carregarEnquetes() {
+  ENQ = await fetch('/api/enquetes').then(r => r.json()).catch(() => null);
+  if (!ENQ) return;
+  $('enqLista').innerHTML = ENQ.projetos.length ? ENQ.projetos.map(p => `<div class="enq" id="enq-${p.id}">
+      <b>${esc(p.numero)}</b> <span class="suave">· ${esc(p.autor || '')}</span><div style="margin-top:2px">${esc(p.ementa)}</div>
+      <div class="ops">${Object.entries(ENQ.opcoes).map(([k, n]) => `<button class="botao pq ${p.meuVoto === k ? 'escolhida' : ''}" onclick="votarEnquete('${p.id}','${k}')">${n}</button>`).join('')}</div>
+      <div class="barras" id="bar-${p.id}">${p.meuVoto ? '' : `<small class="suave">${p.enquete} participação(ões). Responda para ver o resultado.</small>`}</div></div>`).join('')
+    : '<p class="vazio">Nenhum projeto em tramitação no momento.</p>';
+  for (const p of ENQ.projetos.filter(p => p.meuVoto)) mostrarEnquete(p.id, await fetch('/api/enquete/' + p.id).then(r => r.json()));
+}
+function mostrarEnquete(id, r) {
+  $('bar-' + id).innerHTML = Object.entries(r.opcoes).map(([k, n]) => `<div><span>${n}</span><span><i style="width:${pct(r.contagem[k], r.total)}%"></i></span><b>${pct(r.contagem[k], r.total)}%</b></div>`).join('')
+    + `<small class="suave">${r.total} participação(ões) · resultado parcial, sem rigor estatístico</small>`;
+  document.querySelectorAll(`#enq-${id} .ops button`).forEach(b => b.classList.toggle('escolhida', b.getAttribute('onclick').includes(`'${r.meuVoto}'`)));
+}
+async function votarEnquete(id, opcao) {
+  const r = await fetch('/api/enquete/' + id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ opcao }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.erro || 'Não foi possível registrar.');
+  mostrarEnquete(id, j);
+}
+
+/* ---------- Ideia Legislativa ---------- */
+async function carregarIdeias() {
+  const I = await fetch('/api/ideias', { headers: cab }).then(r => r.json()).catch(() => null);
+  if (!I) return;
+  $('ideiaMeta').textContent = `meta: ${I.meta} apoios em ${I.prazoDias} dias`;
+  $('ideiaExplica').innerHTML = `Proponha uma ideia para o município. Se ela alcançar <b>${I.meta} apoios</b> em até ${I.prazoDias} dias, vai para a análise da Mesa Diretora, que responde publicamente aqui, por exemplo transformando a ideia em projeto.`;
+  $('ideiaLista').innerHTML = I.ideias.length ? I.ideias.map(i => `<div class="ideia" ${i.oculta ? 'style="opacity:.5"' : ''}>
+      <span class="chip ${i.situacao === 'virou_projeto' ? 'sim' : i.situacao === 'arquivada' || i.situacao === 'encerrada' ? '' : 'ambar'}" style="float:right">${esc(I.situacoes[i.situacao] || i.situacao)}</span>
+      <b>${esc(i.titulo)}</b><div class="suave" style="font-size:13px">${esc(i.nome)}${i.bairro ? ' · ' + esc(i.bairro) : ''} · ${data(i.criado)}</div>
+      <div style="white-space:pre-wrap;margin:6px 0">${esc(i.texto)}</div>
+      <div class="meta" role="progressbar" aria-valuenow="${i.apoios}" aria-valuemax="${i.meta}"><i style="width:${Math.min(100, pct(i.apoios, i.meta))}%"></i></div>
+      <small class="suave">${i.apoios} de ${i.meta} apoios${i.situacao === 'aberta' ? ' · até ' + data(i.prazo) : ''}</small>
+      ${i.situacao === 'aberta' ? `<button class="botao pq" style="margin-left:8px" onclick="apoiarIdeia('${i.id}', this)">👍 Apoiar</button>` : ''}
+      ${i.resposta ? `<div class="contrib"><div class="resp"><b>${esc(i.resposta.autor)}</b>: ${esc(i.resposta.texto)}</div></div>` : ''}</div>`).join('')
+    : '<p class="vazio">Nenhuma ideia ainda. Seja a primeira pessoa a propor!</p>';
+}
+async function proporIdeia(form) {
+  const r = await fetch('/api/ideias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.erro || 'Não foi possível publicar.');
+  form.reset(); form.closest('details').open = false;
+  alert('Ideia publicada! Compartilhe para conseguir apoios.');
+  carregarIdeias();
+}
+async function apoiarIdeia(id, botao) {
+  const r = await fetch(`/api/ideias/${id}/apoiar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.erro || 'Não foi possível apoiar.');
+  botao.textContent = '✓ Apoiada'; botao.disabled = true;
+  carregarIdeias();
+}
+
+/* ---------- perguntas ao vivo ---------- */
+async function carregarPerguntas() {
+  const A = await fetch('/api/perguntas').then(r => r.json()).catch(() => null);
+  $('ao-vivo-cartao').hidden = !A || !A.abertas;
+  if (!A || !A.abertas) return;
+  $('avTitulo').textContent = `${A.casa} · ${A.titulo}: envie sua pergunta ou comentário durante a sessão.`;
+  $('avLista').innerHTML = A.perguntas.map(p => `<div class="pergunta"><b>${esc(p.nome)}</b>${p.bairro ? ' · ' + esc(p.bairro) : ''}<div>${esc(p.texto)}</div></div>`).join('');
+}
+async function perguntar(form) {
+  const r = await fetch('/api/perguntas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(j.erro || 'Não foi possível enviar.');
+  form.querySelector('textarea').value = '';
+  alert('Pergunta enviada! Se a presidência aprovar, ela aparece aqui e pode ser lida no plenário.');
+}
+
 carregar();
+carregarEnquetes();
+carregarIdeias();
+carregarPerguntas();
+setInterval(carregarPerguntas, 15000);
 </script>
 </body>
 </html>

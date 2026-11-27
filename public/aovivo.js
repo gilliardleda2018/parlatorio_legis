@@ -34,7 +34,7 @@
         ${d.publico ? `<audio controls preload="none" src="${esc(d.publico)}"></audio>` : ''}
         <div class="leg" aria-live="polite" title="Legenda automática"></div>`;
     }
-    faixa.querySelector('.info').innerHTML = info;
+    faixa.querySelector('.info').innerHTML = info + (d.perguntas && !location.pathname.startsWith('/participe') ? ' · <a href="/participe#ao-vivo">✋ envie sua pergunta</a>' : '');
     if (!legendando) { legendando = true; legendas(); }
   }
   /* legendas automáticas enquanto a sessão está no ar */

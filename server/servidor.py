@@ -50,6 +50,7 @@ import conhecimento
 import ia
 import legendas as legendas_mod
 import participacao
+import cidadania
 import resumo as resumo_mod
 from texto import _sem_acento
 from mesa import CFG_PADRAO, DRIVERS as DRIVERS_MESA, PRESETS, Mesa
@@ -272,6 +273,9 @@ def NOVOS_CAMPOS() -> dict:
         "micsCortados": [],     # pids com microfone cortado (tumulto, advertência)
         "congelado": None,      # plenário congelado: {inicio, motivo, oradorRodando, interrRodando}
         "ocorrencias": [],      # cortes, congelamentos e tempo esgotado, para a ata
+        "perguntasAbertas": False,  # perguntas do público ao vivo (Evento Interativo do Senado)
+        "telaoPergunta": None,      # pergunta do público em destaque no telão
+        "cidadaniaRev": 0,          # muda quando chegam perguntas, ideias ou respostas (as telas recarregam)
         "sessao": {"id": secrets.token_hex(8), "inicio": agora()},  # sessão em andamento
         "relevancia": {"populacao": 100000, "pesos": dict(estatisticas.PESOS_PADRAO)},
         "projetosRev": 0,       # muda quando o banco de projetos muda (as telas recarregam a lista)
@@ -1992,6 +1996,11 @@ def pacote() -> str:
     pub["iaMotor"] = ia.descricao()
     pub["radioLocal"] = RADIO_LOCAL
     pub["camaraConfigurada"] = camara_configurada()
+    try:
+        pub["perguntasPendentes"] = db.execute("select count(*) from perguntas where json like ? and json like ?",
+                                               (f'%"sessao": "{S["sessao"]["id"]}"%', '%"situacao": "pendente"%')).fetchone()[0]
+    except sqlite3.OperationalError:   # tabela ainda não criada (início do servidor)
+        pub["perguntasPendentes"] = 0
     pub["legendasLigadas"] = bool(getattr(globals().get("legendador"), "ligado", False))  # a mesa avisa antes de tudo carregar
     pub["portaHttps"] = PORTA_HTTPS if HTTPS_ATIVO else None
     pub["virtuais"] = [{**v, "status": _status_virtual(v)} for v in S["virtuais"][:20]]
@@ -2359,11 +2368,72 @@ def ao_vivo() -> dict:
             "youtube": yt,
             "nome": S["transmissao"]["nome"], "casa": S["casa"]["nome"], "titulo": S["casa"]["titulo"], "falando": falando,
             "desde": transmissor.desde if transmissor.ativa else None,
-            "radio": "/radio.mp3" if RADIO_LOCAL else None}
+            "radio": "/radio.mp3" if RADIO_LOCAL else None, "perguntas": S["perguntasAbertas"]}
 
 
 # ---------------------------------------------------------------- pacote 2026: IA, legendas, participação, vídeo, dados abertos
 participacao.criar_tabela(db)
+cidadania.criar_tabelas(db)
+
+
+def meta_ideia() -> int:
+    return int(S["cfg"].get("ideiaMeta") or cidadania.meta_ideia(S["relevancia"].get("populacao")))
+
+
+@acao("presidente")
+def perguntasAbrir(ator, abertas=True):
+    S["perguntasAbertas"] = bool(abertas)
+    if not abertas:
+        S["telaoPergunta"] = None
+
+
+@acao("presidente")
+def perguntaModerar(ator, id, situacao):
+    try:
+        p = cidadania.pergunta_moderar(db, str(id), situacao)
+    except (LookupError, ValueError) as e:
+        raise Erro(str(e))
+    if situacao != "aprovada" and (S.get("telaoPergunta") or {}).get("id") == p["id"]:
+        S["telaoPergunta"] = None
+    S["cidadaniaRev"] += 1
+
+
+@acao("presidente")
+def perguntaTelao(ator, id=None):
+    """Mostra uma pergunta aprovada no telão (ou tira, sem id)."""
+    if not id:
+        S["telaoPergunta"] = None
+        return
+    p = cidadania.pergunta_obter(db, str(id))
+    if not p or p["situacao"] not in ("aprovada", "respondida"):
+        raise Erro("Aprove a pergunta antes de mostrar no telão.")
+    S["telaoPergunta"] = {k: p[k] for k in ("id", "nome", "bairro", "texto")}
+
+
+@acao("presidente")
+def ideiaResponder(ator, id, situacao, texto):
+    try:
+        cidadania.ideia_responder(db, str(id), situacao, texto, "Mesa Diretora")
+    except (LookupError, ValueError) as e:
+        raise Erro(str(e))
+    S["cidadaniaRev"] += 1
+
+
+@acao("presidente")
+def ideiaOcultar(ator, id, oculta=True):
+    try:
+        cidadania.ideia_ocultar(db, str(id), oculta)
+    except LookupError as e:
+        raise Erro(str(e))
+    S["cidadaniaRev"] += 1
+
+
+@acao("presidente")
+def ideiaMeta(ator, meta=0):
+    meta = int(meta or 0)
+    if meta and not 5 <= meta <= 100_000:
+        raise Erro("Meta entre 5 e 100000 apoios (0 = automática pela população).")
+    S["cfg"]["ideiaMeta"] = meta
 
 
 # --- ata por IA (rascunho por item da pauta; nunca é público antes de revisado na ata)
@@ -3225,6 +3295,37 @@ class Manipulador(BaseHTTPRequestHandler):
             except ValueError:
                 desde = 0
             return self._json(200, {"ativa": transmissor.ativa, "ligadas": legendador.ligado, "itens": legendador.desde(desde)})
+        if caminho == "/api/enquetes":
+            with trava:
+                ip = self._ip()
+                lista = [{k: p.get(k) for k in ("id", "numero", "ementa", "autor", "situacao")}
+                         | {"enquete": cidadania.enquete_resultado(db, p["id"])["total"], "meuVoto": cidadania.enquete_meu_voto(db, p["id"], ip)}
+                         for p in proj_todos() if p["situacao"] == "em_tramitacao"]
+            lista.sort(key=lambda x: -x["enquete"])
+            return self._json(200, {"projetos": lista[:60], "opcoes": cidadania.ENQUETE})
+        m = re.fullmatch(r"/api/enquete/([A-Za-z0-9]+)", caminho)
+        if m:
+            with trava:
+                p = proj_obter(m.group(1))
+                if not p or p["situacao"] == "proposta":
+                    return self._json(404, {"erro": "Projeto não encontrado."})
+                r = cidadania.enquete_resultado(db, p["id"]) | {"meuVoto": cidadania.enquete_meu_voto(db, p["id"], self._ip()),
+                                                              "aberta": p["situacao"] == "em_tramitacao"}
+            return self._json(200, r)
+        if caminho == "/api/ideias":
+            with trava:
+                ator = self._ator()
+                interno = bool(ator and ator["papel"] == "presidente")
+                r = {"ideias": cidadania.ideias(db, meta_ideia(), interno), "meta": meta_ideia(),
+                     "prazoDias": cidadania.IDEIA_PRAZO_DIAS, "situacoes": cidadania.IDEIA_SITUACOES, "casa": S["casa"]["nome"]}
+            return self._json(200, r)
+        if caminho == "/api/perguntas":
+            with trava:
+                ator = self._ator()
+                interno = bool(ator and ator["papel"] == "presidente")
+                r = {"abertas": S["perguntasAbertas"], "perguntas": cidadania.perguntas(db, S["sessao"]["id"], interno),
+                     "titulo": S["casa"]["titulo"], "casa": S["casa"]["nome"]}
+            return self._json(200, r)
         if caminho == "/api/consultas":
             with trava:
                 lista = []
@@ -3395,6 +3496,62 @@ class Manipulador(BaseHTTPRequestHandler):
                 S["projetosRev"] += 1
                 confirmar()
             return self._json(200, {"ok": True, "comentario": participacao.publico(c)})
+        m = re.fullmatch(r"/api/enquete/([A-Za-z0-9]+)", caminho)
+        if m:
+            if corpo.get("site"):   # campo-isca: robôs preenchem
+                return self._json(200, {"ok": True})
+            with trava:
+                p = proj_obter(m.group(1))
+                if not p or p["situacao"] != "em_tramitacao":
+                    return self._json(400, {"erro": "A enquete deste projeto não está aberta."})
+                try:
+                    r = cidadania.enquete_votar(db, p["id"], str(corpo.get("opcao") or ""), self._ip())
+                except ValueError as e:
+                    return self._json(400, {"erro": str(e)})
+            return self._json(200, r | {"meuVoto": corpo.get("opcao")})
+        if caminho == "/api/ideias":
+            if corpo.get("site"):
+                return self._json(200, {"ok": True})
+            with trava:
+                try:
+                    i = cidadania.ideia_criar(db, corpo.get("titulo"), corpo.get("texto"), corpo.get("nome"), corpo.get("bairro"),
+                                              corpo.get("email"), self._ip())
+                except ValueError as e:
+                    return self._json(400, {"erro": str(e)})
+                except PermissionError as e:
+                    return self._json(429, {"erro": str(e)})
+                registrar("cidadao", "ideiaCriar", {"ideia": i["id"]})
+                S["cidadaniaRev"] += 1
+                confirmar()
+            return self._json(200, {"ok": True, "ideia": cidadania.ideia_publica(i, meta_ideia())})
+        m = re.fullmatch(r"/api/ideias/([0-9a-f]{10})/apoiar", caminho)
+        if m:
+            with trava:
+                try:
+                    i = cidadania.ideia_apoiar(db, m.group(1), self._ip(), meta_ideia())
+                except LookupError as e:
+                    return self._json(404, {"erro": str(e)})
+                except ValueError as e:
+                    return self._json(400, {"erro": str(e)})
+                if i["situacao"] == "meta":
+                    S["cidadaniaRev"] += 1
+                    confirmar()
+            return self._json(200, {"ok": True, "ideia": i})
+        if caminho == "/api/perguntas":
+            if corpo.get("site"):
+                return self._json(200, {"ok": True})
+            with trava:
+                if not S["perguntasAbertas"]:
+                    return self._json(400, {"erro": "A Câmara não está recebendo perguntas agora."})
+                try:
+                    p = cidadania.pergunta_enviar(db, S["sessao"]["id"], corpo.get("nome"), corpo.get("bairro"), corpo.get("texto"), self._ip())
+                except ValueError as e:
+                    return self._json(400, {"erro": str(e)})
+                except PermissionError as e:
+                    return self._json(429, {"erro": str(e)})
+                S["cidadaniaRev"] += 1
+                confirmar()
+            return self._json(200, {"ok": True, "pergunta": cidadania.pergunta_publica(p)})
         if caminho == "/api/consulta/apoiar":
             with trava:
                 try:

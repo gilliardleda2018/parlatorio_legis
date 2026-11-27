@@ -237,3 +237,50 @@ $('cidOk').onclick = async () => {
     $('cidOk').disabled = $('cidDepois').disabled = $('cidUf').disabled = $('cidMun').disabled = false;
   }
 };
+
+
+/* ---------------- perguntas do público ao vivo (Evento Interativo) ---------------- */
+let pqRev = -1;
+async function carregarPerguntas() {
+  const r = await (await apiGet('/api/perguntas')).json().catch(() => null);
+  if (!r) return;
+  const S = PL.estado, telao = S.telaoPergunta?.id;
+  const ordem = { pendente: 0, aprovada: 1, respondida: 2, recusada: 3 };
+  const lista = r.perguntas.sort((a, b) => ordem[a.situacao] - ordem[b.situacao] || a.criado - b.criado);
+  $('pqLista').innerHTML = lista.length ? lista.map(p => `<div class="contrib" style="margin-top:8px;${p.situacao === 'recusada' ? 'opacity:.45' : ''}">
+      <span class="chip ${p.situacao === 'pendente' ? 'ambar' : p.situacao === 'recusada' ? 'nao' : 'sim'}" style="float:right">${p.id === telao ? '📺 no telão' : p.situacao}</span>
+      <b>${esc(p.nome)}</b>${p.bairro ? ' · ' + esc(p.bairro) : ''}<div style="margin:4px 0">${esc(p.texto)}</div>
+      <div class="grupo">${p.situacao === 'pendente' ? `<button class="botao pq ok" onclick="A('perguntaModerar',{id:'${p.id}',situacao:'aprovada'})">Aprovar</button><button class="botao pq fantasma" onclick="A('perguntaModerar',{id:'${p.id}',situacao:'recusada'})">Recusar</button>` : ''}
+        ${p.situacao === 'aprovada' || p.situacao === 'respondida' ? (p.id === telao ? `<button class="botao pq" onclick="A('perguntaTelao',{})">Tirar do telão</button>` : `<button class="botao pq principal" onclick="A('perguntaTelao',{id:'${p.id}'})">📺 Mostrar no telão</button>`)
+          + (p.situacao === 'aprovada' ? `<button class="botao pq fantasma" onclick="A('perguntaModerar',{id:'${p.id}',situacao:'respondida'})">Marcar respondida</button>` : '') : ''}</div></div>`).join('')
+    : '<p class="vazio" style="margin:6px 0 0">Nenhuma pergunta nesta sessão.</p>';
+}
+PL.aoMudar(S => {
+  $('pqAbertas').checked = !!S.perguntasAbertas;
+  $('pqEstado').innerHTML = S.perguntasPendentes ? `<span class="chip ambar">${S.perguntasPendentes} aguardando</span>` : S.perguntasAbertas ? '<span class="chip sim">recebendo</span>' : '';
+  const chave = S.cidadaniaRev + ':' + (S.telaoPergunta?.id || '') + ':' + S.perguntasAbertas;
+  if (chave !== pqRev) { pqRev = chave; carregarPerguntas(); if (abaAtual === 'projetos') carregarIdeias(); }
+});
+
+/* ---------------- Ideia Legislativa ---------------- */
+async function carregarIdeias() {
+  const r = await (await apiGet('/api/ideias')).json().catch(() => null);
+  if (!r) return;
+  $('idMetaChip').textContent = `meta atual: ${r.meta} apoios`;
+  if (document.activeElement !== $('idMeta')) $('idMeta').value = PL.estado?.cfg?.ideiaMeta || 0;
+  const peso = i => ({ meta: 0, aberta: 1, encerrada: 2, virou_projeto: 3, arquivada: 4 })[i.situacao] ?? 5;
+  $('idLista').innerHTML = r.ideias.length ? r.ideias.sort((a, b) => peso(a) - peso(b) || b.apoios - a.apoios).map(i => `<div class="contrib" style="margin-top:8px;${i.oculta ? 'opacity:.45' : ''}">
+      <span class="chip ${i.situacao === 'meta' ? 'ambar' : i.situacao === 'virou_projeto' ? 'sim' : ''}" style="float:right">${esc(r.situacoes[i.situacao] || i.situacao)}</span>
+      <b>${esc(i.titulo)}</b> <span class="suave">· ${esc(i.nome)}${i.bairro ? ', ' + esc(i.bairro) : ''} · ${i.apoios}/${i.meta} apoios</span>
+      <div style="white-space:pre-wrap;margin:4px 0;font-size:14px">${esc(i.texto)}</div>
+      ${i.resposta ? `<div class="detalhe">Resposta: ${esc(i.resposta.texto)}</div>` : ''}
+      <div class="grupo" style="margin-top:6px"><select class="campo" style="width:auto"><option value="virou_projeto">Virou projeto</option><option value="meta">Em análise</option><option value="arquivada">Arquivada</option><option value="aberta">Reabrir para apoios</option></select>
+        <input class="campo" placeholder="Resposta pública ao cidadão" style="flex:1;min-width:180px"><button class="botao pq" onclick="responderIdeia(this,'${i.id}')">Responder</button>
+        <button class="botao pq fantasma" onclick="A('ideiaOcultar',{id:'${i.id}',oculta:${!i.oculta}})">${i.oculta ? 'Mostrar' : 'Ocultar'}</button></div></div>`).join('')
+    : '<p class="vazio">Nenhuma ideia enviada ainda.</p>';
+}
+function responderIdeia(botao, id) {
+  const g = botao.parentElement;
+  A('ideiaResponder', { id, situacao: g.querySelector('select').value, texto: g.querySelector('input').value });
+}
+document.querySelector('[data-aba="projetos"]').addEventListener('click', () => carregarIdeias());

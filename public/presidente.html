@@ -214,6 +214,12 @@
               <small class="suave" id="trYoutube"></small>
             </div>
           </div>
+          <div class="cartao neutro" id="cartaoPerguntas">
+            <h2>Perguntas do público<span class="esp"></span><span id="pqEstado"></span></h2>
+            <label class="linha">Receber perguntas do público agora<input type="checkbox" id="pqAbertas" onchange="A('perguntasAbrir',{abertas:this.checked})"></label>
+            <small class="suave">As pessoas enviam em <a href="/participe#ao-vivo" target="_blank" rel="noopener">/participe</a>; nada aparece ao público nem no telão antes da sua aprovação.</small>
+            <div id="pqLista" style="margin-top:8px"></div>
+          </div>
           <div class="cartao neutro">
             <h2>Mesa de som<span class="esp"></span><span id="mesaEstado"></span></h2>
             <div id="mesaLog" class="suave tnum" style="font-size:12px;line-height:1.6"></div>
@@ -303,6 +309,12 @@
           </div>
           <div class="cartao neutro"><h2>Resumo</h2><div id="projResumo"></div></div>
         </div>
+      </div>
+      <div class="cartao neutro" id="cartaoIdeias" style="margin-top:16px">
+        <h2>Ideias legislativas do cidadão<span class="esp"></span><span class="chip" id="idMetaChip"></span></h2>
+        <p class="detalhe" style="margin-top:0">Propostas enviadas em <a href="/participe#ideias" target="_blank" rel="noopener">/participe</a>. As que atingem a meta de apoios no prazo vêm para a análise da Mesa: responda dizendo o encaminhamento (virou projeto, arquivada…).</p>
+        <label class="linha">Meta de apoios (0 = automática, 0,3% da população)<input class="campo" type="number" min="0" id="idMeta" style="width:110px"><button class="botao pq" onclick="A('ideiaMeta',{meta:+$('idMeta').value}).then(carregarIdeias)">Salvar</button></label>
+        <div id="idLista"></div>
       </div>
     </section>
 
