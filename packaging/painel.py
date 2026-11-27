@@ -7,6 +7,8 @@
   estão desatualizados em relação ao código atual, regenera um ou todos, baixa os arquivos e copia o
   comando de instalação.
 - Versão geral: gera o pacote completo e publica a versão no GitHub (com confirmação).
+- Instalar num servidor: cada Câmara tem um comando de uma linha para rodar no servidor dela, que baixa o
+  pacote direto deste computador pela rede (porta 8098, com um código por Câmara) e instala sem perguntas.
 
 A configuração de cada Câmara fica em dados/camaras/<nome>/ (fora do Git); os pacotes, em dist/.
 Só atende em 127.0.0.1 e exige um código gerado a cada execução (outros sites não conseguem mandar ações).
@@ -34,6 +36,7 @@ CAMARAS = Path(os.environ.get("PAINEL_CAMARAS", RAIZ / "dados" / "camaras"))
 DIST = Path(os.environ.get("PAINEL_DIST", RAIZ / "dist"))
 DIST_CIDADES = DIST / "cidades"
 PORTA = int(os.environ.get("PAINEL_PORTA", "8099"))
+PORTA_REDE = int(os.environ.get("PAINEL_PORTA_REDE", "8098"))   # só entrega pacotes, com o código de cada Câmara
 TOKEN = secrets.token_urlsafe(24)
 UFS = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI",
        "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
@@ -112,12 +115,30 @@ class Tarefas:
 TAREFAS = Tarefas()
 
 
+def enderecos() -> list[dict]:
+    """Endereços deste computador que outro servidor alcança: rede local (sem as pontes do Docker) e Tailscale."""
+    r = subprocess.run(["ip", "-4", "-o", "addr", "show"], capture_output=True, text=True)
+    saida = []
+    for linha in r.stdout.splitlines():
+        partes = linha.split()
+        if len(partes) < 4:
+            continue
+        iface, ip = partes[1], partes[3].split("/")[0]
+        if iface == "lo" or iface.startswith(("docker", "br-", "veth", "virbr")):
+            continue
+        saida.append({"ip": ip, "rede": "Tailscale" if iface.startswith("tailscale") or ip.startswith("100.") else f"rede local ({iface})"})
+    return sorted(saida, key=lambda e: e["rede"].startswith("Tailscale"))
+
+
 # ---------------------------------------------------------------- Câmaras
 def ler_camara(nome: str) -> dict | None:
     arq = CAMARAS / nome / "camara.json"
     if not re.fullmatch(r"[a-z0-9-]{1,40}", nome) or not arq.is_file():
         return None
     c = json.loads(arq.read_text(encoding="utf-8"))
+    if not c.get("codigo"):   # código da instalação pela rede (Câmaras criadas antes desta função)
+        c["codigo"] = secrets.token_urlsafe(9)
+        arq.write_text(json.dumps(c, ensure_ascii=False, indent=2), encoding="utf-8")
     c["nome"] = nome
     return c
 
@@ -177,7 +198,8 @@ def salvar_camara(dados: dict) -> dict:
         raise ValueError(f"Já existe uma Câmara com o nome curto “{nome}”.")
     pasta.mkdir(parents=True, exist_ok=True)
     c = {"uf": uf, "municipio": municipio, "camara": camara, "youtube": youtube,
-         "brasao": (existente or {}).get("brasao"), "criado": (existente or {}).get("criado") or int(time.time() * 1000)}
+         "brasao": (existente or {}).get("brasao"), "criado": (existente or {}).get("criado") or int(time.time() * 1000),
+         "codigo": (existente or {}).get("codigo") or secrets.token_urlsafe(9)}
     url = str(dados.get("brasao") or "")
     if url.startswith("data:"):
         cab, _, b64 = url.partition(",")
@@ -296,7 +318,8 @@ class Painel(BaseHTTPRequestHandler):
             return self._json(403, {"erro": "Recarregue o painel."})
         if caminho == "/api/estado":
             return self._json(200, {"versao": versao_atual(), "geral": geral(), "release": ultima_release(),
-                                    "camaras": camaras(), "tarefas": [TAREFAS.publico(t, 0) for t in TAREFAS.lista]})
+                                    "camaras": camaras(), "tarefas": [TAREFAS.publico(t, 0) for t in TAREFAS.lista],
+                                    "rede": {"porta": PORTA_REDE, "enderecos": enderecos()}})
         m = re.fullmatch(r"/api/tarefas/([0-9a-f]{8})", caminho)
         if m:
             t = next((t for t in TAREFAS.lista if t["id"] == m.group(1)), None)
@@ -341,6 +364,70 @@ class Painel(BaseHTTPRequestHandler):
             return self._json(400, {"erro": str(e)})
 
 
+class Distribuicao(BaseHTTPRequestHandler):
+    """Na rede: entrega o instalador e o pacote de uma Câmara a quem tem o código dela. Nada mais."""
+    server_version = "LegisPacotes"
+
+    def log_message(self, formato, *args):
+        print(f"rede: {self.address_string()} {formato % args}", flush=True)
+
+    def _nada(self):
+        self.send_response(404)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _camara(self, nome: str, codigo: str) -> dict | None:
+        c = ler_camara(nome)
+        return c if c and secrets.compare_digest(str(c.get("codigo", "")), codigo) else None
+
+    def do_GET(self):
+        m = re.fullmatch(r"/i/([a-z0-9-]{1,40})/([A-Za-z0-9_-]{8,40})", urlparse(self.path).path)
+        if m:
+            c = self._camara(*m.groups())
+            deb = next((a["nome"] for a in arquivos(DIST_CIDADES / m.group(1)) if a["nome"].endswith("_all.deb")), None) if c else None
+            if not c or not deb:
+                return self._nada()
+            base = f"http://{self.headers.get('Host')}/p/{c['nome']}/{c['codigo']}"
+            if not re.fullmatch(r"http://[A-Za-z0-9.:\[\]-]+/p/[a-z0-9-]+/[A-Za-z0-9_-]+", base):
+                return self._nada()
+            corpo = SCRIPT_REDE.replace("@BASE@", base).replace("@DEB@", deb).replace(
+                "@CAMARA@", (c.get("camara") or c["municipio"]).replace('"', "")).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/x-shellscript; charset=utf-8")
+            self.send_header("Content-Length", str(len(corpo)))
+            self.end_headers()
+            return self.wfile.write(corpo)
+        m = re.fullmatch(r"/p/([a-z0-9-]{1,40})/([A-Za-z0-9_-]{8,40})/([A-Za-z0-9._+-]{1,120})", unquote(urlparse(self.path).path))
+        if m and self._camara(m.group(1), m.group(2)):
+            nome = m.group(3)
+            alvo = RAIZ / "packaging" / "instalar-legis.sh" if nome == "instalar-legis.sh" else DIST_CIDADES / m.group(1) / nome
+            if alvo.is_file() and (nome == "instalar-legis.sh" or re.fullmatch(r"legis-[a-z0-9-]+_.+_all\.deb(\.sha256)?", nome)):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(alvo.stat().st_size))
+                self.end_headers()
+                with open(alvo, "rb") as f:
+                    shutil.copyfileobj(f, self.wfile)
+                return
+        return self._nada()
+
+
+SCRIPT_REDE = r"""#!/bin/bash
+# Instala o LEGIS de @CAMARA@ a partir do painel dos pacotes (rede local), sem perguntas.
+set -euo pipefail
+[ "$(id -u)" = 0 ] || { echo "Rode como administrador:  curl -fsSL <endereço> | sudo bash"; exit 1; }
+baixar() { curl -fsSL -o "$2" "$1" 2>/dev/null || wget -qO "$2" "$1"; }
+T=$(mktemp -d)
+echo "== LEGIS de @CAMARA@: baixando o pacote do painel..."
+baixar "@BASE@/@DEB@" "$T/@DEB@"
+baixar "@BASE@/@DEB@.sha256" "$T/@DEB@.sha256"
+(cd "$T" && sha256sum -c "@DEB@.sha256" >/dev/null) || { echo "O pacote baixado não confere (SHA-256)."; exit 1; }
+echo "   pacote conferido (SHA-256)"
+baixar "@BASE@/instalar-legis.sh" "$T/instalar-legis.sh"
+DEB="$T/@DEB@" bash "$T/instalar-legis.sh"
+"""
+
+
 PAGINA = r"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LEGIS — Pacotes de instalação</title>
@@ -382,9 +469,10 @@ input:focus,select:focus{outline:2px solid #b7e0c6;border-color:var(--verde)}.li
   </section>
   <aside style="display:grid;gap:20px">
     <section class="cartao">
-      <h2>Versão geral</h2>
+      <h2>Versão geral (para todas as Câmaras)</h2>
+      <p class="suave" style="margin:0 0 8px">O pacote sem cidade, que pergunta a cidade no painel do LEGIS. Os pacotes de cada Câmara ficam à esquerda e não vão para o GitHub.</p>
       <div id="geral" class="suave">…</div>
-      <div class="acoes"><button class="botao" onclick="gerarGeral()">Gerar pacote geral</button><button class="botao principal" id="btPublicar" onclick="publicar()">Publicar no GitHub…</button></div>
+      <div class="acoes"><button class="botao" onclick="gerarGeral()">Gerar pacote geral</button><button class="botao principal" id="btPublicar" onclick="publicar()">Publicar versão geral no GitHub…</button></div>
     </section>
     <section class="cartao"><h2>Tarefas</h2><div id="tarefas" class="suave">Nenhuma ainda.</div><div id="log" class="log" hidden></div></section>
   </aside>
@@ -427,7 +515,7 @@ async function atualizar() {
         <div class="acoes"><button class="botao pq" onclick="gerar('${esc(c.nome)}')">Gerar de novo</button><button class="botao pq" onclick="editar('${esc(c.nome)}')">Editar</button><button class="botao pq perigo" onclick="remover('${esc(c.nome)}')">Remover</button></div></td>
       <td>${est}<div class="suave">${c.pacote ? quando(c.pacote.data) : ''}</div></td>
       <td class="arqs">${deb ? `<a href="${esc(deb.url)}">⬇ ${esc(deb.nome)} <span class="suave">(${tam(deb.bytes)})</span></a>` : ''}${tar ? `<a href="${esc(tar.url)}">⬇ ${esc(tar.nome)}</a>` : ''}
-        ${deb ? `<div class="suave" style="margin-top:6px">No servidor da Câmara:</div><code>sudo apt install ./${esc(deb.nome)}</code> <button class="botao pq" onclick="copiar('sudo apt install ./${esc(deb.nome)}')">copiar</button>` : '<span class="suave">—</span>'}</td></tr>`;
+        ${deb ? comandoRede(c) : '<span class="suave">—</span>'}</td></tr>`;
   }).join('') : '<tr><td colspan="4" class="vazio">Nenhuma Câmara ainda. Clique em <b>＋ Nova Câmara</b>.</td></tr>';
   $('btTodas').disabled = !E.camaras.some(c => !c.atualizado);
   const g = E.geral, r = E.release;
@@ -445,6 +533,14 @@ async function verTarefa(id, silencioso) {
   const l = $('log'), fim = l.scrollTop + l.clientHeight >= l.scrollHeight - 20;
   l.hidden = false; l.textContent = `${t.titulo} — ${t.estado}\n\n` + t.log.join('\n');
   if (fim || !silencioso) l.scrollTop = l.scrollHeight;
+}
+function comandoRede(c) {
+  const ends = (E.rede || {}).enderecos || [];
+  if (!ends.length) return '<div class="suave">Sem rede: copie o .deb e rode <code>sudo apt install ./arquivo.deb</code> no servidor.</div>';
+  return '<div class="suave" style="margin-top:6px"><b>Instalar no servidor da Câmara</b> (rode lá, como administrador):</div>' + ends.map(e => {
+    const cmd = `curl -fsSL http://${e.ip}:${E.rede.porta}/i/${c.nome}/${c.codigo} | sudo bash`;
+    return `<div style="margin-top:4px"><code>${esc(cmd)}</code> <button class="botao pq" onclick="copiar('${esc(cmd)}')">copiar</button> <span class="suave">${esc(e.rede)}</span></div>`;
+  }).join('') + '<div class="suave" style="margin-top:4px">Funciona enquanto este painel estiver aberto. Ou leve o .deb e rode <code>sudo apt install ./arquivo.deb</code>.</div>';
 }
 function copiar(t) { navigator.clipboard.writeText(t).then(() => avisar('Copiado.')); }
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
@@ -480,7 +576,10 @@ async function remover(nome) {
 async function gerarTodas() { const r = await api('/api/camaras/gerar-todas', {}).catch(e => avisar(e.message)); if (r) { avisar(`${r.tarefas.length} pacote(s) na fila.`); if (r.tarefas[0]) verTarefa(r.tarefas[0].id); atualizar(); } }
 async function gerarGeral() { const r = await api('/api/geral/gerar', {}).catch(e => avisar(e.message)); if (r) { verTarefa(r.tarefa.id); atualizar(); } }
 async function publicar() {
-  const titulo = prompt('Título da novidade desta versão (aparece no GitHub):'); if (!titulo) return;
+  const titulo = prompt('Publicar a VERSÃO GERAL (sem cidade) no GitHub, como a mais recente e pública.\nOs pacotes das Câmaras NÃO são publicados.\n\nTítulo da novidade (ex.: "Correções na rádio"):'); if (!titulo) return;
+  if (/^legis[-_]/i.test(titulo.trim()) || E.camaras.some(c => titulo.toLowerCase().includes(c.municipio.toLowerCase()))) {
+    if (!confirm('O título parece o nome de uma Câmara. Este botão publica só a versão geral; para instalar uma Câmara, use o comando "Instalar no servidor da Câmara" dela. Publicar mesmo assim?')) return;
+  }
   if (!confirm(`Publicar no GitHub, como versão mais recente e pública:\n\n"${titulo}"\n\nRoda os testes antes; se falharem, nada é publicado.`)) return;
   const r = await api('/api/geral/publicar', { titulo }).catch(e => avisar(e.message)); if (r) { verTarefa(r.tarefa.id); atualizar(); }
 }
@@ -492,6 +591,12 @@ atualizar(); setInterval(atualizar, 3000);
 def main():
     CAMARAS.mkdir(parents=True, exist_ok=True)
     servidor = ThreadingHTTPServer(("127.0.0.1", PORTA), Painel)
+    try:
+        rede = ThreadingHTTPServer(("0.0.0.0", PORTA_REDE), Distribuicao)
+        threading.Thread(target=rede.serve_forever, daemon=True).start()
+        print(f"Instalação pela rede: porta {PORTA_REDE} (só com o código de cada Câmara)", flush=True)
+    except OSError as e:
+        print(f"Instalação pela rede indisponível (porta {PORTA_REDE}: {e})", flush=True)
     url = f"http://127.0.0.1:{PORTA}/"
     print(f"Painel dos pacotes do LEGIS: {url}  (Ctrl+C para sair)", flush=True)
     if "--sem-navegador" not in sys.argv:

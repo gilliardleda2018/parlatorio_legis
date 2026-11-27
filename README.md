@@ -282,7 +282,7 @@ Para quem gera e entrega os pacotes, há um painel no navegador:
 python3 packaging/painel.py          # abre http://127.0.0.1:8099
 ```
 
-Nele dá para cadastrar uma Câmara (estado, município da lista do IBGE, nome, brasão, link do YouTube) e gerar o pacote dela. Também mostra quais pacotes estão desatualizados em relação ao código atual, gera de novo um ou todos, baixa os arquivos, copia o comando de instalação e gera e publica a versão geral no GitHub (com confirmação). Cada tarefa mostra o registro ao vivo. A configuração das Câmaras fica em `dados/camaras/` (fora do Git) e os pacotes em `dist/`. Só atende no próprio computador (127.0.0.1).
+Nele dá para cadastrar uma Câmara (estado, município da lista do IBGE, nome, brasão, link do YouTube) e gerar o pacote dela. Também mostra quais pacotes estão desatualizados em relação ao código atual, gera de novo um ou todos, baixa os arquivos, copia o comando de instalação e gera e publica a versão geral no GitHub (com confirmação). Cada tarefa mostra o registro ao vivo. Para **instalar uma Câmara**, copie o comando dela no painel e rode no servidor da Câmara (`curl -fsSL http://IP-DESTE-COMPUTADOR:8098/i/<nome>/<código> | sudo bash`): ele baixa o pacote deste computador pela rede local ou pelo Tailscale, confere o SHA-256 e instala sem perguntas. O botão **Publicar** manda só a versão geral (sem cidade) ao GitHub; os pacotes das Câmaras não são publicados. A configuração das Câmaras fica em `dados/camaras/` (fora do Git) e os pacotes em `dist/`. Só atende no próprio computador (127.0.0.1).
 
 ## Instalador .deb (Debian 12/13, Ubuntu 24.04)
 

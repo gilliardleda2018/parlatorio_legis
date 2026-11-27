@@ -29,9 +29,9 @@ class PainelDosPacotes(unittest.TestCase):
         threading.Thread(target=cls.fake.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{cls.fake.server_address[1]}"
         cls.pasta = tempfile.TemporaryDirectory()
-        cls.porta = porta_livre()
+        cls.porta, cls.porta_rede = porta_livre(), porta_livre()
         env = {**os.environ, "PAINEL_CAMARAS": f"{cls.pasta.name}/camaras", "PAINEL_DIST": f"{cls.pasta.name}/dist",
-               "PAINEL_PORTA": str(cls.porta), "LEGIS_TSE_URL": base + "/tse", "LEGIS_IBGE_URL": base + "/ibge"}
+               "PAINEL_PORTA": str(cls.porta), "PAINEL_PORTA_REDE": str(cls.porta_rede), "LEGIS_TSE_URL": base + "/tse", "LEGIS_IBGE_URL": base + "/ibge"}
         cls.proc = subprocess.Popen([sys.executable, str(RAIZ / "packaging" / "painel.py"), "--sem-navegador"], env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cls.base = f"http://127.0.0.1:{cls.porta}"
@@ -87,6 +87,19 @@ class PainelDosPacotes(unittest.TestCase):
         self.assertEqual(info, "Câmara Municipal de Vila Esperança (Vila Esperança/MA)")
         with urllib.request.urlopen(self.base + c["arquivos"][0]["url"], timeout=10) as f:      # download
             self.assertGreater(len(f.read()), 1000)
+        # instalação pela rede: só com o código da Câmara
+        rede = f"http://127.0.0.1:{self.porta_rede}"
+        self.assertTrue(any(e["ip"] for e in e["rede"]["enderecos"]) or e["rede"]["enderecos"] == [])
+        with urllib.request.urlopen(f"{rede}/i/vila-esperanca/{c['codigo']}", timeout=10) as f:
+            script = f.read().decode()
+        self.assertIn(f"{rede}/p/vila-esperanca/{c['codigo']}", script)
+        self.assertIn(deb, script)
+        with urllib.request.urlopen(f"{rede}/p/vila-esperanca/{c['codigo']}/{deb}", timeout=10) as f:
+            self.assertGreater(len(f.read()), 1000)
+        for ruim in (f"/i/vila-esperanca/codigoerrado1", f"/p/vila-esperanca/codigoerrado1/{deb}",
+                     f"/p/vila-esperanca/{c['codigo']}/..%2F..%2Fcamaras", "/api/estado"):
+            with self.assertRaises(urllib.error.HTTPError):
+                urllib.request.urlopen(rede + ruim, timeout=5)
         self.assertEqual(self.req("/api/camaras", {"uf": "MA", "municipio": "Vila Esperança"})["HTTP"], 400)   # já existe
         self.assertEqual(self.req("/api/camaras/vila-esperanca/remover", {}), {"ok": True})
         self.assertEqual(self.req("/api/estado")["camaras"], [])
