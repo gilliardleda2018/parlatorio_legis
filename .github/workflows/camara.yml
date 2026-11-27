@@ -37,6 +37,10 @@ on:
         description: "Ou: caminho de um modelo do repositório (ex.: cidades/arame/camara.json). Se preenchido, vale o modelo"
         required: false
         type: string
+      modelo_json:
+        description: "Ou: o modelo completo em JSON (usado pelo Controle Aggilli; o brasão vem do endereço acima)"
+        required: false
+        type: string
 
 concurrency:
   group: pacotes
@@ -59,7 +63,25 @@ jobs:
           BRASAO_URL: ${{ inputs.brasao_url }}
           YOUTUBE: ${{ inputs.youtube_link }}
           MODELO: ${{ inputs.modelo }}
+          MODELO_JSON: ${{ inputs.modelo_json }}
         run: |
+          if [ -n "$MODELO_JSON" ]; then   # modelo completo vindo do Controle: conferido aqui de novo, antes de tudo
+            D=$(mktemp -d)
+            printf '%s' "$MODELO_JSON" > "$D/camara.json"
+            if [ -n "$BRASAO_URL" ]; then
+              [[ "$BRASAO_URL" =~ ^https:// ]] || { echo "O endereço do brasão deve começar com https://"; exit 1; }
+              curl -fsSL --max-filesize 1500000 -o "$D/brasao" "$BRASAO_URL" || { echo "Não consegui baixar o brasão"; exit 1; }
+            fi
+            python3 - "$D/camara.json" "$D/brasao" <<'PY'
+          import json, os, sys
+          arq, brasao = sys.argv[1:3]
+          m = json.load(open(arq, encoding="utf-8"))
+          m["brasao"] = "brasao" if os.path.isfile(brasao) else ""
+          json.dump(m, open(arq, "w", encoding="utf-8"), ensure_ascii=False)
+          PY
+            python3 packaging/modelo.py validar "$D/camara.json"
+            exec bash packaging/publicar-camara.sh --modelo "$D/camara.json"
+          fi
           if [ -n "$MODELO" ]; then
             [[ "$MODELO" =~ ^cidades/[a-z0-9-]+/camara\.json$ ]] || { echo "Modelo deve ser cidades/<nome>/camara.json"; exit 1; }
             exec bash packaging/publicar-camara.sh --modelo "$MODELO"

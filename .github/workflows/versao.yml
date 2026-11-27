@@ -55,7 +55,7 @@ jobs:
             gh release download "$TAG" -p brasao -D "$D" 2>/dev/null || true
             if gh release download "$TAG" -p modelo.json -D "$D" 2>/dev/null; then
               B=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['brasao'])" "$D/modelo.json")
-              [ -n "$B" ] && [ -f "$D/brasao" ] && mv "$D/brasao" "$D/$B"
+              if [ -n "$B" ] && [ "$B" != brasao ] && [ -f "$D/brasao" ]; then mv "$D/brasao" "$D/$B"; fi
               if python3 -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('congelada') else 1)" "$D/modelo.json"; then
                 echo "== $TAG: congelada, não mexo"; continue
               fi
