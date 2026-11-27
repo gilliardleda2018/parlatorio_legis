@@ -252,6 +252,20 @@ PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 
 As respostas automáticas sempre mostram as fontes, e o rascunho da ata só vale depois de revisado.
 
+## Emendas, comparativo e redação final
+
+Inspirado no AT4AM (Parlamento Europeu), no LEOS (Comissão Europeia), no LexComp (Senado) e na compilação de textos do SAPL 3.1. A lógica fica em `server/emendas.py`; as telas em `public/emendas.js` (painel e app) e `public/emendas.html` (página pública).
+
+- **Texto articulado.** O texto cadastrado em *Projetos → Texto e consulta* vira dispositivos com identificador estável: `art1`, `art1_parunico`, `art2_par1`, `art2_inc3`, `art2_inc2_alib`, `art11a` (art. 11-A). Reconhece “Art. 1º / Art. 10.”, “§ 1º”, “Parágrafo único.”, incisos romanos (“I –”), alíneas (“a)”), itens (“1.”) e títulos/capítulos.
+- **Emendas.** Supressiva, substitutiva (de um dispositivo ou do texto todo — substitutivo), modificativa (só o texto do dispositivo), aditiva (inserida após o dispositivo escolhido; sem rótulo, vira um dispositivo do mesmo tipo) e aglutinativa (substitui e funde outras emendas, que ficam prejudicadas quando ela é aprovada). Numeração automática por projeto (“Emenda nº 3 ao PL 12/2026”), autoria, data, texto e justificativa.
+  - O vereador apresenta pelo app (cartão *Emendas aos projetos*), sempre em nome próprio, e retira a própria emenda enquanto ela não tiver resultado. A presidência registra em nome de qualquer vereador ou da Mesa Diretora (*Projetos → Emendas e redação final*).
+  - **Resultado:** o botão *Pautar votação* põe a emenda na pauta como matéria própria, e a votação já existente (nominal, simbólica ou secreta) grava o resultado na emenda ao ser encerrada. Também dá para registrar à mão: aprovada, rejeitada, prejudicada ou desfazer.
+  - Limites: texto até 20 mil caracteres, justificativa de 10 a 5 mil, 300 emendas por projeto; só projetos em tramitação ou em pauta recebem emendas. A emenda é testada contra o texto atual antes de ser aceita.
+- **Comparativo (redline)** com `difflib`, palavra a palavra, lado a lado ou no texto, com `<ins>`/`<del>`: original × uma emenda, e original × texto final com todas as aprovadas. O texto é escapado antes de receber as marcas.
+- **Redação final / autógrafo.** As emendas aprovadas são aplicadas na ordem de apresentação e os dispositivos são **renumerados** (artigos em sequência, parágrafo único quando sobra um só, incisos e alíneas). Emenda cujo alvo sumiu (por exemplo, suprimido por outra) é pulada com aviso. As **remissões no corpo do texto** (“conforme o art. 3º”) **não** são reescritas: o sistema avisa quantos dispositivos foram renumerados para a revisão.
+  - `/redacao-final/<id>` (HTML para imprimir), `/redacao-final/<id>.pdf` (mesmo gerador de PDF da ata) e `/dados/akn/projeto/<id>/redacao-final.xml` (Akoma Ntoso com article/paragraph/point e as emendas como metadados em `<proprietary>`).
+- **Página pública** `/emendas?p=<id>`: emendas, situação, comparativo e o texto final. JSON: `/api/emendas`, `/api/emendas/<id>`, `/api/emendas/<id>/comparativo[?emenda=<id>]`.
+
 ## Instalar num servidor Debian limpo (recomendado)
 
 Num Debian 12 ou 13, ou Ubuntu 24.04, recém-instalado, um comando instala tudo, **sem perguntas**: LEGIS, rádio da Câmara, transcrição e legendas, IA local (se houver 8 GB de RAM), transmissão para rádio e YouTube. No primeiro acesso, o painel do presidente pergunta a cidade e traz do TSE os vereadores eleitos (com fotos) e do IBGE a população. Para publicar na internet pelo Tailscale, passe a chave: `sudo TS_AUTHKEY=tskey-auth-... bash instalar-legis.sh`. Para escolher tudo na instalação: `--perguntar`.
