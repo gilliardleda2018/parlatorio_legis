@@ -94,6 +94,17 @@ Com HTTPS, a gravação das falas funciona de qualquer computador da rede, não 
 
 Em servidor com domínio público, use um proxy com Let's Encrypt (Caddy, por exemplo: `parlatorio.camara.gov.br { reverse_proxy localhost:8090 }`) e rode o Parlatório com `HTTPS=0`.
 
+## Passkey no voto (biometria do celular)
+
+Inspirado no Infoleg da Câmara dos Deputados (voto pelo aplicativo com identificação biométrica) e no ponto biométrico das câmaras municipais: o vereador confirma voto e presença com a digital, o rosto ou o bloqueio de tela do próprio celular (WebAuthn / passkey), em vez de digitar o PIN.
+
+- **Cadastro** (opcional): no app do parlamentar, cartão **🔐 Passkey** → *Cadastrar este celular*. Pede o PIN (uma sessão roubada não cadastra passkey própria). Dá para ter mais de um aparelho, ver quando cada um foi usado e remover (também com o PIN).
+- **Presidência** (Configurações → *Passkey no voto*): *Desligado* (padrão, só PIN), *Passkey ou PIN* (o app usa a biometria e, se ela for cancelada, pede o PIN) ou *Exigir passkey de quem cadastrou* (voto e destaque da sessão virtual, voto e presença do plenário só com a passkey). Quem não cadastrou continua como antes. A presidência vê quem tem passkey e pode **revogar todas** de um vereador (celular perdido).
+- **Endereço**: WebAuthn exige contexto seguro e não aceita IP. Abra pelo nome, com HTTPS: `https://<nome-da-maquina>.local:8443` (o certificado local já inclui o nome da máquina) ou o domínio da Câmara. Pelo IP, o app esconde o botão e explica. A passkey fica presa ao nome usado no cadastro. Atrás de proxy (Caddy etc. com `HTTPS=0`), ligue `PROXY_CONFIAVEL=1`: o servidor usa o `X-Forwarded-Proto: https` do proxy.
+- **Como o servidor confere** (`server/passkey.py`, só biblioteca padrão): desafio aleatório de uso único, válido por 2 minutos, por conta; `clientDataJSON` (tipo, desafio, origem igual ao endereço do LEGIS); hash do rpId; flags de presença (UP) e de verificação do usuário (UV, exigida; `PASSKEY_UV=0` aceita sem); contador de assinaturas sempre crescente (se o aparelho usa contador); e a assinatura sobre `authenticatorData || sha256(clientDataJSON)`. Algoritmos ES256 (P-256) e RS256. O CBOR do `attestationObject` e as contas de ECDSA/RSA são feitos em Python puro: verificar usa só a chave pública, então não há segredo a vazar e não dependemos de chamar o `openssl` com arquivos temporários. Attestation "none": o fabricante do aparelho não é conferido; a confiança vem do cadastro feito pelo próprio vereador com o PIN.
+- Asserções inválidas contam no mesmo bloqueio de tentativas do PIN. Cadastro, remoção, revogação, mudança de opção e recusas vão para a auditoria, sem nenhum dado da credencial.
+- **Testes** (`tests/test_passkey.py`): um autenticador simulado com chave gerada pelo `openssl`. Só para testes, `PASSKEY_ORIGEM` e `PASSKEY_RP` fixam a origem e o rpId esperados (ex.: `https://legis.teste:8443` e `legis.teste`); em produção deixe vazias: vale o host HTTPS do pedido.
+
 ## Sessões e ata
 
 Ao fim de cada sessão, em **Sessões → Encerrar e arquivar sessão**, o sistema guarda presença, pauta, pronunciamentos, votações (com o voto nominal de cada um), ocorrências e gravações, e abre a próxima sessão em branco (as matérias não votadas podem seguir para ela).

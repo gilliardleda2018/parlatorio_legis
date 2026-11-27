@@ -43,6 +43,7 @@ import recomendacao
 import sapl as sapl_cli
 import cidade
 import seguranca
+import passkey
 import backup as backup_mod
 import transcricao
 import transmissao
@@ -3482,6 +3483,8 @@ class Manipulador(BaseHTTPRequestHandler):
     # ----- pacote 2026: rotas
     def _get_novos(self, caminho: str):
         """Rotas GET dos recursos novos; devolve None quando o caminho não é deles."""
+        if caminho.startswith("/api/passkey/"):
+            return self._passkey("GET", caminho, None)
         qs = urllib.parse.parse_qs(urlparse(self.path).query)
         if caminho.startswith("/api/resumo/"):
             sessao = caminho.rsplit("/", 1)[1]
@@ -3711,6 +3714,8 @@ class Manipulador(BaseHTTPRequestHandler):
             trava_cidade.release()
 
     def _post_novos(self, caminho: str, corpo: dict):
+        if caminho.startswith("/api/passkey/"):
+            return self._passkey("POST", caminho, corpo)
         if caminho == "/api/cidade":
             return self._cidade(corpo)
         if caminho == "/api/perguntar":
@@ -4069,9 +4074,30 @@ class Manipulador(BaseHTTPRequestHandler):
             salvar()
         return self._json(200, {"ok": True})
 
+    # ----- passkey / WebAuthn (passkey.py)
+    def _origem_passkey(self):
+        """(origem, rpId) esperados para este pedido, ou o ErroPasskey que explica por que não dá (IP, http)."""
+        https = isinstance(self.request, ssl.SSLSocket) or (
+            PROXY_CONFIAVEL and _de_proxy(self.client_address[0]) and self.headers.get("X-Forwarded-Proto") == "https")
+        try:
+            return passkey.origem_esperada(self.headers.get("Host", ""), https)
+        except passkey.ErroPasskey as e:
+            return e
+
+    def _passkey(self, metodo, caminho, corpo):
+        with trava:
+            ator = self._ator()
+        r = passkeys.rota(metodo, caminho, corpo, ator, self._ip(), self._origem_passkey())
+        return self._json(*r) if r else None
+
     def _acao(self, corpo):
         nome, args = corpo.get("nome"), dict(corpo.get("args") or {})
-        if nome in ACOES_COM_PIN:  # confirma o PIN antes, fora da trava (PBKDF2 é lento de propósito)
+        with trava:
+            ator_pk = self._ator()
+        pk = passkeys.confirmar_acao(nome, args, ator_pk, self._ip(), self._origem_passkey())
+        if isinstance(pk, tuple):
+            return self._json(*pk)
+        if nome in ACOES_COM_PIN and pk is not True:  # confirma o PIN antes, fora da trava (PBKDF2 é lento de propósito)
             with trava:
                 ator = self._ator()
                 guardado = self._pin_guardado("parlamentar", ator["pid"]) if ator and ator["papel"] == "parlamentar" else None
@@ -4115,6 +4141,16 @@ class Manipulador(BaseHTTPRequestHandler):
             registrar(ator["pid"] or "presidente", nome, args)
             confirmar()
         return self._json(200, {"ok": True})
+
+
+def _pin_confere(pid: str, pin: str) -> bool:
+    with trava:
+        guardado = S["_pins"].get(pid)
+    return bool(guardado) and seguranca.verificar_pin(pin, guardado)  # PBKDF2 fora da trava
+
+
+passkeys = passkey.Passkeys(db, S, trava, registrar, confirmar, bloqueio, _pin_confere,
+                            lambda pid: parl(pid)["nome"], ACOES_COM_PIN)
 
 
 class ServidorLimitado(ThreadingHTTPServer):
