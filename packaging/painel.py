@@ -11,7 +11,9 @@
   pacote direto deste computador pela rede (porta 8098, com um código por Câmara) e instala sem perguntas.
 
 A configuração de cada Câmara fica em dados/camaras/<nome>/ (fora do Git); os pacotes, em dist/.
-Só atende em 127.0.0.1 e exige um código gerado a cada execução (outros sites não conseguem mandar ações).
+Neste computador (http://127.0.0.1:8099) abre direto. Online (PAINEL_PUBLICO=servidor.ts.net:10000, publicado
+pelo Tailscale Funnel), pede a chave de acesso guardada em dados/painel/chave e abre uma sessão de 12 horas; as
+instalações (/i/… e /p/…) continuam liberadas só com o código de cada Câmara.
 """
 import base64
 import json
@@ -38,6 +40,20 @@ DIST_CIDADES = DIST / "cidades"
 PORTA = int(os.environ.get("PAINEL_PORTA", "8099"))
 PORTA_REDE = int(os.environ.get("PAINEL_PORTA_REDE", "8098"))   # só entrega pacotes, com o código de cada Câmara
 TOKEN = secrets.token_urlsafe(24)
+PUBLICO = os.environ.get("PAINEL_PUBLICO", "").strip().lower()     # ex.: server.taila400aa.ts.net:10000
+ARQ_CHAVE = Path(os.environ.get("PAINEL_CHAVE_ARQ", RAIZ / "dados" / "painel" / "chave"))
+SESSOES: dict[str, dict] = {}            # cookie -> {"token", "expira"}
+TENTATIVAS: dict[str, list] = {}         # ip -> horários de chaves erradas
+SESSAO_H = 12
+
+
+def chave_acesso() -> str:
+    """Chave de acesso do painel online: criada na primeira vez, só legível pelo dono do arquivo."""
+    if not ARQ_CHAVE.exists():
+        ARQ_CHAVE.parent.mkdir(parents=True, exist_ok=True)
+        ARQ_CHAVE.write_text(secrets.token_urlsafe(18) + "\n")
+        ARQ_CHAVE.chmod(0o600)
+    return ARQ_CHAVE.read_text().strip()
 UFS = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI",
        "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
 TIPOS_BRASAO = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
@@ -116,9 +132,9 @@ TAREFAS = Tarefas()
 
 
 def enderecos() -> list[dict]:
-    """Endereços deste computador que outro servidor alcança: rede local (sem as pontes do Docker) e Tailscale."""
+    """Endereços de onde outro servidor baixa: internet (painel publicado), rede local e Tailscale."""
     r = subprocess.run(["ip", "-4", "-o", "addr", "show"], capture_output=True, text=True)
-    saida = []
+    saida = [{"url": f"https://{PUBLICO}", "rede": "internet (de qualquer lugar)"}] if PUBLICO else []
     for linha in r.stdout.splitlines():
         partes = linha.split()
         if len(partes) < 4:
@@ -126,8 +142,10 @@ def enderecos() -> list[dict]:
         iface, ip = partes[1], partes[3].split("/")[0]
         if iface == "lo" or iface.startswith(("docker", "br-", "veth", "virbr")):
             continue
-        saida.append({"ip": ip, "rede": "Tailscale" if iface.startswith("tailscale") or ip.startswith("100.") else f"rede local ({iface})"})
-    return sorted(saida, key=lambda e: e["rede"].startswith("Tailscale"))
+        saida.append({"url": f"http://{ip}:{PORTA_REDE}",
+                      "rede": "Tailscale" if iface.startswith("tailscale") or ip.startswith("100.") else f"rede local ({iface})"})
+    return saida[:1] + sorted(saida[1:], key=lambda e: e["rede"].startswith("Tailscale")) if PUBLICO else \
+        sorted(saida, key=lambda e: e["rede"].startswith("Tailscale"))
 
 
 # ---------------------------------------------------------------- Câmaras
@@ -282,20 +300,87 @@ class Painel(BaseHTTPRequestHandler):
         with open(caminho, "rb") as f:
             shutil.copyfileobj(f, self.wfile)
 
-    def _autorizado(self) -> bool:
-        return secrets.compare_digest(self.headers.get("X-Painel", ""), TOKEN)
-
     def _host_local(self) -> bool:
-        """Só atende pedidos endereçados a 127.0.0.1/localhost (barra outro site via DNS apontado para cá)."""
+        """Endereçado a 127.0.0.1/localhost (barra outro site via DNS apontado para cá)."""
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         return host in ("127.0.0.1", "localhost", "::1")
 
+    def _host_publico(self) -> bool:
+        return bool(PUBLICO) and (self.headers.get("Host") or "").lower() in (PUBLICO, PUBLICO.split(":")[0])
+
+    def _sessao(self) -> dict | None:
+        """Online: a sessão do cookie, se ainda válida. Local: sempre (token da execução)."""
+        if self._host_local():
+            return {"token": TOKEN}
+        for parte in (self.headers.get("Cookie") or "").split(";"):
+            nome, _, valor = parte.strip().partition("=")
+            s = SESSOES.get(valor) if nome == "painel" else None
+            if s and s["expira"] > time.time():
+                return s
+        return None
+
+    def _autorizado(self) -> bool:
+        s = self._sessao()
+        return bool(s) and secrets.compare_digest(self.headers.get("X-Painel", ""), s["token"])
+
+    def _ip_cliente(self) -> str:
+        """Endereço de quem tenta entrar. Atrás do Funnel, o último item do X-Forwarded-For é o que o próprio
+        Funnel acrescentou; os anteriores vêm do cliente e podem ser forjados para fugir do limite de tentativas."""
+        xff = self.headers.get("X-Forwarded-For")
+        if xff and self.client_address[0] in ("127.0.0.1", "::1"):
+            return xff.split(",")[-1].strip()
+        return self.client_address[0]
+
+    def _entrar(self):
+        """POST /entrar {chave}: abre a sessão online (limite: 5 chaves erradas a cada 15 minutos por endereço)."""
+        ip, agora = self._ip_cliente(), time.time()
+        erros = [t for t in TENTATIVAS.get(ip, []) if agora - t < 900]
+        if len(erros) >= 5:
+            return self._json(429, {"erro": "Muitas tentativas. Aguarde 15 minutos."})
+        try:
+            chave = str(json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 2000)) or b"{}").get("chave", ""))
+        except ValueError:
+            chave = ""
+        if not secrets.compare_digest(chave.strip().encode(), chave_acesso().encode()):
+            TENTATIVAS[ip] = erros + [agora]
+            time.sleep(1)
+            return self._json(403, {"erro": "Chave de acesso incorreta."})
+        TENTATIVAS.pop(ip, None)
+        for k in [k for k, s in SESSOES.items() if s["expira"] < agora]:
+            SESSOES.pop(k)
+        sid = secrets.token_urlsafe(32)
+        SESSOES[sid] = {"token": secrets.token_urlsafe(24), "expira": agora + SESSAO_H * 3600}
+        corpo = b'{"ok": true}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(corpo)))
+        self.send_header("Set-Cookie", f"painel={sid}; Path=/; Max-Age={SESSAO_H * 3600}; HttpOnly; Secure; SameSite=Strict")
+        self.end_headers()
+        self.wfile.write(corpo)
+
     def do_GET(self):
-        if not self._host_local():
-            return self._json(403, {"erro": "Abra o painel em http://127.0.0.1."})
         caminho = unquote(urlparse(self.path).path)
+        if caminho.startswith(("/i/", "/p/")) and (self._host_publico() or self._host_local()):
+            return distribuir(self, caminho, "https" if self._host_publico() else "http")
+        if not self._host_local() and not self._host_publico():
+            return self._json(403, {"erro": "Endereço não autorizado."})
+        if caminho == "/logo.png":
+            return self._arquivo(RAIZ / "public" / "marca" / "legis-claro.png", "image/png")
+        if caminho == "/logo-escuro.png":
+            return self._arquivo(RAIZ / "public" / "marca" / "legis.png", "image/png")
+        sessao = self._sessao()
+        if caminho == "/" and not sessao:
+            pagina = LOGIN.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(pagina)))
+            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'")
+            self.end_headers()
+            return self.wfile.write(pagina)
+        if not sessao:
+            return self._json(401, {"erro": "Entre com a chave de acesso."})
         if caminho == "/":
-            pagina = PAGINA.replace("@TOKEN@", TOKEN).encode()
+            pagina = PAGINA.replace("@TOKEN@", sessao["token"]).replace("@ONLINE@", "0" if self._host_local() else "1").encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(pagina)))
@@ -305,6 +390,8 @@ class Painel(BaseHTTPRequestHandler):
             return self.wfile.write(pagina)
         if caminho == "/logo.png":
             return self._arquivo(RAIZ / "public" / "marca" / "legis-claro.png", "image/png")
+        if caminho == "/logo-escuro.png":
+            return self._arquivo(RAIZ / "public" / "marca" / "legis.png", "image/png")
         if caminho.startswith("/arquivos/"):
             alvo = (DIST / caminho.removeprefix("/arquivos/")).resolve()
             if DIST.resolve() not in alvo.parents:
@@ -327,9 +414,19 @@ class Painel(BaseHTTPRequestHandler):
         return self._json(404, {"erro": "Não encontrado."})
 
     def do_POST(self):
-        if not self._host_local() or not self._autorizado():
-            return self._json(403, {"erro": "Recarregue o painel."})
         caminho = urlparse(self.path).path
+        if not self._host_local() and not self._host_publico():
+            return self._json(403, {"erro": "Endereço não autorizado."})
+        if caminho == "/entrar" and self._host_publico():
+            return self._entrar()
+        if not self._autorizado():
+            return self._json(403, {"erro": "Sessão expirada: recarregue o painel."})
+        if caminho == "/sair":
+            for parte in (self.headers.get("Cookie") or "").split(";"):
+                nome, _, valor = parte.strip().partition("=")
+                if nome == "painel":
+                    SESSOES.pop(valor, None)
+            return self._json(200, {"ok": True})
         try:
             n = int(self.headers.get("Content-Length") or 0)
             if n > 3_000_000:
@@ -371,49 +468,54 @@ class Distribuicao(BaseHTTPRequestHandler):
     def log_message(self, formato, *args):
         print(f"rede: {self.address_string()} {formato % args}", flush=True)
 
-    def _nada(self):
-        self.send_response(404)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+    def do_GET(self):
+        return distribuir(self, urlparse(self.path).path, "http")
 
-    def _camara(self, nome: str, codigo: str) -> dict | None:
+
+def distribuir(h, caminho: str, esquema: str):
+    """GET /i/<nome>/<código> (script de instalação) e /p/<nome>/<código>/<arquivo> (pacote, .sha256, instalador)."""
+    def nada():
+        h.send_response(404)
+        h.send_header("Content-Length", "0")
+        h.end_headers()
+
+    def camara(nome, codigo):
         c = ler_camara(nome)
         return c if c and secrets.compare_digest(str(c.get("codigo", "")), codigo) else None
 
-    def do_GET(self):
-        m = re.fullmatch(r"/i/([a-z0-9-]{1,40})/([A-Za-z0-9_-]{8,40})", urlparse(self.path).path)
-        if m:
-            c = self._camara(*m.groups())
-            deb = next((a["nome"] for a in arquivos(DIST_CIDADES / m.group(1)) if a["nome"].endswith("_all.deb")), None) if c else None
-            if not c or not deb:
-                return self._nada()
-            base = f"http://{self.headers.get('Host')}/p/{c['nome']}/{c['codigo']}"
-            if not re.fullmatch(r"http://[A-Za-z0-9.:\[\]-]+/p/[a-z0-9-]+/[A-Za-z0-9_-]+", base):
-                return self._nada()
-            corpo = SCRIPT_REDE.replace("@BASE@", base).replace("@DEB@", deb).replace(
-                "@CAMARA@", (c.get("camara") or c["municipio"]).replace('"', "")).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/x-shellscript; charset=utf-8")
-            self.send_header("Content-Length", str(len(corpo)))
-            self.end_headers()
-            return self.wfile.write(corpo)
-        m = re.fullmatch(r"/p/([a-z0-9-]{1,40})/([A-Za-z0-9_-]{8,40})/([A-Za-z0-9._+-]{1,120})", unquote(urlparse(self.path).path))
-        if m and self._camara(m.group(1), m.group(2)):
-            nome = m.group(3)
-            alvo = RAIZ / "packaging" / "instalar-legis.sh" if nome == "instalar-legis.sh" else DIST_CIDADES / m.group(1) / nome
-            if alvo.is_file() and (nome == "instalar-legis.sh" or re.fullmatch(r"legis-[a-z0-9-]+_.+_all\.deb(\.sha256)?", nome)):
-                self.send_response(200)
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Length", str(alvo.stat().st_size))
-                self.end_headers()
-                with open(alvo, "rb") as f:
-                    shutil.copyfileobj(f, self.wfile)
-                return
-        return self._nada()
+    m = re.fullmatch(r"/i/([a-z0-9-]{1,40})/([A-Za-z0-9_-]{8,40})", caminho)
+    if m:
+        c = camara(*m.groups())
+        deb = next((a["nome"] for a in arquivos(DIST_CIDADES / m.group(1)) if a["nome"].endswith("_all.deb")), None) if c else None
+        if not c or not deb:
+            return nada()
+        base = f"{esquema}://{h.headers.get('Host')}/p/{c['nome']}/{c['codigo']}"
+        if not re.fullmatch(r"https?://[A-Za-z0-9.:\[\]-]+/p/[a-z0-9-]+/[A-Za-z0-9_-]+", base):
+            return nada()
+        corpo = SCRIPT_REDE.replace("@BASE@", base).replace("@DEB@", deb).replace(
+            "@CAMARA@", (c.get("camara") or c["municipio"]).replace('"', "")).encode()
+        h.send_response(200)
+        h.send_header("Content-Type", "text/x-shellscript; charset=utf-8")
+        h.send_header("Content-Length", str(len(corpo)))
+        h.end_headers()
+        return h.wfile.write(corpo)
+    m = re.fullmatch(r"/p/([a-z0-9-]{1,40})/([A-Za-z0-9_-]{8,40})/([A-Za-z0-9._+-]{1,120})", unquote(caminho))
+    if m and camara(m.group(1), m.group(2)):
+        nome = m.group(3)
+        alvo = RAIZ / "packaging" / "instalar-legis.sh" if nome == "instalar-legis.sh" else DIST_CIDADES / m.group(1) / nome
+        if alvo.is_file() and (nome == "instalar-legis.sh" or re.fullmatch(r"legis-[a-z0-9-]+_.+_all\.deb(\.sha256)?", nome)):
+            h.send_response(200)
+            h.send_header("Content-Type", "application/octet-stream")
+            h.send_header("Content-Length", str(alvo.stat().st_size))
+            h.end_headers()
+            with open(alvo, "rb") as f:
+                shutil.copyfileobj(f, h.wfile)
+            return
+    return nada()
 
 
 SCRIPT_REDE = r"""#!/bin/bash
-# Instala o LEGIS de @CAMARA@ a partir do painel dos pacotes (rede local), sem perguntas.
+# Instala o LEGIS de @CAMARA@ a partir do painel dos pacotes, sem perguntas.
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "Rode como administrador:  curl -fsSL <endereço> | sudo bash"; exit 1; }
 baixar() { curl -fsSL -o "$2" "$1" 2>/dev/null || wget -qO "$2" "$1"; }
@@ -425,6 +527,29 @@ baixar "@BASE@/@DEB@.sha256" "$T/@DEB@.sha256"
 echo "   pacote conferido (SHA-256)"
 baixar "@BASE@/instalar-legis.sh" "$T/instalar-legis.sh"
 DEB="$T/@DEB@" bash "$T/instalar-legis.sh"
+"""
+
+
+LOGIN = r"""<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LEGIS — Pacotes de instalação</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:linear-gradient(135deg,#14532d,#1f8a4c);font:16px system-ui,sans-serif;color:#16211b}
+form{background:#fff;border-radius:16px;padding:28px 26px;width:min(380px,90vw);display:grid;gap:12px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+img{height:46px;justify-self:start}h1{font-size:18px;margin:4px 0 0}p{margin:0;color:#5b6b62;font-size:14px}
+input{font:inherit;padding:10px 12px;border:1px solid #dce5df;border-radius:10px}button{font:inherit;font-weight:600;padding:10px;border:0;border-radius:10px;background:#1f8a4c;color:#fff;cursor:pointer}
+#erro{color:#b42318;font-size:14px;min-height:1.2em}</style></head><body>
+<form onsubmit="event.preventDefault(); entrar()"><img src="/logo-escuro.png" alt="LEGIS"><h1>Pacotes de instalação</h1>
+<p>Digite a chave de acesso do painel.</p>
+<input id="chave" type="password" autocomplete="current-password" placeholder="Chave de acesso" required autofocus>
+<button>Entrar</button><div id="erro" role="alert"></div></form>
+<script>
+async function entrar() {
+  const r = await fetch('/entrar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chave: document.getElementById('chave').value }) });
+  if (r.ok) return location.reload();
+  const j = await r.json().catch(() => ({}));
+  document.getElementById('erro').textContent = j.erro || 'Não foi possível entrar.';
+}
+</script></body></html>
 """
 
 
@@ -461,7 +586,8 @@ input:focus,select:focus{outline:2px solid #b7e0c6;border-color:var(--verde)}.li
 #aviso{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#14211a;color:#fff;padding:10px 16px;border-radius:10px;display:none}
 </style></head><body>
 <header><img src="/logo.png" alt="LEGIS"><div><h1>Pacotes de instalação</h1><small id="versao">…</small></div><span class="esp"></span>
-  <button class="botao" onclick="abrirNova()" style="background:#fff">＋ Nova Câmara</button></header>
+  <button class="botao" onclick="abrirNova()" style="background:#fff">＋ Nova Câmara</button>
+  <button class="botao" id="btSair" onclick="sairPainel()" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.5);display:none">Sair</button></header>
 <main>
   <section class="cartao">
     <h2>Câmaras<span class="esp"></span><button class="botao pq" id="btTodas" onclick="gerarTodas()">Atualizar desatualizados</button></h2>
@@ -490,7 +616,7 @@ input:focus,select:focus{outline:2px solid #b7e0c6;border-color:var(--verde)}.li
 </form></dialog>
 <div id="aviso" role="status"></div>
 <script>
-const TOKEN = '@TOKEN@', $ = id => document.getElementById(id);
+const TOKEN = '@TOKEN@', ONLINE = '@ONLINE@' === '1', $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const tam = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
 const quando = ms => ms ? new Date(ms).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '';
@@ -500,6 +626,7 @@ async function api(caminho, corpo) {
   const r = await fetch(caminho, corpo === undefined ? { headers: { 'X-Painel': TOKEN } }
     : { method: 'POST', headers: { 'X-Painel': TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
   const j = await r.json().catch(() => ({}));
+  if (r.status === 401 || (r.status === 403 && ONLINE)) { location.reload(); throw new Error('Sessão expirada.'); }
   if (!r.ok) throw new Error(j.erro || 'Falhou.');
   return j;
 }
@@ -538,9 +665,9 @@ function comandoRede(c) {
   const ends = (E.rede || {}).enderecos || [];
   if (!ends.length) return '<div class="suave">Sem rede: copie o .deb e rode <code>sudo apt install ./arquivo.deb</code> no servidor.</div>';
   return '<div class="suave" style="margin-top:6px"><b>Instalar no servidor da Câmara</b> (rode lá, como administrador):</div>' + ends.map(e => {
-    const cmd = `curl -fsSL http://${e.ip}:${E.rede.porta}/i/${c.nome}/${c.codigo} | sudo bash`;
+    const cmd = `curl -fsSL ${e.url}/i/${c.nome}/${c.codigo} | sudo bash`;
     return `<div style="margin-top:4px"><code>${esc(cmd)}</code> <button class="botao pq" onclick="copiar('${esc(cmd)}')">copiar</button> <span class="suave">${esc(e.rede)}</span></div>`;
-  }).join('') + '<div class="suave" style="margin-top:4px">Funciona enquanto este painel estiver aberto. Ou leve o .deb e rode <code>sudo apt install ./arquivo.deb</code>.</div>';
+  }).join('') + '<div class="suave" style="margin-top:4px">O código no endereço é só desta Câmara. Ou leve o .deb e rode <code>sudo apt install ./arquivo.deb</code>.</div>';
 }
 function copiar(t) { navigator.clipboard.writeText(t).then(() => avisar('Copiado.')); }
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
@@ -583,6 +710,8 @@ async function publicar() {
   if (!confirm(`Publicar no GitHub, como versão mais recente e pública:\n\n"${titulo}"\n\nRoda os testes antes; se falharem, nada é publicado.`)) return;
   const r = await api('/api/geral/publicar', { titulo }).catch(e => avisar(e.message)); if (r) { verTarefa(r.tarefa.id); atualizar(); }
 }
+if (ONLINE) $('btSair').style.display = '';
+async function sairPainel() { await api('/sair', {}).catch(() => {}); location.reload(); }
 atualizar(); setInterval(atualizar, 3000);
 </script></body></html>
 """
@@ -590,6 +719,9 @@ atualizar(); setInterval(atualizar, 3000);
 
 def main():
     CAMARAS.mkdir(parents=True, exist_ok=True)
+    if PUBLICO:
+        chave_acesso()
+        print(f"Painel online: https://{PUBLICO}  (chave de acesso em {ARQ_CHAVE})", flush=True)
     servidor = ThreadingHTTPServer(("127.0.0.1", PORTA), Painel)
     try:
         rede = ThreadingHTTPServer(("0.0.0.0", PORTA_REDE), Distribuicao)
