@@ -37,6 +37,13 @@ for arg in "$@"; do
 done
 
 [ "$(id -u)" = 0 ] || { echo "Rode como administrador: sudo bash instalar-legis.sh"; exit 1; }
+# trava: esta máquina já roda o LEGIS em Docker (ex.: o servidor de desenvolvimento ou de outra instalação)
+if [ "${FORCAR:-0}" != 1 ] && command -v docker >/dev/null && \
+   docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | grep -qi parlatorio; then
+  echo "Esta máquina ($(hostname)) já roda o LEGIS em Docker: instalar o pacote aqui criaria um segundo LEGIS"
+  echo "e trocaria o nome da máquina. Rode este comando no servidor da Câmara. (Para forçar: FORCAR=1)"
+  exit 1
+fi
 . /etc/os-release
 case "${ID:-}:${VERSION_ID:-}" in
   debian:12|debian:13|ubuntu:24.04|ubuntu:24.10|ubuntu:25.04) ;;
