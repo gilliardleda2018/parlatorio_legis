@@ -52,6 +52,7 @@ import legendas as legendas_mod
 import participacao
 import cidadania
 import analise
+import regimento
 import resumo as resumo_mod
 from texto import _sem_acento
 from mesa import CFG_PADRAO, DRIVERS as DRIVERS_MESA, PRESETS, Mesa
@@ -189,7 +190,8 @@ def salvar():
 
 
 def registrar(autor: str, acao: str, args: dict):
-    limpo = {k: v for k, v in args.items() if k not in ("dataUrl", "pin")}
+    limpo = {k: (f"<{len(v)} caracteres>" if isinstance(v, str) and len(v) > 2000 else v)
+             for k, v in args.items() if k not in ("dataUrl", "pin")}
     db.execute(
         "insert into eventos (ts, autor, acao, args) values (?, ?, ?, ?)",
         (agora(), autor, acao, json.dumps(limpo, ensure_ascii=False)),
@@ -2375,6 +2377,33 @@ def ao_vivo() -> dict:
 # ---------------------------------------------------------------- pacote 2026: IA, legendas, participação, vídeo, dados abertos
 participacao.criar_tabela(db)
 cidadania.criar_tabelas(db)
+regimento.criar_tabela(db)
+base_regimento = regimento.Base()
+
+
+@acao("presidente")
+def normaSalvar(ator, nome, texto="", dataUrl=""):
+    """Regimento Interno, Lei Orgânica…: texto colado, .txt lido no navegador ou PDF (lido pelo pdftotext)."""
+    if dataUrl:
+        cab, _, b64 = str(dataUrl).partition(",")
+        if cab != "data:application/pdf;base64":
+            raise Erro("Envie o PDF ou cole o texto.")
+        try:
+            texto = regimento.pdf_para_texto(base64.b64decode(b64, validate=True))
+        except ValueError as e:
+            raise Erro(str(e))
+    try:
+        r = regimento.salvar(db, nome, texto)
+    except ValueError as e:
+        raise Erro(str(e))
+    S["normasRev"] = S.get("normasRev", 0) + 1
+    return r
+
+
+@acao("presidente")
+def normaRemover(ator, id):
+    regimento.remover(db, str(id))
+    S["normasRev"] = S.get("normasRev", 0) + 1
 
 
 def meta_ideia() -> int:
@@ -3351,6 +3380,13 @@ class Manipulador(BaseHTTPRequestHandler):
                     return self._json(404, {"erro": "Projeto não encontrado."})
                 return self._json(200, {"analise": p.get("analise"), "ia": ia.descricao(), "temTexto": bool(p.get("texto")),
                                         "numero": p["numero"], "ementa": p["ementa"]})
+        if caminho == "/api/normas":
+            with trava:
+                ator = self._ator()
+                if not ator or ator["papel"] not in ("presidente", "parlamentar"):
+                    return self._json(401, {"erro": "Entre no painel."})
+                return self._json(200, {"normas": regimento.listar(db), "ia": ia.descricao(),
+                                        "pdf": bool(shutil.which("pdftotext"))})
         if caminho == "/api/enquetes":
             with trava:
                 ip = self._ip()
@@ -3553,6 +3589,16 @@ class Manipulador(BaseHTTPRequestHandler):
                 S["projetosRev"] += 1
                 confirmar()
             return self._json(200, {"ok": True, "comentario": participacao.publico(c)})
+        if caminho == "/api/regimento/perguntar":
+            with trava:
+                ator = self._ator()
+                if not ator or ator["papel"] not in ("presidente", "parlamentar"):
+                    return self._json(401, {"erro": "Entre no painel."})
+                base_regimento.atualizar(db)
+            try:
+                return self._json(200, regimento.perguntar(base_regimento, corpo.get("pergunta")))
+            except ValueError as e:
+                return self._json(400, {"erro": str(e)})
         m = re.fullmatch(r"/api/enquete/([A-Za-z0-9]+)", caminho)
         if m:
             if corpo.get("site"):   # campo-isca: robôs preenchem

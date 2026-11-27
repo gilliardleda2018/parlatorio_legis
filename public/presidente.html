@@ -214,6 +214,13 @@
               <small class="suave" id="trYoutube"></small>
             </div>
           </div>
+          <div class="cartao neutro" id="cartaoRegimentoPergunta">
+            <h2>Pergunte ao Regimento</h2>
+            <form class="grupo" onsubmit="event.preventDefault(); perguntarRegimento('rgPergunta','rgResposta')">
+              <input class="campo" id="rgPergunta" placeholder="Ex.: qual o quórum para derrubar um veto?" style="flex:1;min-width:180px" maxlength="400">
+              <button class="botao pq principal">Perguntar</button></form>
+            <div id="rgResposta" class="detalhe" style="margin-top:8px"></div>
+          </div>
           <div class="cartao neutro" id="cartaoPerguntas">
             <h2>Perguntas do público<span class="esp"></span><span id="pqEstado"></span></h2>
             <label class="linha">Receber perguntas do público agora<input type="checkbox" id="pqAbertas" onchange="A('perguntasAbrir',{abertas:this.checked})"></label>
@@ -474,6 +481,17 @@
               <input class="campo" id="ytLink" placeholder="https://www.youtube.com/@suacamara/live"></label>
             <label class="linha" style="margin-top:6px">Transmitir também no YouTube ao clicar em 📡 Transmitir<input type="checkbox" id="ytLigado" checked></label>
             <div class="grupo" style="justify-content:flex-end;margin-top:12px"><button class="botao fantasma" id="ytRemover" onclick="ytRemoverChave()">Remover chave</button><button class="botao principal" onclick="ytSalvar()">Salvar YouTube</button></div>
+          </div>
+          <div class="cartao" id="cartaoNormas">
+            <h2>Regimento Interno e Lei Orgânica<span class="esp"></span><span id="nmEstado"></span></h2>
+            <p class="detalhe" style="margin-top:0">Cadastre as normas da Câmara para a Mesa e os vereadores perguntarem durante a sessão (“qual o quórum…”, “quanto tempo tem o líder…”). A resposta cita o artigo. Com IA ligada, ela redige a resposta usando só os artigos encontrados.</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+              <label class="rot">Nome<input class="campo" id="nmNome" placeholder="Regimento Interno"></label>
+              <label class="rot">Arquivo PDF ou .txt<input class="campo" id="nmArquivo" type="file" accept="application/pdf,text/plain,.txt,.md"></label>
+            </div>
+            <label class="rot" style="margin-top:8px">ou cole o texto<textarea class="campo" id="nmTexto" rows="4" placeholder="Art. 1º …"></textarea></label>
+            <div class="grupo" style="justify-content:flex-end;margin-top:10px"><button class="botao principal" onclick="salvarNorma()">Cadastrar norma</button></div>
+            <div id="nmLista"></div>
           </div>
           <div class="cartao" id="cartaoRodape">
             <h2>Rodapé das páginas públicas</h2>

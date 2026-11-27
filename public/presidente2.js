@@ -317,3 +317,34 @@ async function verAnalise(id) {
   if (!dlg.open) dlg.showModal();
   if (a && a.emAndamento) analiseTimer = setTimeout(() => { if (dlg.open && analiseAberta === id) verAnalise(id); }, 3000);
 }
+
+
+/* ---------------- Regimento Interno e Lei Orgânica (Ulysses Chat) ---------------- */
+async function perguntarRegimento(campo, saida) {
+  const pergunta = $(campo).value.trim(); if (pergunta.length < 5) return;
+  $(saida).innerHTML = '⏳ Procurando nos artigos…';
+  try {
+    const r = await api('/api/regimento/perguntar', { pergunta });
+    $(saida).innerHTML = (r.resposta ? `<div style="white-space:pre-wrap;color:var(--texto);margin-bottom:6px">${esc(r.resposta)}</div>` : '')
+      + (r.fontes || []).map((f, k) => `<details style="margin-top:4px"><summary>[${k + 1}] ${esc(f.norma)}, art. ${esc(f.artigo)}${f.caminho ? ' · ' + esc(f.caminho) : ''}</summary>
+          <div style="white-space:pre-wrap;font-size:13px;margin:4px 0 0 12px">${esc(f.texto)}</div></details>`).join('')
+      + (r.modo === 'trechos' ? '<small class="suave">Artigos mais próximos da pergunta (IA desligada: leia os artigos).</small>' : r.modo === 'ia' ? '<small class="suave">Resposta da IA a partir dos artigos acima: confira sempre o texto.</small>' : '');
+  } catch (e) { $(saida).textContent = e.message; }
+}
+async function carregarNormas() {
+  let r; try { r = await (await apiGet('/api/normas')).json(); } catch { return; }
+  $('nmEstado').innerHTML = r.normas.length ? `<span class="chip sim">${r.normas.length} norma(s)</span>` : '<span class="chip">nenhuma</span>';
+  if (!r.pdf) $('nmArquivo').accept = 'text/plain,.txt,.md';
+  $('nmLista').innerHTML = r.normas.map(n => `<div class="linha" style="margin-top:6px"><span><b>${esc(n.nome)}</b> <span class="suave">· ${n.artigos} artigos</span></span>
+    <button class="botao pq fantasma" onclick="if(confirm('Remover ${esc(n.nome)}?'))A('normaRemover',{id:'${n.id}'}).then(carregarNormas)">Remover</button></div>`).join('');
+}
+async function salvarNorma() {
+  const f = $('nmArquivo').files[0], args = { nome: $('nmNome').value || 'Regimento Interno', texto: $('nmTexto').value };
+  if (f) {
+    if (f.size > 2_800_000) return PL.avisar('Arquivo grande demais (máximo 2,8 MB): cole o texto.', true);
+    if (f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')) args.dataUrl = await new Promise(ok => { const l = new FileReader(); l.onload = () => ok(l.result); l.readAsDataURL(f); });
+    else args.texto = await f.text();
+  }
+  await PL.acao('presidente', 'normaSalvar', args).then(() => { PL.avisar('Norma cadastrada.'); $('nmTexto').value = ''; $('nmArquivo').value = ''; carregarNormas(); }).catch(() => {});
+}
+document.querySelector('[data-aba="config"]').addEventListener('click', () => carregarNormas());

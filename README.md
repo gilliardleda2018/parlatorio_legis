@@ -345,6 +345,21 @@ Sem sessão no ar, a estação segue a programação normal. Não há senha nem 
 
 Enquanto estiver no ar, a tela inicial e a transparência mostram a faixa **Ao vivo** com o player e o nome de quem está na tribuna. A senha do servidor de rádio fica só no servidor (nunca vai para as telas). Precisa do `ffmpeg` no servidor (o Docker já traz).
 
+## O que veio do Senado e da Câmara dos Deputados
+
+Recursos inspirados nos sistemas do Congresso Nacional, adaptados à Câmara Municipal:
+
+| No LEGIS | Inspirado em | O que faz |
+|---|---|---|
+| Orientação de bancada | Painel de votação da Câmara | Na votação nominal, o líder orienta a bancada (Sim, Não, Liberado, Obstrução) pelo celular; aparece no painel e no telão, e o resultado aponta quem votou diferente da orientação |
+| Enquetes | Enquetes da Câmara | O cidadão diz se concorda ou discorda (totalmente ou na maior parte) de cada projeto em tramitação; resultado público, com aviso de que não tem rigor estatístico |
+| Ideia Legislativa | e-Cidadania do Senado | O cidadão propõe uma ideia e outros apoiam; com a meta de apoios (0,3% da população) em 120 dias, vai à análise da Mesa, que responde publicamente |
+| Perguntas ao vivo | Evento Interativo do Senado | Durante a sessão ou audiência, o público envia perguntas em /participe; a presidência aprova e mostra a escolhida no telão |
+| Análise prévia da proposição | Programa Ulysses da Câmara | Comissões sugeridas e alertas jurídicos (vício de iniciativa, despesa, renúncia de receita, competência da União) por regras, e resumo em linguagem simples pela IA; sempre rascunho até a revisão humana |
+| Pergunte ao Regimento | Ulysses Chat da Câmara | A Mesa e os vereadores perguntam sobre o Regimento Interno e a Lei Orgânica (cadastrados em PDF ou texto) e recebem a resposta com o artigo citado |
+
+O LEGIS já tinha os equivalentes de outros sistemas do Congresso: presença e voto pelo celular com PIN (Infoleg), sessão híbrida e plenário virtual (Sistema de Deliberação Remota), consulta pública artigo a artigo (Wikilegis), dados abertos e Akoma Ntoso (LexML) e importação do SAPL (Interlegis).
+
 ## YouTube ao vivo
 
 Ao clicar em **📡 Transmitir**, a sessão também vai para o canal da Câmara no YouTube, junto com a rádio ou sozinha:

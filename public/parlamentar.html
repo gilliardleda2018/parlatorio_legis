@@ -94,6 +94,13 @@
     <div id="videoBox" style="height:320px;border-radius:10px;overflow:hidden;background:#000"></div>
   </div>
   <div id="conteudoApp" class="coluna"></div>
+  <details class="cartao neutro" id="cartaoRegimento" style="margin-top:12px">
+    <summary style="cursor:pointer;font-weight:700">📖 Pergunte ao Regimento</summary>
+    <form class="grupo" style="margin-top:10px" onsubmit="event.preventDefault(); perguntarRegimento()">
+      <input class="campo" id="rgPergunta" placeholder="Ex.: quanto tempo tenho no Grande Expediente?" style="flex:1;min-width:160px" maxlength="400">
+      <button class="botao principal">Perguntar</button></form>
+    <div id="rgResposta" class="detalhe" style="margin-top:8px"></div>
+  </details>
 </main>
 <dialog id="dlgPropor"><form method="dialog" class="coluna" style="gap:12px" onsubmit="return false" id="formPropor"></form></dialog>
 
@@ -377,6 +384,16 @@ function desenharMinhas() {
     </div>`).join('') : '<div class="cartao neutro"><p class="vazio" style="margin:0">Você ainda não tem projetos ou propostas. Veja a aba “Ideias de projetos”.</p></div>';
 }
 
+async function perguntarRegimento() {
+  const pergunta = $('rgPergunta').value.trim(); if (pergunta.length < 5) return;
+  $('rgResposta').textContent = '⏳ Procurando nos artigos…';
+  const r = await fetch('/api/regimento/perguntar', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + PL.token('parlamentar') },
+    body: JSON.stringify({ pergunta }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { $('rgResposta').textContent = j.erro || 'Não foi possível consultar.'; return; }
+  $('rgResposta').innerHTML = (j.resposta ? `<div style="white-space:pre-wrap;margin-bottom:6px">${esc(j.resposta)}</div>` : '')
+    + (j.fontes || []).map((f, k) => `<details style="margin-top:4px"><summary>[${k + 1}] ${esc(f.norma)}, art. ${esc(f.artigo)}</summary><div style="white-space:pre-wrap;font-size:13px;margin:4px 0 0 10px">${esc(f.texto)}</div></details>`).join('');
+}
 function orientar(o) { PL.acao('parlamentar', 'orientar', { orientacao: o }).catch(() => {}); }
 function votar(x) {
   const v = PL.estado.votacao;
