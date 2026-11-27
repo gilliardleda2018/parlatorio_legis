@@ -53,6 +53,18 @@ class ConfigurarYoutube(unittest.TestCase):
         self.assertEqual(s.acao(P, "transmissaoLigar")["HTTP"], 400)   # nem rádio nem YouTube
 
 
+class ChaveDaInstalacao(unittest.TestCase):
+    def test_servidor_adota_chave_e_link_do_ambiente(self):
+        s = Servidor(LEGIS_YOUTUBE_CHAVE="wxyz-1234-abcd", LEGIS_YOUTUBE_LINK="https://www.youtube.com/@camara/live")
+        try:
+            e = s.estado()
+            self.assertEqual(e["youtube"], {"configurado": True, "ligado": True, "link": "https://www.youtube.com/@camara/live"})
+            self.assertNotIn("wxyz-1234-abcd", json.dumps(e))
+            self.assertTrue(s.req("/api/transmissao", token=s.entrar("presidente"))["youtube"]["temChave"])
+        finally:
+            s.parar()
+
+
 @unittest.skipUnless(TEM_FFMPEG, "precisa do ffmpeg com libx264")
 class TransmitirNoYoutube(unittest.TestCase):
     def test_tela_automatica_chega_no_rtmp(self):

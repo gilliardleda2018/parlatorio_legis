@@ -54,6 +54,8 @@ estado() {
   fi
   [ -x "$DADOS/whisper/bin/python" ] && echo " Transcrição:     instalada" || echo " Transcrição:     não instalada"
   grep -q '^IA=ollama' "$ENVF" 2>/dev/null && echo " IA local:        instalada (Ollama)" || echo " IA local:        não instalada"
+  if grep -q '^JITSI_URL=' "$ENVF" 2>/dev/null; then echo " Videoconferência: $(grep '^JITSI_URL=' "$ENVF" | cut -d= -f2-)"; else echo " Videoconferência: não instalada"; fi
+  grep -q '^LEGIS_YOUTUBE_CHAVE=' "$ENVF" 2>/dev/null && echo " YouTube:         chave configurada (botão Transmitir do painel)" || echo " YouTube:         cole a chave em Configurações → YouTube ao vivo"
   if grep -q '^RADIO_LOCAL=1' "$ENVF" 2>/dev/null; then
     printf " Rádio:           %s — /radio.mp3, %s arquivo(s) na programação\n" \
       "$( [ -d /run/systemd/system ] && systemctl is-active legis-radio.service 2>/dev/null || echo instalada)" \
@@ -87,6 +89,14 @@ extras() {
       mudou=1
     else
       echo "IA: o Docker não está instalado (sudo apt install docker.io) — pulando."
+    fi
+  fi
+  if [ "${JITSI:-false}" = "true" ] && ! grep -q '^JITSI_URL=' "$ENVF"; then
+    if command -v docker >/dev/null; then
+      echo "videoconferência: instalando o Jitsi da Câmara (cerca de 1 GB)..."
+      ENVF="$ENVF" SERVICO=legis SEM_REINICIAR=1 JITSI_DIR="$DADOS/jitsi" DADOS="$DADOS" bash "$APP/deploy/jitsi/instalar-jitsi.sh" && mudou=1
+    else
+      echo "videoconferência: o Docker não está instalado (sudo apt install docker.io) — pulando."
     fi
   fi
   if [ -f "$DADOS/.tailscale-chave" ]; then

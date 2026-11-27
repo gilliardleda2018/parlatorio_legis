@@ -42,6 +42,29 @@ Description: Instalar a IA local (rascunho da ata, perguntas e assistente do cid
  Roda o modelo aberto qwen2.5:3b no próprio servidor (Ollama em Docker, cerca
  de 2 GB), sem mandar dados para fora. Precisa do Docker e de 8 GB de RAM.
 
+Template: legis/jitsi
+Type: boolean
+Default: true
+Description: Instalar o servidor de videoconferência próprio (Jitsi)?
+ Para a sessão híbrida: vereadores participam pelo celular ou computador. Só
+ entra quem está logado no LEGIS, e o presidente é o moderador. Usa o mesmo
+ certificado do LEGIS. Roda em Docker (cerca de 1 GB), instalado em segundo
+ plano. Recomendado com 4 GB de RAM ou mais.
+
+Template: legis/youtube_chave
+Type: password
+Description: Chave de transmissão do YouTube (opcional):
+ YouTube Studio → Criar → Transmitir ao vivo → Stream → chave de
+ transmissão. Com ela, o botão Transmitir do painel já manda a sessão para o
+ canal da Câmara. Deixe em branco para configurar depois no painel.
+
+Template: legis/youtube_link
+Type: string
+Default:
+Description: Link público do canal ao vivo no YouTube (opcional):
+ Por exemplo https://www.youtube.com/@suacamara/live. Aparece nas páginas
+ públicas enquanto a sessão estiver no ar.
+
 Template: legis/tailscale_chave
 Type: password
 Description: Chave do Tailscale para publicar na internet (opcional):

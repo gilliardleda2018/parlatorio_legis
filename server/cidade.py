@@ -8,6 +8,7 @@ Os dados refletem a eleição de 2024. Suplentes que assumiram depois, mudanças
 partido e nomes parlamentares diferentes do nome de urna são ajustados no painel.
 Nada é inventado sobre pessoas reais: só o que o TSE e o IBGE publicam.
 """
+import base64
 import json
 import os
 import unicodedata
@@ -86,3 +87,20 @@ def buscar(uf: str, municipio: str, log=print, fotos: bool = True) -> dict:
 
     return {"uf": uf.upper(), "municipio": nome_proprio(mun["nm"]), "ibge": mun["cdi"], "tse": mun["cd"],
             "populacao": populacao, "eleitos": eleitos}
+
+
+def para_json(dados: dict) -> str:
+    """Dados da cidade (com fotos e brasão) num JSON que vai dentro do pacote da Câmara."""
+    d = dict(dados)
+    d["eleitos"] = [{**e, "foto": base64.b64encode(e["foto"]).decode() if e.get("foto") else None} for e in dados["eleitos"]]
+    if dados.get("logo"):
+        d["logo"] = {"mime": dados["logo"]["mime"], "dados": base64.b64encode(dados["logo"]["dados"]).decode()}
+    return json.dumps(d, ensure_ascii=False)
+
+
+def de_json(texto: str) -> dict:
+    d = json.loads(texto)
+    d["eleitos"] = [{**e, "foto": base64.b64decode(e["foto"]) if e.get("foto") else None} for e in d["eleitos"]]
+    if d.get("logo"):
+        d["logo"] = {"mime": d["logo"]["mime"], "dados": base64.b64decode(d["logo"]["dados"])}
+    return d

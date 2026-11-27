@@ -18,6 +18,10 @@ db_get legis/transcricao;   TRANSCRICAO="$RET"
 db_get legis/ia;            IA="$RET"
 db_get legis/tailscale_chave; CHAVE="$RET"
 db_set legis/tailscale_chave ""   # a chave não fica guardada no debconf
+JITSI=true; db_get legis/jitsi && JITSI="$RET" || true
+YT_CHAVE=""; db_get legis/youtube_chave && YT_CHAVE="$RET" || true
+db_set legis/youtube_chave "" || true
+YT_LINK=""; db_get legis/youtube_link && YT_LINK="$RET" || true
 db_stop
 
 slug() { python3 -c "import re,sys,unicodedata as u; t=''.join(c for c in u.normalize('NFD',sys.argv[1]) if u.category(c)!='Mn').lower(); print(re.sub(r'[^a-z0-9]+','-',t).strip('-'))" "$1"; }
@@ -56,6 +60,7 @@ MUNICIPIO=$MUNICIPIO
 NOME=$NOME
 TRANSCRICAO=$TRANSCRICAO
 IA=$IA
+JITSI=$JITSI
 EOF
 
 # vereadores eleitos (TSE) e população (IBGE): só num banco novo — ou no banco de exemplo
@@ -67,9 +72,12 @@ if [ -n "$UF" ] && [ -n "$MUNICIPIO" ] && [ -f "$DADOS/legis.db" ] && [ -f "$DAD
   rm -f "$DADOS/legis.db-wal" "$DADOS/legis.db-shm"
   echo "LEGIS: o banco de exemplo foi guardado em $ANTES"
 fi
+EMBUTIDOS=/usr/share/legis/cidade/dados.json   # só no pacote personalizado de uma Câmara
 if [ -n "$UF" ] && [ -n "$MUNICIPIO" ] && [ ! -f "$DADOS/legis.db" ]; then
-  echo "LEGIS: buscando os vereadores eleitos de $MUNICIPIO/${UF^^} no TSE..."
-  if ! runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 \
+  if [ -f "$EMBUTIDOS" ]; then echo "LEGIS: configurando $MUNICIPIO/${UF^^} com os dados do pacote..."
+  else echo "LEGIS: buscando os vereadores eleitos de $MUNICIPIO/${UF^^} no TSE..."; fi
+  DO_PACOTE=(); [ -f "$EMBUTIDOS" ] && DO_PACOTE=("LEGIS_CIDADE_DADOS=$EMBUTIDOS")
+  if ! runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 "${DO_PACOTE[@]}" \
        python3 "$APP/scripts/tse_eleitos.py" "$UF" "$MUNICIPIO" "$DADOS/legis.db"; then
     rm -f "$DADOS/legis.db"
     echo "LEGIS: não foi possível importar agora (internet?). Depois rode: sudo dpkg-reconfigure legis"
@@ -96,6 +104,14 @@ if [ "$RADIO" = "true" ]; then
   fi
 fi
 
+# YouTube: o LEGIS adota a chave ao subir (só ela muda no painel depois); fica no legis.env, legível só pelo serviço
+if [ -n "$YT_CHAVE" ] || [ -n "$YT_LINK" ]; then
+  sed -i '/^LEGIS_YOUTUBE_\(CHAVE\|LINK\)=/d' "$ENVF"
+  [ -n "$YT_CHAVE" ] && printf 'LEGIS_YOUTUBE_CHAVE=%s\n' "$(printf %s "$YT_CHAVE" | tr -cd 'A-Za-z0-9_-')" >> "$ENVF"
+  [ -n "$YT_LINK" ] && printf 'LEGIS_YOUTUBE_LINK=%s\n' "$(printf %s "$YT_LINK" | tr -d ' \n')" >> "$ENVF"
+fi
+unset YT_CHAVE
+
 if [ -n "$CHAVE" ]; then
   umask 077; printf %s "$CHAVE" > "$DADOS/.tailscale-chave"; umask 022
 fi
@@ -110,9 +126,9 @@ if [ -d /run/systemd/system ]; then
     systemctl restart legis-radio.service || true
   fi
   systemctl enable avahi-daemon >/dev/null 2>&1 || true
-  if [ "$TRANSCRICAO" = "true" ] || [ "$IA" = "true" ] || [ -f "$DADOS/.tailscale-chave" ]; then
+  if [ "$TRANSCRICAO" = "true" ] || [ "$IA" = "true" ] || [ "$JITSI" = "true" ] || [ -f "$DADOS/.tailscale-chave" ]; then
     systemd-run --unit=legis-extras --collect --quiet /usr/sbin/legis extras || true
-    EXTRAS=" (transcrição/IA/internet sendo instalados em segundo plano: sudo legis estado)"
+    EXTRAS=" (transcrição, IA, videoconferência e internet terminam de instalar em segundo plano: sudo legis estado)"
   fi
 fi
 

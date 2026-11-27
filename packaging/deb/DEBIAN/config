@@ -9,5 +9,8 @@ db_input high legis/municipio || true
 db_input high legis/nome || true
 db_input high legis/transcricao || true
 db_input high legis/ia || true
+db_input high legis/jitsi || true
+db_input medium legis/youtube_chave || true
+db_input medium legis/youtube_link || true
 db_input high legis/tailscale_chave || true
 db_go || true

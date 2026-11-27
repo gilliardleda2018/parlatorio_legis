@@ -14,6 +14,9 @@
 #   UF=ma MUNICIPIO="Tuntum"   estado e município (vereadores eleitos do TSE, com fotos; população do IBGE)
 #   NOME=tuntum                nome curto: https://tuntum.local na rede e https://tuntum.<tailnet>.ts.net na internet
 #   TRANSCRICAO=s IA=n         transcrição e legendas, IA local (padrão: s e automático). A rádio vem sempre.
+#   JITSI=s                    videoconferência própria da Câmara (padrão: sim com 4 GB de RAM)
+#   YOUTUBE_CHAVE=xxxx-...     chave de transmissão do YouTube (YouTube Studio → Transmitir ao vivo)
+#   YOUTUBE_LINK=https://...   link público da live (ex.: https://www.youtube.com/@suacamara/live)
 #   TS_AUTHKEY=tskey-auth-...  publica na internet pelo Tailscale (opcional)
 #   SEM_HOSTNAME=1             não troca o nome da máquina
 #   DEB=/caminho/legis.deb     usa este pacote em vez de baixar a última versão
@@ -24,6 +27,7 @@ AQUI="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || pwd)"
 TTY=/dev/tty
 VERDE=$'\e[32m'; NEGRITO=$'\e[1m'; FIM=$'\e[0m'
 PERGUNTAR=0
+NOME_DADO="${NOME:-}"
 for arg in "$@"; do
   case "$arg" in
     --perguntar) PERGUNTAR=1 ;;
@@ -98,18 +102,22 @@ MEMORIA_GB=$(awk '/MemTotal/ {printf "%d", $2/1024/1024 + 0.5}' /proc/meminfo)
 RADIO="${RADIO:-s}"   # a rádio da Câmara vem sempre com o pacote
 perguntar TRANSCRICAO "Transcrição dos discursos e legendas ao vivo, cerca de 600 MB? (s/n)" "s"
 perguntar IA "IA local (ata, perguntas, assistente), precisa de 8 GB de RAM — esta máquina tem ${MEMORIA_GB} GB? (s/n)" "$([ "$MEMORIA_GB" -ge 7 ] && echo s || echo n)"
+perguntar JITSI "Servidor de videoconferência próprio (Jitsi), para a sessão híbrida? (s/n)" "$([ "$MEMORIA_GB" -ge 4 ] && echo s || echo n)"
+if [ -z "${YOUTUBE_CHAVE+x}" ] && tem_tty; then
+  echo "Chave de transmissão do YouTube (YouTube Studio → Criar → Transmitir ao vivo → Stream), opcional."
+  read -rsp "Cole a chave ou aperte Enter para configurar depois no painel: " YOUTUBE_CHAVE < "$TTY" || true; echo
+fi
+YOUTUBE_CHAVE="${YOUTUBE_CHAVE:-}"
+perguntar YOUTUBE_LINK "Link público da live no YouTube (opcional)" ""
 if [ -z "${TS_AUTHKEY+x}" ] && tem_tty; then
   echo "Chave do Tailscale para publicar na internet sem abrir portas (opcional)."
   read -rsp "Cole a chave (tskey-auth-...) ou aperte Enter para pular: " TS_AUTHKEY < "$TTY" || true; echo
 fi
 TS_AUTHKEY="${TS_AUTHKEY:-}"
-ok() { sim "$1" && echo "sim" || echo "não"; }
-echo
-echo "${NEGRITO}Instalando:${FIM} cidade: ${MUNICIPIO:+$MUNICIPIO/${UF^^}}${MUNICIPIO:-escolhida no painel do presidente} · rádio: $(ok "$RADIO") · transcrição: $(ok "$TRANSCRICAO") · IA local: $(ok "$IA") (${MEMORIA_GB} GB de RAM) · internet: $([ -n "$TS_AUTHKEY" ] && echo "Tailscale" || echo "só rede local")"
 
 # ---- pacote .deb: o do lado deste script, DEB=…, ou a última versão publicada (com o SHA-256 conferido)
 if [ -z "${DEB:-}" ]; then
-  DEB=$(ls -t "$AQUI"/legis_*_all.deb 2>/dev/null | head -1 || true)
+  DEB=$(ls -t "$AQUI"/legis*_all.deb 2>/dev/null | head -1 || true)   # legis_… ou o pacote de uma Câmara (legis-tuntum_…)
 fi
 if [ -z "$DEB" ]; then
   echo "Baixando a última versão do LEGIS..."
@@ -126,6 +134,14 @@ fi
 [ -f "$DEB" ] || { echo "Pacote não encontrado: $DEB"; exit 1; }
 DEB="$(cd "$(dirname "$DEB")" && pwd)/$(basename "$DEB")"
 chmod 644 "$DEB"
+CIDADE_PACOTE=$(dpkg-deb -f "$DEB" X-Legis-Cidade 2>/dev/null || true)
+if [ -n "$CIDADE_PACOTE" ]; then   # pacote personalizado: município, Câmara, brasão e vereadores já vêm dentro
+  if [ -z "$NOME_DADO" ]; then NOME=$(basename "$DEB"); NOME=${NOME#legis-}; NOME=${NOME%%_*}; fi
+fi
+ROTULO="${CIDADE_PACOTE:-${MUNICIPIO:+$MUNICIPIO/${UF^^}}}"
+ok() { sim "$1" && echo "sim" || echo "não"; }
+echo
+echo "${NEGRITO}Instalando:${FIM} ${ROTULO:-cidade escolhida no painel do presidente} · rádio: sim · transcrição: $(ok "$TRANSCRICAO") · IA local: $(ok "$IA") (${MEMORIA_GB} GB de RAM) · videoconferência: $(ok "$JITSI") · YouTube: $([ -n "$YOUTUBE_CHAVE" ] && echo "chave configurada" || echo "chave depois, no painel") · internet: $([ -n "$TS_AUTHKEY" ] && echo "Tailscale" || echo "só rede local") · endereço: https://$NOME.local"
 
 # ---- nome da máquina: https://NOME.local na rede da Câmara
 if [ "${SEM_HOSTNAME:-0}" != "1" ] && [ "$(hostname)" != "$NOME" ]; then
@@ -142,19 +158,25 @@ legis legis/nome string $NOME
 legis legis/radio boolean $(sim "$RADIO" && echo true || echo false)
 legis legis/transcricao boolean $(sim "$TRANSCRICAO" && echo true || echo false)
 legis legis/ia boolean $(sim "$IA" && echo true || echo false)
+legis legis/jitsi boolean $(sim "$JITSI" && echo true || echo false)
+legis legis/youtube_chave password $YOUTUBE_CHAVE
+legis legis/youtube_link string ${YOUTUBE_LINK:-}
 legis legis/tailscale_chave password $TS_AUTHKEY
 EOF
 EXTRAS=(avahi-daemon)
 sim "$TRANSCRICAO" && EXTRAS+=(python3-venv)
-if { sim "$IA" || [ -n "$TS_AUTHKEY" ]; } && ! command -v docker >/dev/null; then
-  EXTRAS+=(docker.io)   # IA local e Tailscale rodam em contêiner; não mexe num Docker oficial já instalado
+if { sim "$IA" || sim "$JITSI" || [ -n "$TS_AUTHKEY" ]; } && ! command -v docker >/dev/null; then
+  EXTRAS+=(docker.io)   # IA, Jitsi e Tailscale rodam em contêiner; não mexe num Docker oficial já instalado
+  for p in docker-cli docker-compose; do   # no Debian 13 o comando docker fica em docker-cli
+    apt-cache show "$p" >/dev/null 2>&1 && EXTRAS+=("$p")
+  done
 fi
 echo "Instalando o LEGIS e ${EXTRAS[*]} (alguns minutos)..."
 apt-get install -y -q --no-install-recommends "$DEB" "${EXTRAS[@]}" 2>&1 | grep -vE "^(Selecting|Preparing|Unpacking|Setting up|Processing|\(Reading)" || true
 dpkg -s legis 2>/dev/null | grep -q '^Status: install ok installed' || { echo "A instalação do pacote falhou (veja as mensagens acima)."; exit 1; }
-unset TS_AUTHKEY
+unset TS_AUTHKEY YOUTUBE_CHAVE
 
 echo
 echo "${VERDE}${NEGRITO}✔ LEGIS instalado.${FIM}"
 [ -n "$MUNICIPIO" ] || echo "  No primeiro acesso ao painel do presidente, escolha a cidade: os vereadores vêm do TSE."
-echo "  Transcrição, IA e internet continuam instalando em segundo plano: acompanhe com  sudo legis estado"
+echo "  Transcrição, IA, videoconferência e internet continuam instalando em segundo plano: acompanhe com  sudo legis estado"

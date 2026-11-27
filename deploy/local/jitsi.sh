@@ -103,6 +103,11 @@ else
   cp "$TLS_DIR/servidor.key" config/web/keys/cert.key
 fi
 chmod 600 config/web/keys/cert.key
+# versões novas do docker-jitsi-meet leem o certificado de /storage/keys (config/storage/web/keys)
+mkdir -p config/storage/web/keys
+cp config/web/keys/cert.crt config/web/keys/cert.key config/storage/web/keys/
+chmod 600 config/storage/web/keys/cert.key
+[ "$(id -u)" = 0 ] && chown -R 1000:1000 config/web/keys config/storage/web
 
 docker compose up -d
 

@@ -2,7 +2,7 @@
 Description=LEGIS — Sistema de Gestão Parlamentar
 Documentation=https://github.com/gilliardleda2018/parlatorio_legis
 After=network-online.target
-Wants=network-online.target
+Wants=network-online.target legis-radio.service
 
 [Service]
 User=legis

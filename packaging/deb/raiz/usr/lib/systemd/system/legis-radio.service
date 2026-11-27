@@ -2,6 +2,9 @@
 Description=LEGIS — Rádio da Câmara (Liquidsoap)
 After=network-online.target legis.service
 Wants=network-online.target
+# sobe, reinicia e para junto com o LEGIS (legis.service); sem a rádio configurada, não faz nada
+PartOf=legis.service
+ConditionPathExists=/var/lib/legis/radio/radio.liq
 
 [Service]
 User=legis
@@ -18,4 +21,4 @@ ReadWritePaths=/var/lib/legis
 PrivateTmp=true
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=multi-user.target legis.service

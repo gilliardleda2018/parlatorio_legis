@@ -331,6 +331,15 @@ def carregar() -> dict:
 
 
 S = carregar()
+_yt_env = os.environ.get("LEGIS_YOUTUBE_CHAVE", "").strip()
+if _yt_env and S["_youtube"].get("env") != _yt_env:   # chave nova vinda da instalação; mudanças no painel valem até a próxima
+    try:
+        S["_youtube"].update(chave=youtube.validar_chave(_yt_env), env=_yt_env)
+        S["youtube"]["configurado"] = True
+    except ValueError:
+        print("LEGIS_YOUTUBE_CHAVE inválida: ignorada.", flush=True)
+if os.environ.get("LEGIS_YOUTUBE_LINK") and not S["youtube"].get("link"):
+    S["youtube"]["link"] = os.environ["LEGIS_YOUTUBE_LINK"].strip()[:300]
 if RADIO_LOCAL and not S["transmissao"].get("configurada"):  # banco novo ou antigo: a rádio local já vem configurada
     S["transmissao"].update(configurada=True, local=True, publico="/radio.mp3", nome=f"{S['casa']['nome']} — Rádio")
     S["_transmissao"]["preset"] = "local"
@@ -2526,8 +2535,12 @@ def camara_configurada() -> bool:
 
 def aplicar_cidade(dados: dict):
     """Troca os dados de exemplo pelos do município (já baixados por cidade.buscar). Chamar com a trava."""
-    S["casa"].update(nome=f"Câmara Municipal de {dados['municipio']}", titulo="Sessão Ordinária",
+    S["casa"].update(nome=dados.get("camara") or f"Câmara Municipal de {dados['municipio']}", titulo="Sessão Ordinária",
                      municipio=dados["municipio"], uf=dados["uf"], ibge=dados["ibge"])
+    logo = dados.get("logo")
+    if logo and logo.get("mime") in TIPOS_IMAGEM and logo.get("dados"):   # brasão que veio no pacote da Câmara
+        db.execute("insert or replace into imagens (chave, mime, dados) values (?, ?, ?)", ("logo", logo["mime"], logo["dados"]))
+        S["casa"]["logoV"] = agora()
     for p in S["parls"]:
         db.execute("delete from imagens where chave = ?", (p["id"],))
     novo = estado_inicial()

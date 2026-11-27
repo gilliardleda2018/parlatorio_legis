@@ -28,8 +28,13 @@ def main():
     uf, municipio, banco = sys.argv[1].lower(), sys.argv[2], Path(sys.argv[3])
     if banco.exists():
         sys.exit(f"{banco} já existe. Escolha outro arquivo (este script cria um banco novo).")
+    embutidos = os.environ.get("LEGIS_CIDADE_DADOS")   # pacote da Câmara: dados já baixados na geração do pacote
     try:
-        dados = cidade.buscar(uf, municipio)
+        if embutidos:
+            dados = cidade.de_json(Path(embutidos).read_text(encoding="utf-8"))
+            print(f"Dados do pacote: {dados.get('camara') or dados['municipio']} ({len(dados['eleitos'])} vereadores)")
+        else:
+            dados = cidade.buscar(uf, municipio)
     except ValueError as e:
         sys.exit(str(e))
 
