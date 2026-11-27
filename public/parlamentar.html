@@ -392,6 +392,7 @@ async function perguntarRegimento() {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { $('rgResposta').textContent = j.erro || 'Não foi possível consultar.'; return; }
   $('rgResposta').innerHTML = (j.resposta ? `<div style="white-space:pre-wrap;margin-bottom:6px">${esc(j.resposta)}</div>` : '')
+    + (j.seloIA ? `<small class="suave">${esc(j.seloIA)}</small>` : '')
     + (j.fontes || []).map((f, k) => `<details style="margin-top:4px"><summary>[${k + 1}] ${esc(f.norma)}, art. ${esc(f.artigo)}</summary><div style="white-space:pre-wrap;font-size:13px;margin:4px 0 0 10px">${esc(f.texto)}</div></details>`).join('');
 }
 function orientar(o) { PL.acao('parlamentar', 'orientar', { orientacao: o }).catch(() => {}); }
@@ -453,5 +454,6 @@ function relogios() {
 setInterval(relogios, 250);
 iniciar();
 </script>
+<script src="/recibo.js"></script>
 </body>
 </html>

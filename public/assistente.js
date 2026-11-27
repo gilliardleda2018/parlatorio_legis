@@ -42,7 +42,7 @@
       body: JSON.stringify({ pergunta, historico, escopo: 'tudo' }) }).then(x => x.json()).catch(() => ({ erro: 'Sem conexão.' }));
     if (r.erro) { espera.textContent = r.erro; return; }
     const fontes = (r.fontes || []).map((f, k) => `<a href="${esc(urlSegura(f.link) || '#')}">[${k + 1}] ${esc(f.titulo)}</a>`).join(' · ');
-    espera.innerHTML = r.resposta ? `${esc(r.resposta)}${fontes ? `<div class="fontes">Fontes: ${fontes}</div>` : ''}`
+    espera.innerHTML = r.resposta ? `${esc(r.resposta)}${fontes ? `<div class="fontes">Fontes: ${fontes}</div>` : ''}${r.seloIA ? `<div class="fontes"><a href="/ia">${esc(r.seloIA)}</a></div>` : ''}`
       : `Encontrei estes registros:<div class="fontes">${(r.fontes || []).slice(0, 4).map((f, k) => `<div style="margin-top:4px"><a href="${esc(urlSegura(f.link) || '#')}">[${k + 1}] ${esc(f.titulo)}</a> — ${esc(f.texto.slice(0, 160))}…</div>`).join('')}</div>`;
     historico.push({ de: 'eu', texto: pergunta }, { de: 'assistente', texto: r.resposta || '' });
     msgs.scrollTop = msgs.scrollHeight;

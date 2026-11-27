@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Verificar integridade — LEGIS</title>
+<meta name="description" content="Confira se o registro de auditoria da Câmara está íntegro, se o selo de uma ata bate com a sessão arquivada e se um recibo de voto nominal confere.">
+<link rel="icon" type="image/png" href="/marca/legis-32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 16px }
+  code { background: var(--cartao2); padding: 2px 6px; border-radius: 6px; font-size: 13px; word-break: break-all }
+  .res { margin-top: 10px; font-weight: 600 }
+  form.grupo .campo { flex: 1; min-width: 180px }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img src="/marca/legis-icone.png" alt=""><span><span id="casaNav">Câmara Municipal</span><small>Verificar integridade</small></span></a>
+  <span class="esp"></span>
+  <a class="item" href="/transparencia">Transparência</a><a class="item" href="/dados">Dados abertos</a><a class="item" href="/ia">Uso de IA</a>
+</div></nav>
+<main>
+  <section class="cartao">
+    <h2>Registro de auditoria</h2>
+    <p class="detalhe" style="margin-top:0">Cada ação no sistema (abrir votação, registrar presença, votar…) entra num registro em que cada linha leva o
+      hash SHA-256 da anterior. Mudar, apagar ou inserir uma linha no meio quebra a corrente. Aqui o servidor recalcula a corrente inteira agora.</p>
+    <button class="botao principal" onclick="conferirCadeia()">Conferir o registro agora</button>
+    <div id="cadeia" class="res" aria-live="polite"></div>
+  </section>
+
+  <section class="cartao">
+    <h2>Selo de uma ata</h2>
+    <p class="detalhe" style="margin-top:0">Toda ata de sessão arquivada traz no fim um <b>Selo de integridade</b> (64 caracteres). Cole o selo para saber se ele
+      corresponde a uma sessão arquivada e se o registro continua o mesmo desde o arquivamento.</p>
+    <form class="grupo" onsubmit="event.preventDefault(); conferirSelo()">
+      <input class="campo" id="selo" placeholder="Selo de integridade da ata" aria-label="Selo de integridade da ata" maxlength="80" autocomplete="off">
+      <button class="botao principal">Conferir selo</button>
+    </form>
+    <div id="seloRes" class="res" aria-live="polite"></div>
+  </section>
+
+  <section class="cartao">
+    <h2>Recibo de voto nominal</h2>
+    <p class="detalhe" style="margin-top:0">Depois de votar numa votação nominal, o vereador recebe no app um recibo (ex.: <code>K3FQ2-M7XDA</code>) e o código da votação.
+      Cole os dois para conferir se o recibo corresponde a um voto registrado. A resposta é só “confere” ou “não confere”: não revela quem votou nem como.
+      Se o voto foi mudado antes do encerramento, vale o recibo do último voto. Votações secretas não têm recibo.</p>
+    <form class="grupo" onsubmit="event.preventDefault(); conferirRecibo()">
+      <input class="campo" id="votacao" placeholder="Código da votação" aria-label="Código da votação" maxlength="20" autocomplete="off">
+      <input class="campo" id="recibo" placeholder="Recibo" aria-label="Recibo do voto" maxlength="20" autocomplete="off">
+      <button class="botao principal">Conferir recibo</button>
+    </form>
+    <div id="reciboRes" class="res" aria-live="polite"></div>
+  </section>
+</main>
+<script src="/rodape.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const data = ms => ms ? new Date(ms).toLocaleString('pt-BR') : '';
+async function postar(caminho, corpo) {
+  const r = await fetch(caminho, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).erro || 'Falha na consulta.');
+  return r.json();
+}
+async function conferirCadeia() {
+  $('cadeia').textContent = 'Recalculando…';
+  try {
+    const c = await (await fetch('/api/integridade')).json();
+    $('cadeia').innerHTML = c.ok
+      ? `<span class="chip sim">✓ Íntegro</span> ${c.encadeados} ações encadeadas conferidas${c.inicio ? ` (mais ${c.inicio} registros antigos, anteriores à corrente)` : ''};
+         ${c.selos} selo(s) de ata presentes.<br><small class="suave">Último elo: <code>${esc(c.ultimo_hash)}</code></small>`
+      : `<span class="chip nao">✗ Quebra encontrada</span> ${esc(c.primeira_quebra?.motivo || '')}${c.primeira_quebra?.evento ? ` no registro nº ${c.primeira_quebra.evento} (${data(c.primeira_quebra.ts)})` : ''}.
+         ${c.selos_ausentes?.length ? `<br>Sessões afetadas: ${c.selos_ausentes.map(esc).join('; ')}.` : ''}
+         <br><small class="suave">Comunique a Mesa Diretora e o controle interno.</small>`;
+  } catch (e) { $('cadeia').textContent = 'Não foi possível conferir agora.'; }
+}
+async function conferirSelo() {
+  const selo = $('selo').value.replace(/[^0-9a-fA-F]/g, '');
+  if (selo.length !== 64) { $('seloRes').textContent = 'O selo tem 64 caracteres (0–9 e a–f).'; return; }
+  try {
+    const r = await postar('/api/verificar/selo', { selo });
+    $('seloRes').innerHTML = !r.confere ? '<span class="chip nao">✗ Não confere</span> nenhuma sessão arquivada tem este selo.'
+      : r.naCadeia ? `<span class="chip sim">✓ Confere</span> ${esc(r.sessao.titulo)}, arquivada em ${data(r.sessao.fim)}. O selo continua no registro de auditoria.`
+      : `<span class="chip nao">✗ Atenção</span> o selo é de ${esc(r.sessao.titulo)}, mas não está mais no registro de auditoria: o registro foi alterado.`;
+  } catch (e) { $('seloRes').textContent = e.message; }
+}
+async function conferirRecibo() {
+  const votacao = $('votacao').value.trim(), recibo = $('recibo').value.trim();
+  if (!votacao || !recibo) { $('reciboRes').textContent = 'Preencha o código da votação e o recibo.'; return; }
+  try {
+    const r = await postar('/api/verificar/recibo', { votacao, recibo });
+    $('reciboRes').innerHTML = r.confere ? '<span class="chip sim">✓ Confere</span>' : '<span class="chip nao">✗ Não confere</span>';
+  } catch (e) { $('reciboRes').textContent = e.message; }
+}
+const h = new URLSearchParams(location.search);
+if (h.get('selo')) { $('selo').value = h.get('selo'); conferirSelo(); }
+if (h.get('votacao')) $('votacao').value = h.get('votacao');
+fetch('/api/transparencia').then(r => r.json()).then(t => { $('casaNav').textContent = t.casa.nome; Rodape.mostrar(t.rodape, t.casa); }).catch(() => {});
+</script>
+</body>
+</html>

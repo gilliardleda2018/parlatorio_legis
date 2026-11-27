@@ -7,6 +7,8 @@ votações (com o voto nominal de cada parlamentar), ocorrências e gravações.
 import time
 import unicodedata
 
+import integridade
+
 # larguras (1/1000 em) das fontes padrão do PDF, caracteres 32..126
 _HELV = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556,
          556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833,
@@ -403,6 +405,9 @@ def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = N
     if itens_resumo:
         n += 1
         pdf.secao(n, "Resumo dos trabalhos")
+        selo_ia = integridade.selo_ia(r.get("resumoIA"))
+        if selo_ia:  # governança do uso de IA: modelo, quem revisou e quando
+            pdf.paragrafo(selo_ia, 8.5, True, CINZA)
         if any(not i.get("revisado") for i in itens_resumo):
             pdf.paragrafo("Itens marcados como rascunho foram redigidos automaticamente a partir das transcrições e "
                           "ainda não foram revisados pela secretaria.", 8.5, False, CINZA)
@@ -432,6 +437,16 @@ def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = N
                 pdf.paragrafo("Transcrição automática, não revisada.", 8.5, False, CINZA)
             for bloco in [b.strip() for b in t["texto"].split("\n") if b.strip()]:
                 pdf.paragrafo(bloco, 9.5, False, ESCURO, recuo=10)
+
+    # selo de integridade: último elo da auditoria encadeada no momento do arquivamento
+    selo = (r.get("selo") or {}).get("hash")
+    if selo:
+        pdf.garantir(70)
+        pdf.espaco(14)
+        pdf.paragrafo(f"Selo de integridade: {selo}", 8.5, True, ESCURO)
+        pdf.paragrafo("Para verificar, abra a página /verificar no endereço do LEGIS da Câmara e cole este selo: ela confere se ele "
+                      "corresponde a esta sessão arquivada e se o registro de auditoria (cada ação encadeada por hash SHA-256) "
+                      "continua sem alterações desde então.", 8, False, CINZA)
 
     # assinaturas
     pdf.garantir(90)

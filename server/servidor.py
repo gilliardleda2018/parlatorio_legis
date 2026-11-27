@@ -56,6 +56,7 @@ import cidadania
 import analise
 import regimento
 import resumo as resumo_mod
+import integridade
 from texto import _sem_acento
 from mesa import CFG_PADRAO, DRIVERS as DRIVERS_MESA, PRESETS, Mesa
 
@@ -183,6 +184,7 @@ def abrir_banco() -> sqlite3.Connection:
 
 
 db = abrir_banco()
+integridade.preparar_banco(db)  # cadeia de hashes da auditoria e registro do uso de IA
 
 
 # gravações ficam numa tabela própria: sobrevivem ao arquivamento da sessão
@@ -241,10 +243,8 @@ def registrar(autor: str, acao: str, args: dict):
     for k in list(limpo):
         if any(s in k.lower() for s in ("senha", "chave", "segredo", "token")):
             limpo[k] = "<oculto>"
-    db.execute(
-        "insert into eventos (ts, autor, acao, args) values (?, ?, ?, ?)",
-        (agora(), autor, acao, json.dumps(limpo, ensure_ascii=False)),
-    )
+    # cada linha encadeada à anterior por hash (server/integridade.py): adulteração aparece em /verificar
+    integridade.inserir_evento(db, agora(), autor, acao, json.dumps(limpo, ensure_ascii=False))
 
 
 # ---------------------------------------------------------------- estado inicial
@@ -429,6 +429,9 @@ if os.environ.get("LEGIS_YOUTUBE_LINK") and not S["youtube"].get("link"):
 if RADIO_LOCAL and not S["transmissao"].get("configurada"):  # banco novo ou antigo: a rádio local já vem configurada
     S["transmissao"].update(configurada=True, local=True, publico="/radio.mp3", nome=f"{S['casa']['nome']} — Rádio")
     S["_transmissao"]["preset"] = "local"
+if integridade.preparar_estado(S):  # chave secreta dos recibos de voto
+    salvar()
+integridade.instalar_registro_ia(ia, db, trava)  # toda chamada de IA entra na tabela uso_ia
 
 
 def migrar_projetos():
@@ -1933,6 +1936,7 @@ def sessaoEncerrar(ator, proximoTitulo, manterPauta=True):
     _finalizar()
     fim = agora()
     r = retrato(fim)
+    r["selo"] = integridade.selo(db)  # último elo da auditoria: vai para a ata em PDF
     db.execute("insert or replace into sessoes (id, titulo, inicio, fim, resumo, json) values (?, ?, ?, ?, ?, ?)",
                (r["id"], r["titulo"], r["inicio"], fim, json.dumps(resumo(r)), json.dumps(r, ensure_ascii=False)))
     db.commit()
@@ -2525,7 +2529,8 @@ def projetoAnalisar(ator, id):
 
     def rodar():
         try:
-            r = analise.analisar(copia)
+            with integridade.contexto_ia(f"projeto:{id}"):
+                r = analise.analisar(copia)
         except Exception as e:  # nunca deixa a análise "em andamento" para sempre
             r = {**analise.regras(copia), "resumo": None, "observacoes": None, "motor": "regras", "gerado": agora(),
                  "revisada": False, "revisor": None, "aviso": f"Falha na IA: {e.__class__.__name__}"}
@@ -2549,6 +2554,8 @@ def projetoAnaliseRevisar(ator, id, resumo=None, revisada=True):
     if resumo is not None:
         a["resumo"] = " ".join(str(resumo).split())[:900] or None
     a.update(revisada=bool(revisada), revisor="Mesa Diretora" if revisada else None, revisadaEm=agora() if revisada else None)
+    if revisada:
+        integridade.marcar_revisado(db, f"projeto:{id}", "Mesa Diretora", a["revisadaEm"])
     p["analise"] = a
     proj_salvar(p)
     S["projetosRev"] += 1
@@ -2636,7 +2643,8 @@ def _rodar_resumo(sessao: str, r: dict, casa: str):
             S["resumoJob"].update(feitos=n, total=total)
             confirmar()
     try:
-        res, erro = resumo_mod.gerar(r, casa, avancar), None
+        with integridade.contexto_ia(f"ata:{r['id']}"):
+            res, erro = resumo_mod.gerar(r, casa, avancar), None
     except Exception as e:  # o rascunho é auxiliar: falha vira aviso no painel
         res, erro = None, (str(e) or e.__class__.__name__)[:200]
     with trava:
@@ -2954,6 +2962,65 @@ def perguntar(pergunta: str, escopo: str, historico: list, ip: str) -> dict:
             _respostas_cache.clear()
         _respostas_cache[cache] = r
     return r
+
+
+# --- integridade: recibo do voto, revisão do conteúdo de IA e política de uso de IA (server/integridade.py)
+def votacao_por_id(vid: str) -> dict | None:
+    """Votação da sessão atual ou de uma sessão arquivada."""
+    vid = str(vid or "")
+    if not vid.isalnum():
+        return None
+    for v in [S["votacao"], *S["votacoes"]]:
+        if v and v.get("id") == vid:
+            return v
+    for (texto,) in db.execute("select json from sessoes where json like ?", (f'%"{vid}"%',)).fetchall():
+        v = next((x for x in json.loads(texto).get("votacoes", []) if x.get("id") == vid), None)
+        if v:
+            return v
+    return None
+
+
+def recibo_do_voto(pid: str, vid: str | None) -> dict:
+    v = votacao_por_id(vid) if vid else (S["votacao"] or (S["votacoes"][0] if S["votacoes"] else None))
+    if not v:
+        return {"votou": False, "mensagem": "Nenhuma votação encontrada."}
+    base = {"votacao": v["id"], "numero": v.get("numero"), "tipo": v["tipo"], "aberta": bool(v.get("aberta"))}
+    if v["tipo"] == "secreta":  # nunca o valor, nem um código que dependa dele
+        contado = pid in (v.get("votantes") or [])
+        return {**base, "votou": contado, "mensagem": "Seu voto foi contado. Votação secreta não tem recibo." if contado
+                else "Você não votou nesta votação."}
+    valor = (v.get("votos") or {}).get(pid)
+    if v["tipo"] != "nominal" or not valor:
+        return {**base, "votou": False, "mensagem": "Não há voto nominal seu nesta votação."}
+    return {**base, "votou": True, "valor": valor, "recibo": integridade.recibo(S["_chaveRecibo"], v["id"], pid, valor),
+            "mensagem": "Guarde o recibo: em /verificar qualquer pessoa confere se ele corresponde a um voto registrado."}
+
+
+@acao("presidente")
+def iaRevisarAta(ator, sessao="atual", revisor="", revisado=True):
+    """Marca o rascunho da ata gerado por IA como revisado (ou volta a rascunho), com nome de quem revisou."""
+    res = _ler_resumo(sessao)
+    if not res or not res.get("itens"):
+        raise Erro("Gere o rascunho da ata antes de revisar.")
+    if revisado:
+        quem = " ".join(str(revisor or "").split())[:80] or "Presidência"
+        res["revisao"] = {"por": quem, "em": agora(), "modelo": integridade.modelo_do_resumo(res)}
+        for i in res["itens"]:
+            i["revisado"] = True
+        sid = S["sessao"]["id"] if sessao == "atual" else sessao
+        integridade.marcar_revisado(db, f"ata:{sid}", quem, res["revisao"]["em"])
+    else:
+        res.pop("revisao", None)
+    _guardar_resumo(sessao, res)
+
+
+@acao("presidente")
+def iaPoliticaSalvar(ator, texto=""):
+    """Política de uso de IA da Câmara (página pública /ia). Vazio volta ao texto padrão."""
+    texto = str(texto or "").strip()
+    if len(texto) > 20000:
+        raise Erro("Texto grande demais.")
+    S["_politicaIA"] = texto
 
 
 # --- dados abertos
@@ -3483,13 +3550,31 @@ class Manipulador(BaseHTTPRequestHandler):
     def _get_novos(self, caminho: str):
         """Rotas GET dos recursos novos; devolve None quando o caminho não é deles."""
         qs = urllib.parse.parse_qs(urlparse(self.path).query)
+        if caminho == "/api/integridade":  # público: recalcula a cadeia inteira da auditoria
+            with trava:
+                linhas = db.execute("select id, ts, autor, acao, args, hash from eventos order by id").fetchall()
+                selos = [(t, json.loads(j).get("selo") or {}) for t, j in
+                         db.execute("select titulo, json from sessoes order by fim").fetchall()]
+            return self._json(200, integridade.conferir_cadeia(linhas, selos))
+        if caminho == "/api/recibo":
+            with trava:
+                ator = self._ator()
+                if not ator or ator["papel"] != "parlamentar":
+                    return self._json(401, {"erro": "Entre no app do parlamentar."})
+                return self._json(200, recibo_do_voto(ator["pid"], (qs.get("votacao") or [""])[0]))
+        if caminho == "/api/ia":  # público: política e estatísticas (sem perguntas de cidadãos, sem IP)
+            with trava:
+                texto, padrao = integridade.politica(S)
+                stats = integridade.estatisticas_ia(db)
+            return self._json(200, {"politica": texto, "padrao": padrao, "modelo": ia.descricao(), "ligada": ia.ligada(), **stats})
         if caminho.startswith("/api/resumo/"):
             sessao = caminho.rsplit("/", 1)[1]
             with trava:
                 ator = self._ator()
                 if not ator or ator["papel"] != "presidente":
                     return self._json(401, {"erro": "Entre no painel do presidente."})
-                return self._json(200, {"resumo": _ler_resumo(sessao), "job": S.get("resumoJob"), "ia": ia.descricao()})
+                res = _ler_resumo(sessao)
+                return self._json(200, {"resumo": res, "job": S.get("resumoJob"), "ia": ia.descricao(), "seloIA": integridade.selo_ia(res)})
         if caminho.startswith("/api/projeto/"):
             pid = caminho.rsplit("/", 1)[1]
             with trava:
@@ -3531,7 +3616,7 @@ class Manipulador(BaseHTTPRequestHandler):
                 if not p:
                     return self._json(404, {"erro": "Projeto não encontrado."})
                 return self._json(200, {"analise": p.get("analise"), "ia": ia.descricao(), "temTexto": bool(p.get("texto")),
-                                        "numero": p["numero"], "ementa": p["ementa"]})
+                                        "numero": p["numero"], "ementa": p["ementa"], "seloIA": integridade.selo_analise(p.get("analise"))})
         if caminho == "/api/normas":
             with trava:
                 ator = self._ator()
@@ -3713,6 +3798,27 @@ class Manipulador(BaseHTTPRequestHandler):
     def _post_novos(self, caminho: str, corpo: dict):
         if caminho == "/api/cidade":
             return self._cidade(corpo)
+        if caminho == "/api/verificar/selo":  # público: o selo de uma ata bate com uma sessão arquivada?
+            h = str(corpo.get("selo") or "").strip().lower()
+            if not re.fullmatch(r"[0-9a-f]{64}", h):
+                return self._json(200, {"confere": False})
+            with trava:
+                achada = None
+                for t, fim, j in db.execute("select titulo, fim, json from sessoes where json like ?", (f"%{h}%",)).fetchall():
+                    sel = json.loads(j).get("selo") or {}
+                    if sel.get("hash") == h:
+                        achada = (t, fim, sel)
+                        break
+                na_cadeia = bool(achada) and db.execute("select count(*) from eventos where id = ? and hash = ?",
+                                                        (achada[2].get("evento"), h)).fetchone()[0] == 1
+            if not achada:
+                return self._json(200, {"confere": False})
+            return self._json(200, {"confere": True, "naCadeia": na_cadeia, "sessao": {"titulo": achada[0], "fim": achada[1]}})
+        if caminho == "/api/verificar/recibo":  # público: só "confere" ou "não confere"
+            with trava:
+                v = votacao_por_id(str(corpo.get("votacao") or "").strip())
+                confere = integridade.conferir_recibo(S["_chaveRecibo"], v, corpo.get("recibo"))
+            return self._json(200, {"confere": confere})
         if caminho == "/api/perguntar":
             pergunta = str(corpo.get("pergunta") or "").strip()
             if len(pergunta) < 4:
@@ -3720,7 +3826,8 @@ class Manipulador(BaseHTTPRequestHandler):
             historico = corpo.get("historico") if isinstance(corpo.get("historico"), list) else []
             historico = [m for m in historico if isinstance(m, dict)]
             try:
-                return self._json(200, perguntar(pergunta, str(corpo.get("escopo") or "tudo"), historico[-6:], self._ip()))
+                return self._json(200, integridade.anotar_resposta(
+                    perguntar(pergunta, str(corpo.get("escopo") or "tudo"), historico[-6:], self._ip())))
             except PermissionError as e:
                 return self._json(429, {"erro": str(e)})
         m = re.fullmatch(r"/api/consulta/([A-Za-z0-9]+)/comentar", caminho)
@@ -3749,7 +3856,7 @@ class Manipulador(BaseHTTPRequestHandler):
                     return self._json(401, {"erro": "Entre no painel."})
                 base_regimento.atualizar(db)
             try:
-                return self._json(200, regimento.perguntar(base_regimento, corpo.get("pergunta")))
+                return self._json(200, integridade.anotar_resposta(regimento.perguntar(base_regimento, corpo.get("pergunta"))))
             except ValueError as e:
                 return self._json(400, {"erro": str(e)})
         m = re.fullmatch(r"/api/enquete/([A-Za-z0-9]+)", caminho)
