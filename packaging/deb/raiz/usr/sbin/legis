@@ -4,6 +4,7 @@
 #   legis logs         registro do serviço (Ctrl-C para sair)
 #   legis reiniciar    reinicia o serviço
 #   legis importar-tse UF "Município"   vereadores eleitos (só num banco vazio)
+#   legis configurar-cidade [UF "Município"]   importa a Câmara e os vereadores eleitos
 #   legis reconfigurar perguntas da instalação de novo (dpkg-reconfigure legis)
 #   legis extras       instala transcrição, IA local e publicação na internet escolhidas
 set -euo pipefail
@@ -17,11 +18,108 @@ le() { grep -E "^$1=" "$2" 2>/dev/null | tail -1 | cut -d= -f2-; }
 root() { [ "$(id -u)" = 0 ] || { echo "Use: sudo legis $*"; exit 1; }; }
 reiniciar() { if [ -d /run/systemd/system ]; then systemctl restart legis.service; fi; }
 
+verificar_instalacao() {
+  local porta
+  porta=$(le PORTA "$ENVF")
+  for _ in $(seq 1 30); do
+    if systemctl is-active --quiet legis.service &&
+       curl -fsS --max-time 2 "http://127.0.0.1:$porta/api/transparencia" 2>/dev/null |
+         python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(not all(k in d for k in ("casa", "projetos", "sessoes")))' 2>/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "O serviço Legis não respondeu na porta $porta. Veja: sudo journalctl -u legis.service -n 40 --no-pager" >&2
+  return 1
+}
+
+configurar_cidade() {
+  root configurar-cidade
+  if [ ! -f "$DADOS/.sem-municipio" ]; then
+    echo "A instalação já está configurada."
+    return 0
+  fi
+  local uf municipio
+  if [ "$#" = 0 ]; then
+    [ -t 0 ] || { echo 'Use: sudo legis configurar-cidade UF "Município"'; return 1; }
+    echo "Escolha o município para importar os vereadores eleitos do TSE."
+    read -rp "UF (ex.: MA): " uf
+    read -rp "Município: " municipio
+  elif [ "$#" = 2 ]; then
+    uf=$1; municipio=$2
+  else
+    echo 'Use: sudo legis configurar-cidade UF "Município"'
+    return 1
+  fi
+  uf=${uf,,}
+  [[ "$uf" =~ ^[a-z]{2}$ && -n "$municipio" && "$municipio" != *$'\n'* && "$municipio" != *$'\r'* ]] ||
+    { echo 'Informe a sigla do estado e o nome do município.'; return 1; }
+  debconf-set-selections <<EOF
+legis legis/uf string $uf
+legis legis/municipio string $municipio
+EOF
+  LEGIS_CONFIGURADOR=1 dpkg-reconfigure --frontend=noninteractive legis
+  verificar_instalacao
+  if [ -f "$DADOS/.sem-municipio" ]; then
+    echo "A cidade continua pendente. Confira a UF, o município e a conexão e tente novamente." >&2
+    return 1
+  fi
+}
+
+preparar_radio() {
+  root preparar-radio
+  local azura="${1:-sim}" modo="${2:-serve}" falhou=0
+  [[ "$azura" == sim || "$azura" == nao ]] && [[ "$modo" == serve || "$modo" == funnel ]] ||
+    { echo 'Uso: sudo legis preparar-radio [sim|nao] [serve|funnel]'; return 1; }
+  local porta_azura=""
+  # A configuração da rádio é separada do trabalho de transcrição e IA para deixar o resultado visível.
+  exec 8>"$ETC/.preparar-radio.lock"
+  flock 8
+  if [ "$azura" = sim ]; then
+    echo "Preparando AzuraCast e a estação Rádio da Câmara..."
+    if python3 "$APP/deploy/azuracast/provisionar.py" "$ETC/azuracast" "$ENVF"; then
+      porta_azura=$(le LEGIS_AZURACAST_WEB "$ENVF")
+      reiniciar
+      verificar_instalacao || falhou=1
+      echo "AzuraCast no servidor: http://127.0.0.1:$porta_azura"
+    else
+      falhou=1
+    fi
+  fi
+  local -a proxy=(bash "$APP/deploy/tailscale/instalar-proxy.sh" "$DADOS" "$ETC" "$(hostname -s)"
+    "$(le PORTA_HTTPS "$ENVF")" "$porta_azura" "$modo")
+  local codigo=0
+  "${proxy[@]}" || codigo=$?
+  if [ "$codigo" = 2 ]; then
+    if ! systemctl is-active --quiet legis-autorizar-proxy.service; then
+      systemd-run --quiet --collect --unit=legis-autorizar-proxy /usr/sbin/legis aguardar-proxy "$porta_azura" "$modo"
+    fi
+  elif [ "$codigo" != 0 ]; then
+    falhou=1
+  fi
+  return "$falhou"
+}
+
+aguardar_proxy() {
+  root aguardar-proxy
+  for _ in $(seq 1 240); do
+    if docker exec legis-tailscale tailscale status --json 2>/dev/null |
+       python3 -c 'import json,sys; sys.exit(json.load(sys.stdin).get("BackendState") != "Running")' 2>/dev/null; then
+      exec bash "$APP/deploy/tailscale/instalar-proxy.sh" "$DADOS" "$ETC" "$(hostname -s)" \
+        "$(le PORTA_HTTPS "$ENVF")" "$1" "$2"
+    fi
+    sleep 15
+  done
+  echo "A autorização do Tailscale continua pendente. Use sudo legis preparar-radio para retomar."
+  return 1
+}
+
 resumo() {
   local http https ip pin url
   http=$(le PORTA "$ENVF"); https=$(le PORTA_HTTPS "$ENVF"); pin=$(le PIN_PRESIDENTE "$ENVF")
   ip=$(hostname -I 2>/dev/null | awk '{print $1}')
   url=$(cat "$ETC/endereco-internet" 2>/dev/null || true)
+  local azura; azura=$(cat "$ETC/endereco-azuracast" 2>/dev/null || true)
   local suf=""; [ "$https" != "443" ] && suf=":$https"
   cat <<EOF
 
@@ -29,6 +127,7 @@ resumo() {
  ------------------------------------------------------------------
  Rede da Câmara:  https://$(hostname).local$suf   (ou https://$ip$suf)
  Internet:        ${url:-não publicado (sudo dpkg-reconfigure legis, com a chave do Tailscale)}
+ AzuraCast:        ${azura:-painel via Tailscale após autorização}
  Presidente:      /presidente — PIN inicial: ${pin:-?} (troque no primeiro acesso)
  Vereadores:      /parlamentar — PIN inicial 0000 (troca obrigatória)
  Rádio:           $( grep -q '^RADIO_LOCAL=1' "$ENVF" 2>/dev/null && echo "https://$(hostname).local$suf/radio.mp3 (programação em Configurações → Rádio da Câmara)" || echo "não instalada")
@@ -99,31 +198,6 @@ extras() {
       echo "videoconferência: o Docker não está instalado (sudo apt install docker.io) — pulando."
     fi
   fi
-  if [ -f "$DADOS/.tailscale-chave" ]; then
-    if command -v docker >/dev/null; then
-      echo "internet: publicando pelo Tailscale Funnel como ${NOME}..."
-      local https; https=$(le PORTA_HTTPS "$ENVF")
-      mkdir -p "$DADOS/tailscale"
-      cat > "$DADOS/tailscale/serve.json" <<EOF
-{ "TCP": { "443": { "HTTPS": true } },
-  "Web": { "\${TS_CERT_DOMAIN}:443": { "Handlers": { "/": { "Proxy": "https+insecure://127.0.0.1:${https:-443}" } } } },
-  "AllowFunnel": { "\${TS_CERT_DOMAIN}:443": true } }
-EOF
-      docker rm -f legis-tailscale >/dev/null 2>&1 || true
-      docker run -d --name legis-tailscale --restart unless-stopped --network host \
-        -e TS_AUTHKEY="$(cat "$DADOS/.tailscale-chave")" -e TS_HOSTNAME="$NOME" -e TS_USERSPACE=true \
-        -e TS_STATE_DIR=/var/lib/tailscale -e TS_SERVE_CONFIG=/config/serve.json \
-        -v "$DADOS/tailscale:/var/lib/tailscale" tailscale/tailscale:stable
-      rm -f "$DADOS/.tailscale-chave"
-      for _ in $(seq 1 40); do
-        local dns; dns=$(docker exec legis-tailscale tailscale status --json 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))" 2>/dev/null || true)
-        if [ -n "$dns" ]; then echo "https://$dns" > "$ETC/endereco-internet"; echo "internet: https://$dns"; break; fi
-        sleep 3
-      done
-    else
-      echo "internet: o Docker não está instalado (sudo apt install docker.io) — pulando."
-    fi
-  fi
   [ "$mudou" = 1 ] && reiniciar
   echo "== concluído =="
 }
@@ -131,6 +205,11 @@ EOF
 case "${1:-estado}" in
   estado|status) estado ;;
   resumo) resumo ;;
+  verificar-instalacao) verificar_instalacao ;;
+  cidade-pendente) [ -f "$DADOS/.sem-municipio" ] ;;
+  configurar-cidade) shift; configurar_cidade "$@" ;;
+  preparar-radio) shift; preparar_radio "$@" ;;
+  aguardar-proxy) shift; aguardar_proxy "$@" ;;
   logs) exec journalctl -u legis.service -f ;;
   reiniciar) root reiniciar; reiniciar; [ -d /run/systemd/system ] && systemctl restart legis-radio.service 2>/dev/null; echo "reiniciado" ;;
   reconfigurar) root reconfigurar; exec dpkg-reconfigure legis ;;
@@ -142,6 +221,6 @@ case "${1:-estado}" in
     [ -d /run/systemd/system ] && systemctl stop legis.service
     runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 python3 "$APP/scripts/tse_eleitos.py" "$2" "$3" "$DADOS/legis.db"
     reiniciar ;;
-  ajuda|-h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ajuda|-h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "Comando desconhecido: $1 (legis ajuda)"; exit 1 ;;
 esac

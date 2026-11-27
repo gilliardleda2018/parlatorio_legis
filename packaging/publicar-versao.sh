@@ -25,7 +25,7 @@ curl -fsSLO https://github.com/gilliardleda2018/parlatorio_legis/releases/latest
 sudo bash instalar-legis.sh
 \`\`\`
 
-Automático: instala o LEGIS, a rádio da Câmara, a transcrição e as legendas, e a IA local se houver 8 GB de RAM. A cidade é escolhida no primeiro acesso ao painel do presidente. Para escolher tudo na instalação: \`sudo bash instalar-legis.sh --perguntar\`.
+Automático: instala o LEGIS, a rádio da Câmara, a transcrição e as legendas, e a IA local se houver 8 GB de RAM. No final, escolha a UF e o município no terminal. O pacote completo também inclui o instalador em Python. Para ajustar os extras durante a instalação: \`sudo bash instalar-legis.sh --perguntar\`.
 
 Sem internet boa no local: leve o **legis-completo-$VERSAO.tar.gz** num pendrive, descompacte e rode \`sudo bash instalar-legis.sh\` na pasta.
 

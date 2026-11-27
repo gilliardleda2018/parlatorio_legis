@@ -39,7 +39,7 @@ if [ ! -f "$ENVF" ]; then
   HTTP=80;  porta_livre 80  || HTTP=8090
   HTTPS=443; porta_livre 443 || HTTPS=8443
   IPS=$(hostname -I 2>/dev/null | tr ' ' ',' | sed 's/,$//')
-  cat > "$ENVF" <<EOF
+  (umask 027; cat > "$ENVF" <<EOF
 # Configuração do LEGIS desta Câmara. Depois de mudar: sudo systemctl restart legis
 PARLATORIO_BANCO=$DADOS/legis.db
 PIN_PRESIDENTE=$PIN
@@ -51,42 +51,30 @@ TZ=America/Sao_Paulo
 PROXY_CONFIAVEL=1
 PROXY_IPS=127.0.0.1,::1
 EOF
+  )
   chmod 640 "$ENVF"; chgrp legis "$ENVF"
 fi
 
-cat > "$ETC/instalacao.conf" <<EOF
-UF=$UF
-MUNICIPIO=$MUNICIPIO
-NOME=$NOME
-TRANSCRICAO=$TRANSCRICAO
-IA=$IA
-JITSI=$JITSI
-EOF
+# O comando legis extras lê este arquivo como shell. Preserve espaços e acentos no nome.
+printf 'UF=%q\nMUNICIPIO=%q\nNOME=%q\nTRANSCRICAO=%q\nIA=%q\nJITSI=%q\n' \
+  "$UF" "$MUNICIPIO" "$NOME" "$TRANSCRICAO" "$IA" "$JITSI" > "$ETC/instalacao.conf"
 
-# vereadores eleitos (TSE) e população (IBGE): só num banco novo — ou no banco de exemplo
-# criado quando a instalação foi feita sem o município (ex.: instalador gráfico, que não pergunta nada)
-if [ -n "$UF" ] && [ -n "$MUNICIPIO" ] && [ -f "$DADOS/legis.db" ] && [ -f "$DADOS/.sem-municipio" ]; then
-  if [ -d /run/systemd/system ]; then systemctl stop legis.service || true; fi
-  ANTES="$DADOS/legis.db.exemplo-$(date +%Y%m%d%H%M%S)"
-  mv "$DADOS/legis.db" "$ANTES"
-  rm -f "$DADOS/legis.db-wal" "$DADOS/legis.db-shm"
-  echo "LEGIS: o banco de exemplo foi guardado em $ANTES"
+MARCADOR="$DADOS/.sem-municipio"
+EMBUTIDOS=/usr/share/legis/cidade/dados.json
+if [ ! -f "$DADOS/legis.db" ]; then
+  touch "$MARCADOR"
 fi
-EMBUTIDOS=/usr/share/legis/cidade/dados.json   # só no pacote personalizado de uma Câmara
-if [ -n "$UF" ] && [ -n "$MUNICIPIO" ] && [ ! -f "$DADOS/legis.db" ]; then
-  if [ -f "$EMBUTIDOS" ]; then echo "LEGIS: configurando $MUNICIPIO/${UF^^} com os dados do pacote..."
-  else echo "LEGIS: buscando os vereadores eleitos de $MUNICIPIO/${UF^^} no TSE..."; fi
-  DO_PACOTE=(); [ -f "$EMBUTIDOS" ] && DO_PACOTE=("LEGIS_CIDADE_DADOS=$EMBUTIDOS")
-  if ! runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 "${DO_PACOTE[@]}" \
-       python3 "$APP/scripts/tse_eleitos.py" "$UF" "$MUNICIPIO" "$DADOS/legis.db"; then
-    rm -f "$DADOS/legis.db"
-    echo "LEGIS: não foi possível importar agora (internet?). Depois rode: sudo dpkg-reconfigure legis"
-    touch "$DADOS/.sem-municipio"
-  else
-    rm -f "$DADOS/.sem-municipio"
+if [ -n "$UF" ] && [ -n "$MUNICIPIO" ] && [ -f "$MARCADOR" ]; then
+  # A seleção feita depois da instalação atualiza o banco de exemplo no lugar e conserva o PIN da Mesa.
+  # Um banco que já recebeu registros de uso é recusado pelo importador.
+  if [ -d /run/systemd/system ]; then systemctl stop legis.service; fi
+  DO_PACOTE=()
+  if [ -f "$EMBUTIDOS" ]; then DO_PACOTE=("LEGIS_CIDADE_DADOS=$EMBUTIDOS"); fi
+  echo "LEGIS: importando $MUNICIPIO/${UF^^}..."
+  if ! runuser -u legis -- env TRANSCRICAO=0 "${DO_PACOTE[@]}" \
+       python3 "$APP/scripts/tse_eleitos.py" --configurar "$UF" "$MUNICIPIO" "$DADOS/legis.db"; then
+    echo "LEGIS: a cidade continua pendente. Confira a mensagem acima e tente novamente no painel ou com sudo legis configurar-cidade."
   fi
-elif [ ! -f "$DADOS/legis.db" ]; then
-  touch "$DADOS/.sem-municipio"   # sem município: começa com dados de exemplo; reconfigurar depois troca
 fi
 
 # rádio da Câmara (Liquidsoap): programação + sessão ao vivo, servida pelo próprio LEGIS em /radio.mp3
@@ -113,7 +101,7 @@ fi
 unset YT_CHAVE
 
 if [ -n "$CHAVE" ]; then
-  umask 077; printf %s "$CHAVE" > "$DADOS/.tailscale-chave"; umask 022
+  umask 077; printf %s "$CHAVE" > "$ETC/.tailscale-chave"; umask 022
 fi
 unset CHAVE
 
@@ -126,7 +114,7 @@ if [ -d /run/systemd/system ]; then
     systemctl restart legis-radio.service || true
   fi
   systemctl enable avahi-daemon >/dev/null 2>&1 || true
-  if [ "$TRANSCRICAO" = "true" ] || [ "$IA" = "true" ] || [ "$JITSI" = "true" ] || [ -f "$DADOS/.tailscale-chave" ]; then
+  if [ "$TRANSCRICAO" = "true" ] || [ "$IA" = "true" ] || [ "$JITSI" = "true" ]; then
     systemd-run --unit=legis-extras --collect --quiet /usr/sbin/legis extras || true
     EXTRAS=" (transcrição, IA, videoconferência e internet terminam de instalar em segundo plano: sudo legis estado)"
   fi

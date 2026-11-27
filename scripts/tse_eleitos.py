@@ -23,32 +23,40 @@ import cidade  # noqa: E402
 
 
 def main():
-    if len(sys.argv) != 4:
+    argumentos = sys.argv[1:]
+    configurar = argumentos[:1] == ["--configurar"]
+    if configurar:
+        argumentos = argumentos[1:]
+    if len(argumentos) != 3:
         sys.exit(__doc__)
-    uf, municipio, banco = sys.argv[1].lower(), sys.argv[2], Path(sys.argv[3])
-    if banco.exists():
-        sys.exit(f"{banco} já existe. Escolha outro arquivo (este script cria um banco novo).")
-    embutidos = os.environ.get("LEGIS_CIDADE_DADOS")   # pacote da Câmara: dados já baixados na geração do pacote
+    uf, municipio, arquivo = argumentos
+    banco = Path(arquivo)
+    if banco.exists() and not (configurar and (banco.parent / ".sem-municipio").is_file()):
+        sys.exit(f"{banco} já existe. A importação inicial não altera um banco em uso.")
+    embutidos = os.environ.get("LEGIS_CIDADE_DADOS")
     try:
         if embutidos:
             dados = cidade.de_json(Path(embutidos).read_text(encoding="utf-8"))
             print(f"Dados do pacote: {dados.get('camara') or dados['municipio']} ({len(dados['eleitos'])} vereadores)")
         else:
             dados = cidade.buscar(uf, municipio)
-    except ValueError as e:
-        sys.exit(str(e))
+    except (OSError, ValueError, KeyError) as e:
+        sys.exit(f"Não foi possível importar o município: {e}")
 
-    # cria o banco pelo próprio servidor (estado inicial completo) e troca os parlamentares de exemplo
     os.environ["PARLATORIO_BANCO"] = str(banco)
     import servidor  # noqa: E402
 
     with servidor.trava:
+        if not servidor.configuracao_cidade_disponivel():
+            sys.exit("A Câmara já possui registros de uso. Nenhum dado foi substituído.")
         servidor.aplicar_cidade(dados)
+        servidor.registrar("sistema", "configurarCidade", {"uf": dados["uf"], "municipio": dados["municipio"],
+                                                         "vereadores": len(dados["eleitos"])})
+        servidor.salvar()
+        servidor.concluir_configuracao_cidade()
     for e in dados["eleitos"]:
         print(f"  {e['nome']:<28} {e['partido']:<6} nº {e['numero']:<6} {e['votos']:>5} votos  {'foto ✓' if e.get('foto') else 'sem foto'}")
-    servidor.db.commit()
-    servidor.salvar()
-    print(f"\nBanco criado em {banco}. PIN inicial de todos: 0000 (troque em Plenário → Editar).")
+    print(f"\nCâmara de {dados['municipio']}/{dados['uf']} configurada. PIN inicial dos vereadores: 0000.")
 
 
 if __name__ == "__main__":

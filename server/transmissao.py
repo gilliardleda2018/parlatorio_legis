@@ -116,12 +116,15 @@ class Transmissor:
             raise RuntimeError("Configure o servidor de rádio (endereço e senha) antes de transmitir.")
         self.desligar(avisar=False)
         sock = None
+        erro_retransmissao = None
         if not local:
             try:
                 sock = conectar(cfg, titulo)
             except RuntimeError as e:
-                self.erro = str(e)
-                raise
+                if not cfg.get("fallback_local"):
+                    self.erro = str(e)
+                    raise
+                erro_retransmissao = f"AzuraCast indisponível; a rádio local está ativa. {e}"
         cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-fflags", "+nobuffer", "-i", "pipe:0", "-vn",
                "-ac", "2", "-ar", "44100", "-c:a", "libmp3lame", "-b:a", f"{int(cfg.get('bitrate') or 128)}k",
                "-flush_packets", "1", "-f", "mp3", "pipe:1"]
@@ -131,7 +134,7 @@ class Transmissor:
             self.fila = queue.Queue()
             self.sock = sock
             self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.desde, self.bytes, self.erro = int(time.time() * 1000), 0, None
+            self.desde, self.bytes, self.erro = int(time.time() * 1000), 0, erro_retransmissao
         threading.Thread(target=self._escrever, args=(self.proc, self.fila, geracao), daemon=True).start()
         threading.Thread(target=self._publicar, args=(self.proc, sock, geracao), daemon=True).start()
 

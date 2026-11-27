@@ -140,7 +140,13 @@ def aplicar(arquivo: str) -> int:
             subprocess.run(["apt-get", "install", "-y", *faltam], env=env)
         print("Configurando o LEGIS...", flush=True)
         cmd = ["dpkg-reconfigure", "legis"]
-    return subprocess.run(cmd, env=env).returncode
+    codigo = subprocess.run(cmd, env=env).returncode
+    if codigo:
+        return codigo
+    if precisa_configurar():
+        print("O município ainda não foi importado. Confira a conexão e o nome informado.", flush=True)
+        return 1
+    return subprocess.run(["/usr/sbin/legis", "verificar-instalacao"], env=env).returncode
 
 
 # ---------------------------------------------------------------- janela

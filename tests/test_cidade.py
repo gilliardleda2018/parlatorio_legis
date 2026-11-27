@@ -1,11 +1,16 @@
 """Primeira configuração pelo painel: de qual cidade é esta Câmara (TSE e IBGE simulados, nomes fictícios)."""
 import json
+import os
+from pathlib import Path
+import sqlite3
+import subprocess
+import sys
 import threading
 import unittest
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from apoio import Servidor
+from apoio import RAIZ, Servidor
 
 FOTO = b"\xff\xd8\xff\xe0" + b"j" * 200   # começo de um JPEG
 CONFIG = {"abr": [{"cd": "ma", "mu": [{"cd": "00001", "cdi": "9900001", "nm": "VILA ESPERANÇA"}]}]}
@@ -88,6 +93,41 @@ class PrimeiraConfiguracao(unittest.TestCase):
         # depois de configurada, não troca mais os vereadores por aqui
         r = s.req("/api/cidade", {"uf": "MA", "municipio": "Vila Esperança"}, P)
         self.assertEqual(r["HTTP"], 409)
+
+
+    def test_importacao_do_instalador_preserva_o_pin_e_os_dados_apos_a_configuracao(self):
+        base = f"http://127.0.0.1:{self.fake.server_address[1]}"
+        env = dict(os.environ, LEGIS_TSE_URL=base + "/tse", LEGIS_IBGE_URL=base + "/ibge", TRANSCRICAO="0")
+        servidor = Servidor(PIN_PRESIDENTE="735915")
+        try:
+            token = servidor.req("/api/entrar", {"papel": "presidente", "pin": "735915"})["token"]
+            resposta = servidor.req("/api/trocar-pin", {"atual": "735915", "novo": "563279"}, token)
+            self.assertTrue(resposta["ok"])
+            servidor.proc.terminate()
+            servidor.proc.wait(5)
+            banco = Path(servidor.dir.name) / "teste.db"
+            marcador = banco.parent / ".sem-municipio"
+            marcador.touch()
+            comando = [sys.executable, str(RAIZ / "scripts/tse_eleitos.py"), "--configurar", "MA", "Vila Esperança", str(banco)]
+            resultado = subprocess.run(comando, env=env, capture_output=True, text=True, timeout=20)
+            self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+            self.assertFalse(marcador.exists())
+            with sqlite3.connect(banco) as conexao:
+                figura = json.loads(conexao.execute("select json from estado where id = 1").fetchone()[0])
+                self.assertEqual(figura["casa"]["municipio"], "Vila Esperança")
+                self.assertEqual(len(figura["parls"]), 3)
+                self.assertTrue(figura["_pinPresidente"].startswith("pbkdf2$"))
+                self.assertIn("Vila Esperança", resultado.stdout)
+
+            marcador.touch()  # marcador antigo, deixado por uma versão anterior
+            repeticao = subprocess.run(comando, env=env, capture_output=True, text=True, timeout=20)
+            self.assertNotEqual(repeticao.returncode, 0)
+            with sqlite3.connect(banco) as conexao:
+                atual = json.loads(conexao.execute("select json from estado where id = 1").fetchone()[0])
+                self.assertEqual(atual["parls"], figura["parls"])
+                self.assertEqual(atual["_pinPresidente"], figura["_pinPresidente"])
+        finally:
+            servidor.parar()
 
 
 if __name__ == "__main__":
