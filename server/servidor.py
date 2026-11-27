@@ -35,6 +35,7 @@ import urllib.parse
 from urllib.parse import urlparse
 
 import tls
+import certificado as certificado_mod
 from ata import gerar_ata
 import estatisticas
 import recomendacao
@@ -2930,7 +2931,7 @@ class Manipulador(BaseHTTPRequestHandler):
             return False
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         caminho = urlparse(self.path).path
-        if host in ("localhost", "127.0.0.1", "::1", "") or caminho in ("/certificado", "/certificado.crt") \
+        if host in ("localhost", "127.0.0.1", "::1", "") or caminho == "/certificado" or caminho.startswith(("/certificado.", "/certificado/")) \
                 or caminho.startswith("/.well-known/acme-challenge/") or caminho in ("/aovivo", "/radio.mp3"):
             return False
         self.send_response(308 if self.command == "POST" else 301)
@@ -2943,8 +2944,8 @@ class Manipulador(BaseHTTPRequestHandler):
         if self._redirecionar():
             return
         caminho = urlparse(self.path).path
-        if caminho in ("/certificado", "/certificado.crt"):
-            return self._certificado()
+        if caminho == "/certificado" or caminho.startswith(("/certificado.", "/certificado/")):
+            return self._certificado(caminho)
         if caminho.startswith("/.well-known/acme-challenge/"):
             return self._acme(caminho.rsplit("/", 1)[1])
         if caminho.startswith("/api/sessoes") or caminho.startswith("/api/ata/"):
@@ -3664,17 +3665,42 @@ class Manipulador(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "apoios": n})
         return None
 
-    def _certificado(self):
+    def _certificado(self, caminho="/certificado"):
+        """Primeiro acesso de cada aparelho (certificado.py): a página que reconhece o aparelho e instala a autoridade
+        da Câmara, o instalador do Windows, o perfil da Apple, o .crt e /certificado/ok (teste pelo https://)."""
+        if caminho == "/certificado/ok":
+            return self._enviar(204, b"", "text/plain", {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
         ca = TLS_DIR / "ca.crt"
         if not ca.exists():
             return self._json(404, {"erro": "HTTPS local não configurado."})
         dados = ca.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/x-x509-ca-cert")
-        self.send_header("Content-Disposition", 'attachment; filename="parlatorio-legis-ca.crt"')
-        self.send_header("Content-Length", str(len(dados)))
+        host = certificado_mod.host_seguro(self.headers.get("Host", "")) or "localhost"
+        url = certificado_mod.endereco_https(host, PORTA_HTTPS)
+        with trava:
+            nome = str((S.get("casa") or {}).get("nome") or "Câmara Municipal")
+        quer_pagina = "text/html" in (self.headers.get("Accept") or "")
+        if caminho == "/certificado" and quer_pagina:
+            return self._enviar(200, certificado_mod.pagina(url, nome), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+        if caminho == "/certificado/windows.cmd":
+            return self._enviar(200, certificado_mod.windows_cmd(dados, url), "application/octet-stream",
+                                {"Content-Disposition": 'attachment; filename="instalar-certificado-legis.cmd"'})
+        if caminho == "/certificado/legis.mobileconfig":
+            return self._enviar(200, certificado_mod.mobileconfig(dados, nome), "application/x-apple-aspen-config",
+                                {"Content-Disposition": 'attachment; filename="legis.mobileconfig"'})
+        if caminho not in ("/certificado", "/certificado.crt"):
+            return self._json(404, {"erro": "Não encontrado."})
+        return self._enviar(200, dados, "application/x-x509-ca-cert",
+                            {"Content-Disposition": 'attachment; filename="legis-camara.crt"'})
+
+    def _enviar(self, codigo, corpo, tipo, extras=None):
+        self.send_response(codigo)
+        self.send_header("Content-Type", tipo)
+        for k, v in (extras or {}).items():
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(corpo)))
         self.end_headers()
-        self.wfile.write(dados)
+        if corpo and self.command != "HEAD":
+            self.wfile.write(corpo)
 
     def _sessoes(self, caminho):
         """GET /api/sessoes, /api/sessoes/<id>, /api/ata/<id|atual>.pdf — só o presidente."""
@@ -3947,6 +3973,21 @@ def certificado() -> tuple[Path, Path] | None:
         return None
 
 
+def vigiar_certificado(ctx, intervalo=300):
+    """IP novo pelo DHCP ou nome trocado com o LEGIS ligado: renova o certificado do servidor (mesma autoridade) e
+    passa a usá-lo nas conexões novas, sem reiniciar."""
+    while True:
+        time.sleep(intervalo)
+        try:
+            crt = TLS_DIR / "servidor.crt"
+            if tls.precisa_renovar(crt):
+                novo, chave = tls.gerar(TLS_DIR, renovar=True)
+                ctx.load_cert_chain(str(novo), str(chave))
+                print(f"Certificado renovado para os endereços atuais: {tls.nomes_no_certificado(novo)}", flush=True)
+        except Exception as e:  # noqa: BLE001 - o LEGIS continua com o certificado que tem
+            print(f"Renovação do certificado falhou: {e}", flush=True)
+
+
 def main():
     if "--renovar-certificado" in sys.argv:
         crt, _ = tls.gerar(TLS_DIR, renovar=True)
@@ -3971,9 +4012,12 @@ def main():
     if par:
         HTTPS_ATIVO = True
         threading.Thread(target=https.serve_forever, daemon=True).start()
+        if not os.environ.get("TLS_CERT"):
+            threading.Thread(target=vigiar_certificado, args=(ctx,), daemon=True).start()
         ips = [i for i in tls.ips_locais() if i != "127.0.0.1"]
         print(f"HTTPS: https://localhost:{PORTA_HTTPS}" + "".join(f"  https://{i}:{PORTA_HTTPS}" for i in ips[:3]))
-        print(f"Instale o certificado da autoridade nos aparelhos: http://<ip>:{PORTA}/certificado")
+        print("Primeiro acesso de cada aparelho (instala o certificado e abre o LEGIS): "
+              + "  ".join(f"http://{i}{'' if PORTA == 80 else f':{PORTA}'}/certificado" for i in ips[:3]))
     servidor = ThreadingHTTPServer((HOST, PORTA), Manipulador)
     servidor.daemon_threads = True
     servidor.redireciona = bool(par)

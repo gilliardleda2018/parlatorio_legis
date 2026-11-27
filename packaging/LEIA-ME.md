@@ -29,7 +29,7 @@ Leva alguns minutos. Transcrição, IA e publicação na internet terminam em se
 ## Depois de instalar
 
 1. `sudo legis`: mostra o endereço e o **PIN inicial do presidente**.
-2. Em cada computador e celular da Câmara, abra `http://IP-DO-SERVIDOR/certificado` e instale o certificado (tira o aviso de conexão não segura).
+2. Em cada computador e celular da Câmara, abra `http://IP-DO-SERVIDOR/certificado` (o `legis resumo` mostra o link com o IP certo). A página reconhece o aparelho: no Windows baixa um instalador que confia no certificado e abre o LEGIS; no iPhone/Mac, um perfil; no Android e Linux, o arquivo com o caminho certo. Quando o aparelho passa a confiar, aparece o botão **Abrir o LEGIS** (`https://IP-DO-SERVIDOR`), sem aviso de conexão não segura.
 3. Abra `https://NOME.local/presidente`, entre com o PIN inicial e crie um PIN próprio. Se a cidade não foi escolhida na instalação, aparece a caixa **De qual cidade é esta Câmara?**.
 4. Em **Configurações**: brasão, contatos, mesa de som, rádio e **YouTube ao vivo** (cole a chave de transmissão do YouTube Studio).
 5. Vereadores entram em `/parlamentar` com o PIN `0000` e trocam no primeiro acesso.

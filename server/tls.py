@@ -60,8 +60,38 @@ def _openssl(*args: str):
     subprocess.run(["openssl", *args], check=True, capture_output=True, timeout=60)
 
 
+def nomes_atuais(crt: Path) -> set[str]:
+    """Nomes e IPs que o certificado cobre, como 'DNS:x' e 'IP:1.2.3.4'."""
+    saida = set()
+    for parte in nomes_no_certificado(crt).replace("\n", ",").split(","):
+        parte = parte.strip()
+        if parte.startswith("DNS:"):
+            saida.add(parte)
+        elif parte.startswith("IP Address:"):
+            saida.add("IP:" + parte.split(":", 1)[1].strip())
+    return saida
+
+
+def precisa_renovar(crt: Path, dias: int = 30) -> bool:
+    """O certificado do servidor não cobre o nome ou um IP atual da máquina, ou vence em menos de `dias`.
+    Renovar mantém a autoridade (ca.crt): os aparelhos que já confiam continuam confiando."""
+    if not crt.exists():
+        return True
+    dns, ips = nomes_certificado()
+    queridos = {f"DNS:{d}" for d in dns} | {f"IP:{i}" for i in ips}
+    if not queridos <= nomes_atuais(crt):
+        return True
+    try:
+        r = subprocess.run(["openssl", "x509", "-in", str(crt), "-noout", "-checkend", str(dias * 86400)],
+                           capture_output=True, timeout=10)
+        return r.returncode != 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def gerar(pasta: Path, renovar: bool = False) -> tuple[Path, Path]:
-    """Cria ca.crt/ca.key (se faltarem) e servidor.crt/servidor.key. Retorna (crt, key)."""
+    """Cria ca.crt/ca.key (se faltarem) e servidor.crt/servidor.key, e renova o do servidor quando ele não cobre mais
+    o nome ou um IP atual da máquina (IP novo pelo DHCP, nome trocado) ou está para vencer. Retorna (crt, key)."""
     if not shutil.which("openssl"):
         raise RuntimeError("openssl não encontrado; instale-o ou informe TLS_CERT e TLS_KEY.")
     pasta.mkdir(parents=True, exist_ok=True)
@@ -74,7 +104,7 @@ def gerar(pasta: Path, renovar: bool = False) -> tuple[Path, Path]:
                  "-addext", "basicConstraints=critical,CA:TRUE",
                  "-addext", "keyUsage=critical,keyCertSign,cRLSign")
         os.chmod(ca_key, 0o600)
-    if renovar or not crt.exists() or not key.exists():
+    if renovar or not crt.exists() or not key.exists() or precisa_renovar(crt):
         dns, ips = nomes_certificado()
         san = ",".join([f"DNS:{d}" for d in dns] + [f"IP:{i}" for i in ips])
         csr, ext = pasta / "servidor.csr", pasta / "servidor.ext"

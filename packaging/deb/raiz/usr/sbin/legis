@@ -23,16 +23,17 @@ resumo() {
   ip=$(hostname -I 2>/dev/null | awk '{print $1}')
   url=$(cat "$ETC/endereco-internet" 2>/dev/null || true)
   local suf=""; [ "$https" != "443" ] && suf=":$https"
+  local hsuf=""; [ "${http:-80}" != "80" ] && hsuf=":$http"
   cat <<EOF
 
  LEGIS — Sistema de Gestão Parlamentar
  ------------------------------------------------------------------
- Rede da Câmara:  https://$(hostname).local$suf   (ou https://$ip$suf)
+ Abrir o LEGIS:   https://$ip$suf   (rede da Câmara; também https://$(hostname).local$suf)
+ 1º acesso:       http://$ip$hsuf/certificado   (em cada aparelho: instala o certificado e abre o LEGIS)
  Internet:        ${url:-não publicado (sudo dpkg-reconfigure legis, com a chave do Tailscale)}
  Presidente:      /presidente — PIN inicial: ${pin:-?} (troque no primeiro acesso)
  Vereadores:      /parlamentar — PIN inicial 0000 (troca obrigatória)
  Rádio:           $( grep -q '^RADIO_LOCAL=1' "$ENVF" 2>/dev/null && echo "https://$(hostname).local$suf/radio.mp3 (programação em Configurações → Rádio da Câmara)" || echo "não instalada")
- Certificado:     instale em cada aparelho: http://$ip:${http:-80}/certificado
  Checklist:       /usr/share/doc/legis/README.md
 EOF
   if [ -f "$DADOS/.sem-municipio" ]; then

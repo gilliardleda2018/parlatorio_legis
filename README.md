@@ -82,10 +82,10 @@ O GitHub Actions roda tudo a cada push, em Python 3.11, 3.12 e 3.13.
 
 Na primeira execução o servidor cria, com `openssl`, uma autoridade certificadora própria da casa (`dados/tls/ca.crt`) e um certificado válido para `localhost`, o nome da máquina e os IPs da rede. Depois:
 
-1. Em cada computador, tablet e celular, abra `http://IP-do-servidor:8090/certificado` e instale o certificado (as instruções para Android, iPhone e Windows estão na página inicial).
+1. Em cada computador, tablet e celular, abra `http://IP-do-servidor:8090/certificado`. A página reconhece o aparelho e instala o certificado do jeito mais curto: no Windows, um `.cmd` que confia na autoridade só para o usuário (sem administrador) e abre o LEGIS; no iPhone/iPad/Mac, um perfil `.mobileconfig`; no Android e no Linux, o `.crt` com o caminho de cada um. Ela testa o `https://` e mostra **Abrir o LEGIS** quando o aparelho já confia. O arquivo puro continua em `/certificado.crt` (e em `/certificado` para quem não é navegador, como o `curl`).
 2. Use sempre `https://IP-do-servidor:8443`. Quem abrir pelo endereço `http://` é redirecionado (menos em `localhost`).
 
-Com HTTPS, a gravação das falas funciona de qualquer computador da rede, não só no servidor. Se o IP do servidor mudar, rode `python3 server/servidor.py --renovar-certificado` (a autoridade é mantida, os aparelhos não precisam reinstalar nada).
+Com HTTPS, a gravação das falas funciona de qualquer computador da rede, não só no servidor. Se o IP ou o nome do servidor mudar, o certificado do servidor é renovado sozinho (na partida e a cada 5 minutos com o LEGIS ligado), e também 30 dias antes de vencer. A autoridade é mantida: os aparelhos não precisam reinstalar nada. Para forçar: `python3 server/servidor.py --renovar-certificado`.
 
 Em servidor com domínio público, use um proxy com Let's Encrypt (Caddy, por exemplo: `parlatorio.camara.gov.br { reverse_proxy localhost:8090 }`) e rode o Parlatório com `HTTPS=0`.
 
