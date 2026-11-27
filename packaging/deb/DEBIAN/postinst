@@ -28,6 +28,21 @@ slug() { python3 -c "import re,sys,unicodedata as u; t=''.join(c for c in u.norm
 [ -n "$NOME" ] || NOME=$(slug "${MUNICIPIO:-legis}")
 NOME=$(slug "$NOME")
 
+# modelo da cidade: o da instalação direta (instalar-legis.sh --modelo) ou o que veio no pacote da Câmara
+MODELO_ARQ=""
+for M in "$ETC/modelo/camara.json" /usr/share/legis/cidade/modelo.json; do
+  [ -f "$M" ] && { MODELO_ARQ="$M"; break; }
+done
+TLS_EXTRAS=""
+if [ -n "$MODELO_ARQ" ]; then
+  if OK=$(python3 "$APP/packaging/modelo.py" validar "$MODELO_ARQ" 2>&1); then
+    echo "LEGIS: modelo da cidade — ${OK#ok: }"
+    TLS_EXTRAS=$(python3 -c "import json,sys; print(','.join(json.load(open(sys.argv[1]))['certificado']['nomesExtras']))" "$MODELO_ARQ" 2>/dev/null || true)
+  else
+    echo "LEGIS: modelo da cidade ignorado: $OK"; MODELO_ARQ=""
+  fi
+fi
+
 getent group legis >/dev/null || addgroup --system legis >/dev/null
 getent passwd legis >/dev/null || adduser --system --ingroup legis --home "$DADOS" --no-create-home --shell /usr/sbin/nologin legis >/dev/null
 mkdir -p "$DADOS" "$ETC"
@@ -46,12 +61,30 @@ PIN_PRESIDENTE=$PIN
 PORTA=$HTTP
 PORTA_HTTPS=$HTTPS
 HTTPS=auto
-TLS_NOMES=$(hostname).local,$(hostname),${IPS}
+TLS_NOMES=$(hostname).local,$(hostname),${IPS}${TLS_EXTRAS:+,$TLS_EXTRAS}
+LEGIS_NOME=$NOME
 TZ=America/Sao_Paulo
 PROXY_CONFIAVEL=1
 PROXY_IPS=127.0.0.1,::1
 EOF
   chmod 640 "$ENVF"; chgrp legis "$ENVF"
+fi
+if [ -n "$MODELO_ARQ" ]; then   # atualização ou modelo novo: o servidor só aplica o modelo uma vez por banco
+  sed -i '/^LEGIS_MODELO=/d' "$ENVF"; printf 'LEGIS_MODELO=%s\n' "$MODELO_ARQ" >> "$ENVF"
+  grep -q '^LEGIS_NOME=' "$ENVF" || printf 'LEGIS_NOME=%s\n' "$NOME" >> "$ENVF"
+  if [ -n "$TLS_EXTRAS" ]; then   # nomes do certificado pedidos no modelo, sem repetir os que já estão
+    python3 - "$ENVF" "$TLS_EXTRAS" <<'PY'
+import sys
+from pathlib import Path
+arq, extras = Path(sys.argv[1]), [n for n in sys.argv[2].split(",") if n]
+linhas = arq.read_text().splitlines()
+for k, linha in enumerate(linhas):
+    if linha.startswith("TLS_NOMES="):
+        nomes = [n for n in linha[10:].split(",") if n]
+        linhas[k] = "TLS_NOMES=" + ",".join(nomes + [n for n in extras if n not in nomes])
+arq.write_text("\n".join(linhas) + "\n")
+PY
+  fi
 fi
 
 # CHAVE='valor' (o ' vira '\''): "legis extras" lê sem executar (le_conf em /usr/sbin/legis)
@@ -74,6 +107,7 @@ if [ -n "$UF" ] && [ -n "$MUNICIPIO" ] && [ ! -f "$DADOS/legis.db" ]; then
   if [ -f "$EMBUTIDOS" ]; then echo "LEGIS: configurando $MUNICIPIO/${UF^^} com os dados do pacote..."
   else echo "LEGIS: buscando os vereadores eleitos de $MUNICIPIO/${UF^^} no TSE..."; fi
   DO_PACOTE=(); [ -f "$EMBUTIDOS" ] && DO_PACOTE=("LEGIS_CIDADE_DADOS=$EMBUTIDOS")
+  [ -n "$MODELO_ARQ" ] && DO_PACOTE+=("LEGIS_MODELO=$MODELO_ARQ")
   if ! runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 "${DO_PACOTE[@]}" \
        python3 "$APP/scripts/tse_eleitos.py" "$UF" "$MUNICIPIO" "$DADOS/legis.db"; then
     rm -f "$DADOS/legis.db"
@@ -113,6 +147,16 @@ if [ -n "$CHAVE" ]; then
   umask 077; printf %s "$CHAVE" > "$DADOS/.tailscale-chave"; umask 022
 fi
 unset CHAVE
+
+# certificado HTTPS criado já na instalação (cada Câmara tem o seu: a chave nunca sai deste servidor) e o kit
+# para instalar nos aparelhos sem internet: /var/lib/legis/certificado-aparelhos (sudo legis certificado)
+if [ -d /run/systemd/system ]; then systemctl stop legis.service 2>/dev/null || true; fi
+if runuser -u legis -- bash -c 'set -a; . "$1"; set +a; exec python3 "$2/server/servidor.py" --kit-certificado "$3"' _ \
+     "$ENVF" "$APP" "$DADOS/certificado-aparelhos" >/dev/null 2>&1; then
+  echo "LEGIS: certificado HTTPS pronto; kit para os aparelhos em $DADOS/certificado-aparelhos"
+else
+  echo "LEGIS: o certificado será criado na primeira partida do serviço."
+fi
 
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload

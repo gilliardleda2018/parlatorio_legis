@@ -513,3 +513,20 @@ O texto e a ementa do projeto, na página pública, ganham links nas normas cita
 - **Federal ou municipal?** Com “federal”, “municipal” ou “estadual” no texto, vale o que está escrito. Sem isso, a lei é municipal se estiver cadastrada; federal se o número cai na faixa que a numeração federal usava naquele ano (ex.: 14.133 em 2021); senão, municipal. É uma heurística: cadastre as normas do município para acertar sempre.
 - **Normas municipais**: em Projetos → *Normas municipais*, a presidência cadastra ou importa um CSV simples (`tipo;numero;data;ementa;link`, vírgula também serve). A tabela é `normas_municipais` (o nome `normas` já guarda o Regimento e a Lei Orgânica em texto para o “Pergunte ao Regimento”). Citação de norma cadastrada vira link interno para `/normas#n-<id>`; municipal não cadastrada fica só com a URN (sem link).
 - **OAI-PMH** em `/oai` (verbos Identify, ListMetadataFormats, ListSets, ListIdentifiers, ListRecords e GetRecord; `oai_dc`; conjuntos `normas` e `projetos`; `resumptionToken` de 50 em 50). O e-mail do administrador é o da Câmara no rodapé (ou `OAI_EMAIL`). Cadastrar o provedor no LexML Brasil para a coleta é um passo **opcional e externo**: pede-se à equipe do LexML (Senado Federal) informando o endereço `https://<seu-dominio>/oai`.
+
+## Modelo de cidade: o mesmo LEGIS para qualquer Câmara
+
+Tudo o que muda de uma Câmara para outra fica num arquivo só: `cidades/<nome>/camara.json`, com o brasão ao lado. Ele guarda estado, município, nome, cores, contatos, rádio, plenário virtual e videoconferência, nomes extras do certificado, link do YouTube, recursos e tempos do Regimento. Guia completo em [`cidades/LEIA-ME.md`](cidades/LEIA-ME.md).
+
+- **Nova cidade:** copie `cidades/modelo/`, preencha e confira (`python3 packaging/modelo.py validar …`). Fazer commit na `main` publica o pacote dela, com o comando de instalação. Outras formas: `sudo bash instalar-legis.sh --modelo <arquivo ou https://…>` direto no servidor, sem gerar pacote; ou `bash packaging/construir-cidade.sh --modelo …` para levar num pendrive.
+- **Tuntum** fica em `cidades/tuntum/`, **congelada**: as versões novas do LEGIS não regeneram o pacote dela sozinhas. Para atualizar de propósito: `bash packaging/publicar-camara.sh --modelo cidades/tuntum/camara.json --forcar`.
+- **Todo pacote já vem com:**
+  - rádio da Câmara;
+  - plenário virtual e sessão remota prontos;
+  - certificado HTTPS criado na instalação: cada Câmara tem o seu, a chave nunca sai do servidor, e o kit para os aparelhos fica em `/var/lib/legis/certificado-aparelhos` (`sudo legis certificado /media/<pendrive>`).
+- **Instalação eficiente:**
+  - checagem prévia de disco, internet e portas;
+  - a lista de pacotes não é baixada de novo se for recente;
+  - transcrição, IA e videoconferência baixam em paralelo;
+  - no fim, o instalador mostra quanto tempo levou.
+- O servidor aplica o modelo (`LEGIS_MODELO`) **uma vez por banco**, na primeira partida; depois vale o painel. Para aplicar de novo: `sudo legis modelo --reaplicar`.

@@ -6,6 +6,8 @@
 #   legis importar-tse UF "Município"   vereadores eleitos (só num banco vazio)
 #   legis reconfigurar perguntas da instalação de novo (dpkg-reconfigure legis)
 #   legis extras       instala transcrição, IA local e publicação na internet escolhidas
+#   legis certificado [pasta]   kit do certificado para os aparelhos (copia para a pasta, ex.: pendrive)
+#   legis modelo [--reaplicar]  modelo da cidade em uso; --reaplicar aplica de novo as preferências
 set -euo pipefail
 APP=/opt/legis
 DADOS=/var/lib/legis
@@ -87,32 +89,50 @@ extras() {
   echo "== $(date '+%F %T') instalação extra =="
   local TRANSCRICAO IA JITSI NOME
   TRANSCRICAO=$(le_conf TRANSCRICAO); IA=$(le_conf IA); JITSI=$(le_conf JITSI); NOME=$(le_conf NOME)
-  local mudou=0
+  local mudou=0 marcas; marcas=$(mktemp -d)
+  # Transcrição, IA e videoconferência baixam em paralelo (são os passos demorados: ~600 MB, ~2 GB e ~1 GB).
+  # Cada um marca o que concluiu; o legis.env só é escrito depois do wait (o Jitsi também mexe nele).
   if [ "${TRANSCRICAO:-false}" = "true" ] && [ ! -x "$DADOS/whisper/bin/python" ]; then
-    echo "transcrição: instalando faster-whisper e o modelo small..."
-    runuser -u legis -- env PARLATORIO_DADOS="$DADOS" HOME="$DADOS" HF_HOME="$DADOS/hf" sh "$APP/scripts/instalar_transcricao.sh" && mudou=1
+    (
+      echo "transcrição: instalando faster-whisper e o modelo small..."
+      runuser -u legis -- env PARLATORIO_DADOS="$DADOS" HOME="$DADOS" HF_HOME="$DADOS/hf" sh "$APP/scripts/instalar_transcricao.sh" \
+        && touch "$marcas/transcricao" && echo "transcrição: pronta"
+    ) 2>&1 | sed -u 's/^/[transcrição] /' &
   fi
+  local ia_quer=0
   if [ "${IA:-false}" = "true" ] && ! grep -q '^IA=ollama' "$ENVF"; then
     if command -v docker >/dev/null; then
-      echo "IA: iniciando o Ollama e baixando qwen2.5:3b (cerca de 2 GB)..."
-      docker inspect legis-ollama >/dev/null 2>&1 || docker run -d --name legis-ollama --restart unless-stopped \
-        -e OLLAMA_KEEP_ALIVE=30m -p 127.0.0.1:11434:11434 -v "$DADOS/ollama:/root/.ollama" "$OLLAMA_IMAGEM"
-      sleep 5
-      docker exec legis-ollama ollama pull qwen2.5:3b
-      printf 'IA=ollama\nOLLAMA_URL=http://127.0.0.1:11434\nIA_MODELO=qwen2.5:3b\n' >> "$ENVF"
-      mudou=1
+      ia_quer=1
+      (
+        echo "IA: iniciando o Ollama e baixando qwen2.5:3b (cerca de 2 GB)..."
+        docker inspect legis-ollama >/dev/null 2>&1 || docker run -d --name legis-ollama --restart unless-stopped \
+          -e OLLAMA_KEEP_ALIVE=30m -p 127.0.0.1:11434:11434 -v "$DADOS/ollama:/root/.ollama" "$OLLAMA_IMAGEM"
+        for _ in $(seq 1 30); do docker exec legis-ollama ollama list >/dev/null 2>&1 && break; sleep 2; done
+        docker exec legis-ollama ollama pull qwen2.5:3b && touch "$marcas/ia" && echo "IA: pronta"
+      ) 2>&1 | sed -u 's/^/[IA] /' &
     else
       echo "IA: o Docker não está instalado (sudo apt install docker.io) — pulando."
     fi
   fi
   if [ "${JITSI:-false}" = "true" ] && ! grep -q '^JITSI_URL=' "$ENVF"; then
     if command -v docker >/dev/null; then
-      echo "videoconferência: instalando o Jitsi da Câmara (cerca de 1 GB)..."
-      ENVF="$ENVF" SERVICO=legis SEM_REINICIAR=1 JITSI_DIR="$DADOS/jitsi" DADOS="$DADOS" bash "$APP/deploy/jitsi/instalar-jitsi.sh" && mudou=1
+      (
+        echo "videoconferência: instalando o Jitsi da Câmara (cerca de 1 GB)..."
+        ENVF="$ENVF" SERVICO=legis SEM_REINICIAR=1 JITSI_DIR="$DADOS/jitsi" DADOS="$DADOS" bash "$APP/deploy/jitsi/instalar-jitsi.sh" \
+          && touch "$marcas/jitsi" && echo "videoconferência: pronta"
+      ) 2>&1 | sed -u 's/^/[videoconferência] /' &
     else
       echo "videoconferência: o Docker não está instalado (sudo apt install docker.io) — pulando."
     fi
   fi
+  wait
+  [ -f "$marcas/transcricao" ] && mudou=1
+  [ -f "$marcas/jitsi" ] && mudou=1
+  if [ "$ia_quer" = 1 ] && [ -f "$marcas/ia" ]; then
+    printf 'IA=ollama\nOLLAMA_URL=http://127.0.0.1:11434\nIA_MODELO=qwen2.5:3b\n' >> "$ENVF"
+    mudou=1
+  fi
+  rm -rf "$marcas"
   if [ -f "$DADOS/.tailscale-chave" ]; then
     if command -v docker >/dev/null; then
       echo "internet: publicando pelo Tailscale Funnel como ${NOME}..."
@@ -161,6 +181,28 @@ case "${1:-estado}" in
   reiniciar) root reiniciar; reiniciar; [ -d /run/systemd/system ] && systemctl restart legis-radio.service 2>/dev/null; echo "reiniciado" ;;
   reconfigurar) root reconfigurar; exec dpkg-reconfigure legis ;;
   extras) extras ;;
+  certificado)   # kit do certificado para os aparelhos sem internet; com destino, copia (ex.: pendrive)
+    root certificado
+    KIT="$DADOS/certificado-aparelhos"
+    if [ ! -f "$KIT/LEGIS-certificado.crt" ]; then
+      runuser -u legis -- bash -c 'set -a; . "$1"; set +a; exec python3 "$2/server/servidor.py" --kit-certificado "$3"' _ "$ENVF" "$APP" "$KIT" >/dev/null
+    fi
+    if [ -n "${2:-}" ]; then
+      [ -d "$2" ] || { echo "Pasta de destino não existe: $2"; exit 1; }
+      cp "$KIT"/* "$2"/ && echo "Kit do certificado copiado para $2"
+    else
+      echo "Kit do certificado (copie para um pendrive: sudo legis certificado /media/<pendrive>):"; ls -1 "$KIT" | sed 's/^/  /'
+    fi ;;
+  modelo)   # modelo da cidade: mostra qual está em uso; --reaplicar aplica de novo as preferências ao banco
+    M=$(le LEGIS_MODELO "$ENVF")
+    [ -n "$M" ] || { echo "Esta instalação não usa modelo de cidade."; exit 0; }
+    python3 "$APP/packaging/modelo.py" validar "$M"
+    if [ "${2:-}" = "--reaplicar" ]; then
+      root modelo
+      [ -d /run/systemd/system ] && systemctl stop legis.service
+      runuser -u legis -- bash -c 'set -a; . "$1"; set +a; exec python3 "$2/server/servidor.py" --reaplicar-modelo' _ "$ENVF" "$APP"
+      reiniciar
+    fi ;;
   importar-tse)
     root importar-tse
     [ $# -ge 3 ] || { echo 'Uso: sudo legis importar-tse UF "Município"'; exit 1; }
@@ -168,6 +210,6 @@ case "${1:-estado}" in
     [ -d /run/systemd/system ] && systemctl stop legis.service
     runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 python3 "$APP/scripts/tse_eleitos.py" "$2" "$3" "$DADOS/legis.db"
     reiniciar ;;
-  ajuda|-h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ajuda|-h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "Comando desconhecido: $1 (legis ajuda)"; exit 1 ;;
 esac

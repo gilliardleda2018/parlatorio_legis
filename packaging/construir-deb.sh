@@ -17,6 +17,11 @@ if [ -n "${CIDADE_DIR:-}" ]; then   # dados da Câmara (vereadores, fotos, bras�
   mkdir -p "$R/usr/share/legis/cidade"
   cp "$CIDADE_DIR/dados.json" "$R/usr/share/legis/cidade/dados.json"
   cp "$CIDADE_DIR/config" "$R/DEBIAN/config"
+  if [ -f "$CIDADE_DIR/modelo.json" ]; then   # modelo da cidade (e o brasão ao lado), aplicado na primeira partida
+    cp "$CIDADE_DIR/modelo.json" "$R/usr/share/legis/cidade/modelo.json"
+    B=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['brasao'])" "$CIDADE_DIR/modelo.json")
+    [ -n "$B" ] && [ -f "$CIDADE_DIR/$B" ] && cp "$CIDADE_DIR/$B" "$R/usr/share/legis/cidade/$B"
+  fi
   # sem sed: | / & \ no nome da Câmara não viram parte da expressão
   python3 - "$R/DEBIAN/control" "${CIDADE_ROTULO:-}" <<'PY'
 import sys
@@ -37,6 +42,7 @@ fi
 for d in server public scripts; do
   cp -r "$d" "$R/opt/legis/"
 done
+mkdir -p "$R/opt/legis/packaging" && cp packaging/modelo.py "$R/opt/legis/packaging/"   # o postinst lê o modelo da cidade
 mkdir -p "$R/opt/legis/deploy" && cp -r deploy/tailscale deploy/radio deploy/jitsi "$R/opt/legis/deploy/"
 find "$R/opt/legis" \( -name __pycache__ -o -name '*.pyc' \) -prune -exec rm -rf {} +
 cp deploy/deb/README.md "$R/usr/share/doc/legis/README.md"

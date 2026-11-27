@@ -3,6 +3,7 @@
 # Câmara, o brasão e os vereadores eleitos (com fotos, do TSE) e a população (IBGE). Instalar não pergunta
 # nada e não depende do TSE na hora: dois cliques no arquivo ou  sudo apt install ./legis-<cidade>_….deb
 #
+#   bash packaging/construir-cidade.sh --modelo cidades/tuntum/camara.json   (modelo da cidade: ver cidades/LEIA-ME.md)
 #   bash packaging/construir-cidade.sh MA "Tuntum"
 #   bash packaging/construir-cidade.sh MA "Barra do Corda" --brasao brasao.png --nome barradocorda \
 #        --camara "Câmara Municipal de Barra do Corda" --youtube-link https://www.youtube.com/@camarabdc/live
@@ -13,10 +14,18 @@
 # Sai em dist/cidades/<nome>/: o .deb, o .sha256 e legis-<nome>-completo-<versão>.tar.gz (com o instalador).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-UF="${1:?Uso: bash packaging/construir-cidade.sh UF \"Município\" [--brasao arquivo] [--nome curto] [--camara \"Nome\"]}"
-MUNICIPIO="${2:?Informe o município}"
-shift 2
-BRASAO="" NOME="" CAMARA="" YT_LINK=""
+BRASAO="" NOME="" CAMARA="" YT_LINK="" MODELO="" M_RADIO="" M_JITSI="" M_TRANSCRICAO="" M_IA=""
+if [ "${1:-}" = "--modelo" ]; then   # tudo vem do modelo da cidade; opções depois dele ainda podem sobrepor
+  MODELO="${2:?Informe o arquivo do modelo (cidades/<nome>/camara.json)}"; shift 2
+  VARS=$(python3 packaging/modelo.py vars "$MODELO") || exit 1
+  eval "$VARS"   # saída com shlex.quote: só atribuições
+  UF="$UF" MUNICIPIO="$MUN" NOME="$NOME" CAMARA="$CAM" YT_LINK="$YT" BRASAO="$BRASAO"
+  M_RADIO="$RADIO" M_JITSI="$JITSI" M_TRANSCRICAO="$TRANSCRICAO" M_IA="$IA"
+else
+  UF="${1:?Uso: bash packaging/construir-cidade.sh --modelo cidades/<nome>/camara.json  ou  UF \"Município\" [--brasao arquivo] [--nome curto] [--camara \"Nome\"]}"
+  MUNICIPIO="${2:?Informe o município}"
+  shift 2
+fi
 while [ $# -gt 0 ]; do
   case "$1" in
     --brasao) BRASAO="$2"; shift 2 ;;
@@ -30,6 +39,10 @@ done
 
 OBRA=$(mktemp -d)
 trap 'rm -rf "$OBRA"' EXIT
+if [ -n "$MODELO" ]; then   # o modelo vai dentro do pacote: o servidor aplica as preferências na primeira partida
+  python3 packaging/modelo.py normalizar "$MODELO" "$OBRA/modelo.json"
+  [ -n "$BRASAO" ] && cp "$BRASAO" "$OBRA/$(basename "$BRASAO")"
+fi
 echo "== Dados oficiais de $MUNICIPIO/${UF^^} (TSE e IBGE)"
 python3 - "$UF" "$MUNICIPIO" "$BRASAO" "$NOME" "$CAMARA" "$OBRA" "$YT_LINK" <<'PY'
 import json, re, sys, unicodedata
@@ -88,6 +101,10 @@ db_set legis/uf $(aspas "$(echo "$UF_OK" | tr 'A-Z' 'a-z')")
 db_set legis/municipio $(aspas "$MUN_OK")
 db_set legis/nome $(aspas "$SLUG")
 ${YT_LINK:+db_set legis/youtube_link $(aspas "$YT_LINK")}
+${M_RADIO:+db_set legis/radio $M_RADIO}
+${M_JITSI:+db_set legis/jitsi $M_JITSI}
+${M_TRANSCRICAO:+db_set legis/transcricao $M_TRANSCRICAO}
+${M_IA:+db_set legis/ia $M_IA}
 for q in uf municipio nome radio transcricao ia; do db_fset legis/\$q seen true || true; done
 db_input low legis/youtube_chave || true
 db_input low legis/tailscale_chave || true

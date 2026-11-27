@@ -2,6 +2,7 @@
 # Gera o pacote de uma Câmara e publica no GitHub, numa release própria (camara-<nome>), com nomes fixos:
 # o comando de instalação nunca muda e baixa direto do GitHub, sem depender de nenhum servidor ligado.
 #
+#   bash packaging/publicar-camara.sh --modelo cidades/arame/camara.json [--forcar]
 #   bash packaging/publicar-camara.sh MA "Arame" [--camara "Câmara Municipal de Arame"] [--nome arame]
 #        [--youtube-link https://…] [--brasao arquivo.png | --brasao-url https://…/brasao.png]
 #
@@ -12,12 +13,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
-UF="${1:?Uso: bash packaging/publicar-camara.sh UF \"Município\" [opções]}"
-MUNICIPIO="${2:?Informe o município}"
-shift 2
-ARGS=() BRASAO="" BRASAO_URL="" NOME="" CAMARA="" YT=""
+ARGS=() BRASAO="" BRASAO_URL="" NOME="" CAMARA="" YT="" MODELO="" FORCAR=0 CONGELADA=false
+if [ "${1:-}" = "--modelo" ]; then   # modelo da cidade (cidades/<nome>/camara.json): tudo vem dele
+  MODELO="${2:?Informe o modelo}"; shift 2
+  VARS=$(python3 packaging/modelo.py vars "$MODELO") || exit 1
+  eval "$VARS"   # shlex.quote: só atribuições
+  MUNICIPIO="$MUN" CAMARA="$CAM"
+else
+  UF="${1:?Uso: bash packaging/publicar-camara.sh --modelo cidades/<nome>/camara.json  ou  UF \"Município\" [opções]}"
+  MUNICIPIO="${2:?Informe o município}"
+  shift 2
+fi
 while [ $# -gt 0 ]; do
   case "$1" in
+    --forcar) FORCAR=1; shift ;;
     --brasao) BRASAO="$2"; shift 2 ;;
     --brasao-url) BRASAO_URL="$2"; shift 2 ;;
     --nome) NOME="$2"; shift 2 ;;
@@ -37,6 +46,13 @@ for rotulo, valor, limite, obrigatorio in (("Município", municipio, 80, True), 
 if yt and not re.fullmatch(r"https://[A-Za-z0-9./?=_@%&:+~#-]+", yt, re.ASCII):
     sys.exit(f"Link do YouTube inválido (deve começar com https:// e não ter espaços nem ; $ ` aspas): {yt!r}")
 PY
+# Câmara congelada (no modelo ou em cidades/<nome>/ do repositório): só republica com --forcar
+NOME_CURTO="${NOME:-$(python3 -c "import sys; sys.path.insert(0, 'server'); import modelo_cidade as m; print(m.slug(sys.argv[1]))" "$MUNICIPIO")}"
+if [ "$FORCAR" != 1 ] && { [ "$CONGELADA" = true ] || python3 packaging/modelo.py congelada "$NOME_CURTO"; }; then
+  echo "A Câmara '$NOME_CURTO' está congelada (cidades/$NOME_CURTO/camara.json): o pacote publicado não foi mexido."
+  echo "Para atualizar de propósito: bash packaging/publicar-camara.sh --modelo cidades/$NOME_CURTO/camara.json --forcar"
+  exit 0
+fi
 OBRA=$(mktemp -d)
 trap 'rm -rf "$OBRA"' EXIT
 
@@ -50,7 +66,11 @@ fi
 [ -n "$YT" ] && ARGS+=(--youtube-link "$YT")
 [ -n "$BRASAO" ] && ARGS+=(--brasao "$BRASAO")
 
-DIST_CIDADES="$OBRA/dist" bash packaging/construir-cidade.sh "$UF" "$MUNICIPIO" "${ARGS[@]}"
+if [ -n "$MODELO" ]; then
+  DIST_CIDADES="$OBRA/dist" bash packaging/construir-cidade.sh --modelo "$MODELO" "${ARGS[@]}"
+else
+  DIST_CIDADES="$OBRA/dist" bash packaging/construir-cidade.sh "$UF" "$MUNICIPIO" "${ARGS[@]}"
+fi
 PASTA=$(ls -d "$OBRA"/dist/*/ | head -1)
 SLUG=$(basename "$PASTA")
 DEB=$(ls "$PASTA"legis-"$SLUG"_*_all.deb)
@@ -93,6 +113,8 @@ print(json.dumps({"uf": uf.upper(), "municipio": municipio, "nome": nome, "camar
                   "brasao": "brasao" if brasao else ""}, ensure_ascii=False, indent=2))
 PY
 [ -n "$BRASAO" ] && cp "$BRASAO" "$SAIDA/brasao"
+# o modelo completo também vai na release: a regeneração a cada versão usa o mesmo modelo
+[ -n "$MODELO" ] && python3 packaging/modelo.py normalizar "$MODELO" "$SAIDA/modelo.json"
 
 TAG="camara-$SLUG"
 NOTAS="$OBRA/notas.md"

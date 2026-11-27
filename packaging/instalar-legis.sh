@@ -20,6 +20,10 @@
 #   TS_AUTHKEY=tskey-auth-...  publica na internet pelo Tailscale (opcional)
 #   SEM_HOSTNAME=1             não troca o nome da máquina
 #   DEB=/caminho/legis.deb     usa este pacote em vez de baixar a última versão
+#
+# Qualquer cidade do Brasil a partir do modelo (cidades/LEIA-ME.md), sem gerar pacote nenhum:
+#   sudo bash instalar-legis.sh --modelo camara.json
+#   sudo bash instalar-legis.sh --modelo https://raw.githubusercontent.com/<repo>/main/cidades/<cidade>/camara.json
 set -euo pipefail
 
 REPO="gilliardleda2018/parlatorio_legis"
@@ -28,11 +32,14 @@ TTY=/dev/tty
 VERDE=$'\e[32m'; NEGRITO=$'\e[1m'; FIM=$'\e[0m'
 PERGUNTAR=0
 NOME_DADO="${NOME:-}"
-for arg in "$@"; do
-  case "$arg" in
-    --perguntar) PERGUNTAR=1 ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "Opção desconhecida: $arg (use --perguntar ou --help)"; exit 1 ;;
+MODELO=""
+INICIO=$(date +%s)
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --perguntar) PERGUNTAR=1; shift ;;
+    --modelo) MODELO="${2:?Informe o modelo: --modelo camara.json (ou https://…/camara.json)}"; shift 2 ;;
+    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "Opção desconhecida: $1 (use --perguntar, --modelo ou --help)"; exit 1 ;;
   esac
 done
 
@@ -62,9 +69,80 @@ slug() { python3 -c "import re,sys,unicodedata as u; t=''.join(c for c in u.norm
 
 echo "${NEGRITO}== LEGIS — Sistema de Gestão Parlamentar: instalação ==${FIM}"
 export DEBIAN_FRONTEND=noninteractive
-echo "Atualizando a lista de pacotes..."
-apt-get update -q >/dev/null
+
+# ---- checagem antes de começar: o que faltar aparece agora, não no meio da instalação
+AVISOS=()
+LIVRE_GB=$(df -Pk / | awk 'NR==2 {printf "%d", $4/1024/1024}')
+[ "${LIVRE_GB:-0}" -ge 4 ] || { echo "Espaço livre em / insuficiente: ${LIVRE_GB} GB (o LEGIS precisa de pelo menos 4 GB; com IA, 10 GB)."; exit 1; }
+[ "${LIVRE_GB:-0}" -ge 10 ] || AVISOS+=("pouco espaço em disco (${LIVRE_GB} GB): a IA local fica de fora se faltar")
+for alvo in github.com servicodados.ibge.gov.br; do
+  curl -fsS -m 8 -o /dev/null "https://$alvo" 2>/dev/null || getent hosts "$alvo" >/dev/null || AVISOS+=("sem acesso a $alvo")
+done
+for porta in 80 443; do
+  if ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)$porta\$" && ! [ -f /etc/legis/legis.env ]; then
+    AVISOS+=("porta $porta já está em uso: o LEGIS usa a 8090/8443")
+  fi
+done
+[ ${#AVISOS[@]} -eq 0 ] || printf '  Aviso: %s\n' "${AVISOS[@]}"
+
+# lista de pacotes: só atualiza se tiver mais de 6 horas (reinstalar ou atualizar fica bem mais rápido)
+if [ -z "$(find /var/lib/apt/lists -maxdepth 1 -name '*Packages*' -mmin -360 2>/dev/null | head -1)" ]; then
+  echo "Atualizando a lista de pacotes..."
+  apt-get update -q >/dev/null
+fi
 apt-get install -y -q ca-certificates curl python3 debconf >/dev/null
+
+# ---- modelo da cidade: estado, município, nome e preferências já vêm escritos (nenhuma pergunta)
+if [ -n "$MODELO" ]; then
+  MODELO_DIR=$(mktemp -d)
+  if [[ "$MODELO" =~ ^https:// ]]; then
+    curl -fsSL --max-filesize 200000 -o "$MODELO_DIR/camara.json" "$MODELO" || { echo "Não consegui baixar o modelo: $MODELO"; exit 1; }
+    MODELO_BASE="${MODELO%/*}"
+  else
+    [ -f "$MODELO" ] || { echo "Modelo não encontrado: $MODELO"; exit 1; }
+    cp "$MODELO" "$MODELO_DIR/camara.json"
+    MODELO_BASE="$(cd "$(dirname "$MODELO")" && pwd)"
+  fi
+  VARS_MODELO=$(python3 - "$MODELO_DIR/camara.json" <<'PY'
+import json, re, shlex, sys
+try:
+    m = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError) as e:
+    sys.exit(f"Modelo inválido (JSON): {e}")
+uf, mun = str(m.get("uf", "")).strip().lower(), " ".join(str(m.get("municipio", "")).split())
+if not re.fullmatch(r"[a-z]{2}", uf) or not mun or not all(c.isalnum() or c in " .-'" for c in mun):
+    sys.exit("Modelo inválido: informe uf (sigla) e municipio (só letras, números, espaço e . - ').")
+nome = re.sub(r"[^a-z0-9-]", "", str(m.get("nome", "")).lower())
+brasao = str(m.get("brasao", "")).strip()
+if brasao and (brasao != brasao.split("/")[-1] or brasao.startswith(".") or not re.fullmatch(r"[\w.-]+", brasao)):
+    sys.exit("Modelo inválido: brasao deve ser só o nome do arquivo ao lado do camara.json.")
+rec, pv = m.get("recursos") or {}, m.get("plenarioVirtual") or {}
+sn = {"sim": "s", "nao": "n"}
+saida = {"M_UF": uf, "M_MUNICIPIO": mun, "M_NOME": nome, "M_BRASAO": brasao,
+         "M_YT": str((m.get("youtube") or {}).get("link", "")),
+         "M_TRANSCRICAO": sn.get(rec.get("transcricao"), ""), "M_IA": sn.get(rec.get("ia"), ""),
+         "M_JITSI": "s" if pv.get("ligado", True) and pv.get("videoconferencia", "propria") == "propria" else "n"}
+print("\n".join(f"{k}={shlex.quote(v)}" for k, v in saida.items()))
+PY
+) || exit 1
+  eval "$VARS_MODELO"   # só atribuições (shlex.quote)
+  if [ -n "$M_BRASAO" ]; then
+    if [[ "$MODELO_BASE" =~ ^https:// ]]; then
+      curl -fsSL --max-filesize 1500000 -o "$MODELO_DIR/$M_BRASAO" "$MODELO_BASE/$M_BRASAO" || echo "  Aviso: não consegui baixar o brasão $M_BRASAO"
+    else
+      cp "$MODELO_BASE/$M_BRASAO" "$MODELO_DIR/$M_BRASAO" 2>/dev/null || echo "  Aviso: brasão $M_BRASAO não encontrado ao lado do modelo"
+    fi
+  fi
+  : "${UF:=$M_UF}" "${MUNICIPIO:=$M_MUNICIPIO}"
+  [ -n "$NOME_DADO" ] || { [ -n "$M_NOME" ] && NOME="$M_NOME" && NOME_DADO="$M_NOME"; }
+  [ -n "${YOUTUBE_LINK:-}" ] || YOUTUBE_LINK="$M_YT"
+  [ -n "${TRANSCRICAO:-}" ] || { [ -n "$M_TRANSCRICAO" ] && TRANSCRICAO="$M_TRANSCRICAO"; }
+  [ -n "${IA:-}" ] || { [ -n "$M_IA" ] && IA="$M_IA"; }
+  [ -n "${JITSI:-}" ] || JITSI="$M_JITSI"
+  install -d -m 0755 /etc/legis/modelo
+  cp "$MODELO_DIR"/* /etc/legis/modelo/   # o postinst confere o modelo completo e o servidor aplica na 1ª partida
+  echo "  ${VERDE}✔${FIM} modelo da cidade: $MUNICIPIO/${UF^^}"
+fi
 
 # ---- perguntas
 if tem_tty; then
@@ -199,6 +277,7 @@ dpkg -s legis 2>/dev/null | grep -q '^Status: install ok installed' || { echo "A
 unset TS_AUTHKEY YOUTUBE_CHAVE
 
 echo
-echo "${VERDE}${NEGRITO}✔ LEGIS instalado.${FIM}"
+echo "${VERDE}${NEGRITO}✔ LEGIS instalado em $(( ($(date +%s) - INICIO) / 60 )) min $(( ($(date +%s) - INICIO) % 60 )) s.${FIM}"
+echo "  Certificado dos aparelhos sem internet (pendrive): sudo legis certificado"
 [ -n "$MUNICIPIO" ] || echo "  No primeiro acesso ao painel do presidente, escolha a cidade: os vereadores vêm do TSE."
 echo "  Transcrição, IA, videoconferência e internet continuam instalando em segundo plano: acompanhe com  sudo legis estado"
