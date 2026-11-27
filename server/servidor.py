@@ -52,6 +52,7 @@ import conhecimento
 import ia
 import legendas as legendas_mod
 import participacao
+import emendas as emendas_mod
 import cidadania
 import analise
 import regimento
@@ -2751,6 +2752,174 @@ def consultaOcultar(ator, comentario, oculto=True):
     S["projetosRev"] += 1
 
 
+# --- emendas estruturadas, comparativo e redação final (lógica em server/emendas.py)
+emendas_mod.criar_tabela(db)
+
+
+def _emenda(eid) -> dict:
+    e = emendas_mod.obter(db, str(eid or "")) if str(eid or "").isalnum() else None
+    if not e:
+        raise Erro("Emenda não encontrada.")
+    return e
+
+
+@acao("presidente", "parlamentar")
+def emendaPropor(ator, projeto, tipo, alvo="", texto="", justificativa="", autorPid=None, aglutina=None):
+    """O parlamentar emenda só em nome próprio; a presidência registra em nome de um vereador ou da Mesa."""
+    p = proj_obter(str(projeto)) if str(projeto).isalnum() else None
+    if not p:
+        raise Erro("Projeto não encontrado.")
+    if p["situacao"] not in ("em_tramitacao", "em_pauta"):
+        raise Erro("Só projetos em tramitação recebem emendas.")
+    if ator["papel"] == "parlamentar":
+        autor = parl(ator["pid"])
+        pid, nome = autor["id"], autor["nome"]
+    elif autorPid:
+        autor = parl(str(autorPid))
+        pid, nome = autor["id"], autor["nome"]
+    else:
+        pid, nome = None, "Mesa Diretora"
+    try:
+        emendas_mod.propor(db, p, str(tipo), str(alvo or ""), texto, justificativa, pid, nome,
+                           aglutina if isinstance(aglutina, list) else None)
+    except ValueError as e:
+        raise Erro(str(e))
+    S["projetosRev"] += 1
+
+
+@acao("presidente", "parlamentar")
+def emendaRetirar(ator, id):
+    """Retirada pelo autor (ou pela presidência, a pedido dele) antes do resultado."""
+    e = _emenda(id)
+    if any(m.get("emenda") == e["id"] and m["situacao"] == "em_votacao" for m in S["pauta"]):
+        raise Erro("A emenda está em votação.")
+    try:
+        emendas_mod.retirar(db, e, ator.get("pid"), ator["papel"] == "presidente")
+    except (ValueError, PermissionError) as ex:
+        raise Erro(str(ex))
+    S["pauta"] = [m for m in S["pauta"] if m.get("emenda") != e["id"] or m["situacao"] != "pendente"]
+    S["projetosRev"] += 1
+
+
+@acao("presidente")
+def emendaResultado(ator, id, situacao, nota=""):
+    """Registro manual do resultado (votação fora do sistema, prejudicialidade declarada, desfazer)."""
+    e = _emenda(id)
+    try:
+        emendas_mod.registrar_resultado(db, e, str(situacao), {"por": "presidência", "nota": str(nota or "")[:300]})
+    except ValueError as ex:
+        raise Erro(str(ex))
+    S["projetosRev"] += 1
+
+
+@acao("presidente")
+def emendaPautar(ator, id):
+    """Põe a emenda na pauta como matéria própria: a votação existente (nominal, simbólica, secreta) decide."""
+    e = _emenda(id)
+    if e["situacao"] != "apresentada":
+        raise Erro("Só emenda apresentada vai à votação.")
+    if any(m["id"] == e["id"] for m in S["pauta"]):
+        raise Erro("Já está na pauta.")
+    p = proj_obter(e["projeto"]) or {}
+    S["pauta"].append({"id": e["id"], "numero": emendas_mod.titulo(e, p.get("numero", "")),
+                       "ementa": f"{emendas_mod.TIPOS[e['tipo']]} — {e['alvoRef']}: {(e['texto'] or 'suprime o dispositivo')[:240]}",
+                       "autor": e["autor"], "situacao": "pendente", "emenda": e["id"], "projeto": e["projeto"]})
+
+
+def _emenda_da_pauta(mid, resultado, extra: dict):
+    m = next((x for x in S["pauta"] if x["id"] == mid and x.get("emenda")), None)
+    e = emendas_mod.obter(db, m["emenda"]) if m else None
+    if e and resultado in ("aprovada", "rejeitada") and e["situacao"] != "retirada":
+        emendas_mod.registrar_resultado(db, e, resultado, extra)
+        S["projetosRev"] += 1
+
+
+def _com_emendas(nome: str, depois):
+    """Embrulha uma ação existente sem mexer no corpo dela: o resultado da matéria-emenda vai para a emenda."""
+    papeis, original = ACOES[nome]
+
+    def embrulho(ator, **args):
+        original(ator, **args)
+        depois(**args)
+    ACOES[nome] = (papeis, embrulho)
+
+
+def _apos_encerrar_votacao(resultado=None):
+    v = S["votacao"] or {}
+    _emenda_da_pauta(v.get("materia"), v.get("resultado"),
+                     {"votacao": v.get("tipo"), "contagem": publico_votacao(v)["contagem"] if v else None})
+
+
+_com_emendas("votacaoEncerrar", _apos_encerrar_votacao)
+_com_emendas("materiaSituacao", lambda id, situacao: _emenda_da_pauta(id, situacao, {"por": "presidência (pauta)"}))
+
+
+def emendas_get(h, caminho: str, qs: dict):
+    """GET /api/emendas, /api/emendas/<id>, /api/emendas/<id>/comparativo[?emenda=], /redacao-final/<id>[.pdf] e
+    /dados/akn/projeto/<id>/redacao-final.xml — públicos para projeto protocolado; None se o caminho não é daqui."""
+    m = re.fullmatch(r"/api/emendas(?:/([A-Za-z0-9]+)(/comparativo)?)?|/redacao-final/([A-Za-z0-9]+)(\.pdf)?"
+                     r"|/dados/akn/projeto/([A-Za-z0-9]+)/redacao-final\.xml", caminho)
+    if not m:
+        return None
+    with trava:
+        try:
+            ator = h._ator()
+        except TrocaPin:
+            ator = None
+        casa = S["casa"]["nome"]
+        if caminho == "/api/emendas":
+            lista = [{k: p.get(k) for k in ("id", "numero", "ementa", "autor", "situacao")}
+                     | {"emendas": emendas_mod.contagem(db, p["id"])}
+                     for p in proj_todos() if p["situacao"] != "proposta" and p.get("texto")]
+            return h._json(200, {"projetos": lista, "casa": casa})
+        pid = m.group(1) or m.group(3) or m.group(5)
+        p = proj_obter(pid)
+        if not p or p["situacao"] == "proposta" or not p.get("texto"):
+            return h._json(404, {"erro": "Projeto não encontrado."})
+        ems = emendas_mod.do_projeto(db, pid)
+        eu = parl(ator["pid"]) if ator and ator["papel"] == "parlamentar" else None
+    publico_p = {k: p.get(k) for k in ("id", "numero", "ementa", "autor", "situacao")}
+    if m.group(1) and not m.group(2):
+        cons = emendas_mod.consolidar(p["texto"], ems)
+        return h._json(200, {"projeto": publico_p, "casa": casa,
+                             "dispositivos": emendas_mod.com_referencias(cons["original"]),
+                             "emendas": [e | {"titulo": emendas_mod.titulo(e, p.get("numero", ""))} for e in ems],
+                             "tipos": emendas_mod.TIPOS, "situacoes": emendas_mod.SITUACOES,
+                             "final": {"texto": cons["texto"], "aplicadas": cons["aplicadas"], "avisos": cons["avisos"]},
+                             "pode": {"emendar": bool(ator) and p["situacao"] in ("em_tramitacao", "em_pauta"),
+                                      "presidente": bool(ator and ator["papel"] == "presidente"),
+                                      "pid": eu["id"] if eu else None}})
+    if m.group(2):
+        eid = (qs.get("emenda") or [""])[0]
+        if eid and not any(e["id"] == eid for e in ems):
+            return h._json(404, {"erro": "Emenda não encontrada."})
+        cons = emendas_mod.consolidar(p["texto"], ems, so=eid or None)
+        return h._json(200, emendas_mod.comparativo(cons["original"], cons["dispositivos"])
+                       | {"avisos": cons["avisos"], "aplicadas": cons["aplicadas"]})
+    cons = emendas_mod.consolidar(p["texto"], ems)
+    nome = None
+    if m.group(5):
+        corpo, tipo = akn.projeto_final(p, cons["dispositivos"], ems, casa).encode(), "application/akn+xml; charset=utf-8"
+    elif m.group(4):
+        corpo, tipo = emendas_mod.documento_pdf(p, cons, ems, casa), "application/pdf"
+        nome = f"Redação final - {p.get('numero') or p['id']}.pdf"
+    else:
+        corpo, tipo = emendas_mod.documento_html(p, cons, ems, casa).encode(), "text/html; charset=utf-8"
+    h.send_response(200)
+    h.send_header("Content-Type", tipo)
+    h.send_header("Content-Length", str(len(corpo)))
+    h.send_header("Cache-Control", "no-cache")
+    if nome:
+        h.send_header("Content-Disposition", "inline; filename*=UTF-8''" + urllib.parse.quote(nome))
+    if tipo.startswith("text/html"):
+        h._cabecalhos_seguranca()
+    else:
+        h.send_header("X-Content-Type-Options", "nosniff")
+    h.end_headers()
+    h.wfile.write(corpo)
+    return True
+
+
 # --- vídeo da sessão com marcação por orador e por item
 def _validar_video(url: str) -> str:
     url = str(url or "").strip()
@@ -3483,6 +3652,10 @@ class Manipulador(BaseHTTPRequestHandler):
     def _get_novos(self, caminho: str):
         """Rotas GET dos recursos novos; devolve None quando o caminho não é deles."""
         qs = urllib.parse.parse_qs(urlparse(self.path).query)
+        if caminho.startswith(("/api/emendas", "/redacao-final/", "/dados/akn/projeto/")):
+            r = emendas_get(self, caminho, qs)
+            if r is not None:
+                return r
         if caminho.startswith("/api/resumo/"):
             sessao = caminho.rsplit("/", 1)[1]
             with trava:

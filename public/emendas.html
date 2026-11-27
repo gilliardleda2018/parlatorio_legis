@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Emendas e texto final — LEGIS</title>
+<meta name="description" content="Emendas aos projetos de lei, situação de cada uma, comparativo com o texto original e texto final aprovado.">
+<link rel="icon" type="image/png" href="/marca/legis-32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px }
+  .em-lista a { display: block; text-decoration: none; padding: 12px; border-radius: 10px; background: var(--cartao2); margin-bottom: 8px }
+  .em-lista a:hover, .em-lista a.ativa { outline: 2px solid var(--destaque-suave) }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img src="/marca/legis-icone.png" alt=""><span><span id="casaNav">Câmara Municipal</span><small>Emendas</small></span></a>
+  <span class="esp"></span>
+  <a class="item" href="/transparencia">Transparência</a><a class="item" href="/parlamentares">Parlamentares</a><a class="item" href="/participe">Participe</a><a class="item ativo" href="/emendas">Emendas</a><a class="item" href="/dados">Dados abertos</a>
+</div></nav>
+<main>
+  <section class="cartao" id="emendasPublico">
+    <h2>Emendas aos projetos</h2>
+    <p class="detalhe" style="margin-top:0">Veja as emendas apresentadas pelos vereadores a cada projeto, a situação de cada uma
+      (apresentada, aprovada, rejeitada, prejudicada ou retirada), o comparativo com o texto original — o que foi
+      <ins>acrescentado</ins> e o que foi <del>retirado</del> — e o texto final com as emendas aprovadas.</p>
+  </section>
+</main>
+<script src="/rodape.js"></script>
+<script src="/emendas.js"></script>
+<script>
+fetch('/api/emendas').then(r => r.json()).then(j => { if (j.casa) { document.getElementById('casaNav').textContent = j.casa; document.title = 'Emendas — ' + j.casa; } }).catch(() => {});
+</script>
+</body>
+</html>
