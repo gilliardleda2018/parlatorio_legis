@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TITULO="${1:?Uso: bash packaging/publicar-versao.sh \"Título da novidade\"}"
 [ -z "$(git status --porcelain)" ] || { echo "Há mudanças sem commit. Faça o commit antes de publicar."; exit 1; }
-git push -q
+[ "${CI:-}" = "true" ] || git push -q   # no GitHub Actions o código já está lá
 echo "== testes"; (cd tests && python3 -m unittest -q) || { echo "Testes falharam: nada publicado."; exit 1; }
 echo "== pacote"; bash packaging/construir-pacote.sh >/dev/null
 DEB=$(ls dist/legis_*_all.deb); NOME_DEB=$(basename "$DEB")
