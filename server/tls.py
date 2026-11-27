@@ -56,6 +56,28 @@ def nomes_certificado() -> tuple[list[str], list[str]]:
     return sorted(dns), sorted(ips)
 
 
+# A autoridade local vai para a lista de confiança dos celulares e PCs: ela só pode assinar nomes da rede local
+# (e os de TLS_NOMES), nunca um site da internet. Vale para autoridades novas; as já instaladas seguem como estão.
+REDES_LOCAIS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10",
+                "::1/128", "fc00::/7", "fe80::/10")
+DOMINIOS_LOCAIS = ("localhost", "local", "lan", "home", "internal", "intranet", "home.arpa", "ts.net")
+
+
+def restricoes_ca() -> str:
+    dns, ips = nomes_certificado()
+    dominios = sorted(set(DOMINIOS_LOCAIS) | {d.lstrip("*.") for d in dns})
+    redes = set(REDES_LOCAIS)
+    for ip in ips:
+        endereco = ipaddress.ip_address(ip)
+        if not any(endereco in ipaddress.ip_network(r) for r in REDES_LOCAIS):
+            redes.add(f"{ip}/{endereco.max_prefixlen}")
+    partes = [f"permitted;DNS:{d}" for d in dominios]
+    for r in sorted(redes):
+        rede = ipaddress.ip_network(r)
+        partes.append(f"permitted;IP:{rede.network_address}/{rede.netmask}")
+    return "nameConstraints=critical," + ",".join(partes)
+
+
 def _openssl(*args: str):
     subprocess.run(["openssl", *args], check=True, capture_output=True, timeout=60)
 
@@ -102,7 +124,8 @@ def gerar(pasta: Path, renovar: bool = False) -> tuple[Path, Path]:
                  "-keyout", str(ca_key), "-out", str(ca_crt),
                  "-subj", "/CN=Parlatorio Legis - autoridade local",
                  "-addext", "basicConstraints=critical,CA:TRUE",
-                 "-addext", "keyUsage=critical,keyCertSign,cRLSign")
+                 "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+                 "-addext", restricoes_ca())
         os.chmod(ca_key, 0o600)
     if renovar or not crt.exists() or not key.exists() or precisa_renovar(crt):
         dns, ips = nomes_certificado()

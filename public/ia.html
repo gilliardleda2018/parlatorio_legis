@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Uso de inteligência artificial — LEGIS</title>
+<meta name="description" content="Política de uso de inteligência artificial da Câmara e estatísticas públicas do registro de uso.">
+<link rel="icon" type="image/png" href="/marca/legis-32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 16px }
+  #politica { white-space: pre-wrap; line-height: 1.55 }
+  table.tab td, table.tab th { text-align: left }
+  table.tab td.n { text-align: right; font-variant-numeric: tabular-nums }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img src="/marca/legis-icone.png" alt=""><span><span id="casaNav">Câmara Municipal</span><small>Uso de IA</small></span></a>
+  <span class="esp"></span>
+  <a class="item" href="/transparencia">Transparência</a><a class="item" href="/dados">Dados abertos</a><a class="item" href="/verificar">Verificar</a>
+</div></nav>
+<main>
+  <section class="cartao">
+    <h2>Política de uso de inteligência artificial</h2>
+    <p class="detalhe" style="margin-top:0" id="modelo"></p>
+    <div id="politica">Carregando…</div>
+  </section>
+  <section class="cartao">
+    <h2>Registro de uso</h2>
+    <p class="detalhe" style="margin-top:0">Cada vez que um recurso do sistema chama o modelo de IA, o uso fica registrado (recurso, modelo e data).
+      O registro não guarda o texto das perguntas dos cidadãos nem o endereço de quem perguntou.</p>
+    <div id="stats"></div>
+  </section>
+</main>
+<script src="/rodape.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+fetch('/api/ia').then(r => r.json()).then(d => {
+  $('politica').textContent = d.politica;
+  $('modelo').innerHTML = d.ligada ? `Modelo em uso neste servidor: <b>${esc(d.modelo)}</b>.` : 'A IA está desligada neste servidor: os recursos funcionam no modo simples, sem IA.';
+  $('stats').innerHTML = d.recursos.length ? `<table class="tab"><tr><th>Recurso</th><th>Usos</th><th>Conteúdos</th><th>Revisados por pessoa</th><th>Último uso</th></tr>
+    ${d.recursos.map(e => `<tr><td>${esc(e.nome)}</td><td class="n">${e.usos}${e.falhas ? ` <small class="suave">(${e.falhas} falha${e.falhas > 1 ? 's' : ''})</small>` : ''}</td>
+      <td class="n">${e.revisavel ? e.conteudos : '—'}</td>
+      <td class="n">${e.revisavel ? (e.pctRevisado == null ? '—' : e.pctRevisado + '%') : '<small class="suave">resposta imediata, com aviso</small>'}</td>
+      <td>${e.ultimo ? new Date(e.ultimo).toLocaleDateString('pt-BR') : ''}</td></tr>`).join('')}</table>
+    <p class="detalhe">${d.total} uso(s) registrados${d.desde ? ' desde ' + new Date(d.desde).toLocaleDateString('pt-BR') : ''}.
+      “Conteúdos” conta cada ata ou análise de projeto; vale a versão mais recente de cada uma.</p>`
+    : '<p class="vazio">Nenhum uso de IA registrado até agora.</p>';
+}).catch(() => { $('politica').textContent = 'Não foi possível carregar.'; });
+fetch('/api/transparencia').then(r => r.json()).then(t => { $('casaNav').textContent = t.casa.nome; Rodape.mostrar(t.rodape, t.casa); }).catch(() => {});
+</script>
+</body>
+</html>

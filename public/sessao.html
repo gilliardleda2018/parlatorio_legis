@@ -30,6 +30,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const urlSegura = u => { const t = String(u ?? '').trim(); return /^(https?:\/\/|\/(?![\/\\]))/i.test(t) ? t : ''; };
 const hora = ms => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 const tempo = s => { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
 const RES = { aprovada: ['sim', 'Aprovada'], rejeitada: ['nao', 'Rejeitada'], sem_quorum: ['nao', 'Sem quórum'], adiada: ['', 'Adiada'], retirada: ['', 'Retirada'] };
@@ -60,9 +61,9 @@ async function carregar() {
         · <a href="/dados/akn/sessao/${D.id}.xml">registro em Akoma Ntoso</a></p></section>
     ${v ? `<div class="grade-video" style="margin-top:16px">
       <div class="player" id="player">${yt ? `<iframe src="https://www.youtube-nocookie.com/embed/${yt}" allow="encrypted-media; picture-in-picture" allowfullscreen title="Vídeo da sessão"></iframe>`
-        : `<video controls preload="metadata" src="${esc(v.url)}"></video>`}</div>
+        : `<video controls preload="metadata" src="${esc(urlSegura(v.url))}"></video>`}</div>
       <section class="cartao neutro capitulos"><h2>Índice do vídeo</h2>
-        ${D.capitulos.length ? D.capitulos.map(c => `<button onclick="irPara(${c.tempo})"><span class="t">${tempo(c.tempo)}</span><span>${esc(c.rotulo)}</span></button>`).join('') : '<p class="vazio">Sem marcações.</p>'}
+        ${D.capitulos.length ? D.capitulos.map(c => `<button onclick="irPara(${Number(c.tempo) || 0})"><span class="t">${tempo(c.tempo)}</span><span>${esc(c.rotulo)}</span></button>`).join('') : '<p class="vazio">Sem marcações.</p>'}
       </section></div>` : ''}
     <section class="cartao neutro" style="margin-top:16px"><h2>Pauta e votações</h2>
       ${D.pauta.length ? '<table class="tab">' + D.pauta.map(m => {
@@ -75,7 +76,7 @@ async function carregar() {
       ${D.falas.length ? '<table class="tab">' + D.falas.map(f => `<tr><td class="tnum">${hora(f.inicio)}</td>
         <td><b>${esc(f.nome)}</b> <span class="suave">${esc(f.partido)}</span><div style="font-size:13px" class="suave">${esc(f.fase)}${f.materia && materia(f.materia) ? ' · ' + esc(materia(f.materia).numero) : ''}</div></td>
         <td class="tnum">${tempo(f.usado)}</td>
-        <td>${f.audio ? `<audio controls preload="none" src="${f.audio}" style="height:32px;max-width:220px"></audio>` : ''}</td></tr>`).join('') + '</table>'
+        <td>${f.audio ? `<audio controls preload="none" src="${esc(urlSegura(f.audio))}" style="height:32px;max-width:220px"></audio>` : ''}</td></tr>`).join('') + '</table>'
         : '<p class="vazio">Nenhum pronunciamento registrado.</p>'}</section>`;
   const t = await fetch('/api/transparencia').then(x => x.json()).catch(() => null);
   if (t) Rodape.mostrar(t.rodape, t.casa);

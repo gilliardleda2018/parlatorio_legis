@@ -98,3 +98,62 @@ def debate(r: dict, discursos: list[dict], casa: str, pais: str = "br") -> str:
 </debate>
 </akomaNtoso>
 """
+
+
+_AKN_TAG = {"artigo": ("article", "art"), "paragrafo": ("paragraph", "para"), "inciso": ("point", "inc"),
+            "alinea": ("point", "ali"), "item": ("point", "item")}
+
+
+def projeto_final(p: dict, dispositivos: list[dict], emendas: list[dict], casa: str, pais: str = "br") -> str:
+    """Texto consolidado (redação final) em estrutura hierárquica: article > paragraph > point, com eIds no
+    padrão AKN (art_1__para_2__inc_3) e as emendas como metadados em <proprietary>."""
+    from emendas import prefixo  # import tardio: emendas.py não depende deste módulo
+    filhos: dict = {}
+    for d in dispositivos:
+        filhos.setdefault(d.get("pai"), []).append(d)
+
+    def no(d, base, recuo) -> str:
+        if d["tipo"] in ("preambulo", "agrupador"):
+            return ""
+        tag, curto = _AKN_TAG[d["tipo"]]
+        n = "unico" if d["tipo"] == "paragrafo" and d["num"] == 0 else str(d["num"])
+        meu = f"{base}__{curto}_{n}" if base else f"{curto}_{n}"
+        texto = "".join(f"<p>{escape(l.strip())}</p>" for l in d["texto"].split("\n") if l.strip()) or "<p/>"
+        sub = filhos.get(d["id"], [])
+        dentro = (f"<intro>{texto}</intro>" + "".join(no(f, meu, recuo + 2) for f in sub)) if sub else f"<content>{texto}</content>"
+        return f'\n{" " * recuo}<{tag} eId="{meu}"><num>{escape(prefixo(d))}</num>{dentro}</{tag}>'
+
+    corpo = []
+    for d in dispositivos:
+        if d.get("pai"):
+            continue
+        if d["tipo"] == "agrupador":
+            corpo.append(f'\n      <hcontainer eId={quoteattr(d["id"])} name="agrupador"><heading>{escape(d["texto"].split(chr(10))[0])}</heading>'
+                         f'<content><p>{escape(d["texto"])}</p></content></hcontainer>')
+        elif d["tipo"] != "preambulo":
+            corpo.append(no(d, "", 6))
+    preambulo = next((d["texto"] for d in dispositivos if d["tipo"] == "preambulo"), "")
+    meta_em = "".join(
+        f'<legis:emenda numero="{int(e["numero"])}" tipo={quoteattr(e["tipo"])} situacao={quoteattr(e["situacao"])} '
+        f'alvo={quoteattr(e.get("alvo") or "")} referencia={quoteattr(e.get("alvoRef") or "")} autor={quoteattr(e.get("autor") or "")} '
+        f'data="{_data(e.get("criado"))}"><legis:texto>{escape(e.get("texto") or "")}</legis:texto>'
+        f'<legis:justificativa>{escape(e.get("justificativa") or "")}</legis:justificativa></legis:emenda>'
+        for e in emendas)
+    meta = _meta(pais, "bill", _slug(p.get("numero") or p["id"]) + "-redacao-final", _data(p.get("criado")), _slug(casa)).replace(
+        "  </meta>", f'    <proprietary source="#legis"><legis:emendas xmlns:legis="urn:legis:emendas">{meta_em}</legis:emendas></proprietary>\n  </meta>')
+    situacao = "redação final" if p.get("situacao") == "aprovada" else "texto consolidado com as emendas aprovadas"
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<akomaNtoso xmlns="{NS}">
+<bill name={quoteattr(p.get("numero") or "projeto")} contains="singleVersion">
+{meta}
+  <preface>
+    <p class="title"><docTitle>{escape(p.get("numero") or "")}</docTitle></p>
+    <p class="ementa">{escape(p.get("ementa") or "")}</p>
+    <p class="situacao"><docStatus>{situacao}</docStatus></p>
+  </preface>
+  {f"<preamble><p>{escape(preambulo)}</p></preamble>" if preambulo else ""}
+  <body>{"".join(corpo) or '<article eId="art_1"><num>Art. 1º</num><content><p/></content></article>'}
+  </body>
+</bill>
+</akomaNtoso>
+"""

@@ -9,9 +9,11 @@ Fora do pacote (arquivo avulso), instala também: usa o legis_*.deb da mesma pas
 Downloads, ou baixa a última versão do GitHub. A parte que precisa de administrador roda
 pelo pkexec (pede a senha numa janela) com --aplicar.
 """
+import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -57,7 +59,13 @@ def configuracao_atual() -> dict:
         for linha in (ETC / "instalacao.conf").read_text().splitlines():
             if "=" in linha:
                 k, v = linha.split("=", 1)
-                atual[k.strip()] = v.strip()
+                v = v.strip()
+                if v.startswith("'"):   # formato novo: CHAVE='valor'; o antigo (sem aspas) segue como está
+                    try:
+                        v = "".join(shlex.split(v))
+                    except ValueError:
+                        pass
+                atual[k.strip()] = v
     except OSError:
         pass
     return atual
@@ -410,12 +418,27 @@ def obter_deb(mostrar) -> str:
     mostrar("Buscando a última versão no GitHub...\n")
     rel = baixar_json(f"https://api.github.com/repos/{REPO}/releases/latest")
     ativo = next(a for a in rel["assets"] if a["name"].endswith("_all.deb"))
-    destino = Path(tempfile.gettempdir()) / ativo["name"]
+    if not re.fullmatch(r"legis[a-z0-9-]*_[A-Za-z0-9.+~-]+_all\.deb", ativo["name"]):
+        raise RuntimeError(f"Nome de pacote inesperado na versão do GitHub: {ativo['name']}")
+    soma = next((a for a in rel["assets"] if a["name"] == ativo["name"] + ".sha256"), None)
+    if not soma:
+        raise RuntimeError("A versão do GitHub não tem o .sha256 do pacote: não dá para conferir o download.")
+    pasta = Path(tempfile.mkdtemp(prefix="legis-"))   # pasta nova, só deste usuário (nada de /tmp/<nome> previsível)
+    destino = pasta / ativo["name"]
+    req = urllib.request.Request(soma["browser_download_url"], headers={"User-Agent": "legis-configurar"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        esperado = r.read(4096).decode("ascii", "replace").split()[:1]
     req = urllib.request.Request(ativo["browser_download_url"], headers={"User-Agent": "legis-configurar"})
+    h = hashlib.sha256()
     with urllib.request.urlopen(req, timeout=60) as r, open(destino, "wb") as f:
-        shutil.copyfileobj(r, f)
+        while bloco := r.read(1 << 20):
+            h.update(bloco)
+            f.write(bloco)
+    if not esperado or h.hexdigest() != esperado[0].lower():
+        destino.unlink(missing_ok=True)
+        raise RuntimeError("O pacote baixado não confere (SHA-256). Tente de novo.")
     destino.chmod(0o644)
-    mostrar(f"Baixado {ativo['name']} ({destino.stat().st_size // 1024} KB)\n")
+    mostrar(f"Baixado {ativo['name']} ({destino.stat().st_size // 1024} KB, SHA-256 conferido)\n")
     return str(destino)
 
 

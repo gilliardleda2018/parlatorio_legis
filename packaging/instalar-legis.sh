@@ -116,6 +116,9 @@ if [ -z "${YOUTUBE_CHAVE+x}" ] && tem_tty; then
 fi
 YOUTUBE_CHAVE="${YOUTUBE_CHAVE:-}"
 perguntar YOUTUBE_LINK "Link público da live no YouTube (opcional)" ""
+if [ -n "${YOUTUBE_LINK:-}" ] && { [[ "$YOUTUBE_LINK" == *$'\n'* ]] || ! LC_ALL=C grep -qxE 'https://[A-Za-z0-9./?=_@%&:+~#-]+' <<<"$YOUTUBE_LINK"; }; then
+  echo "Link do YouTube inválido (deve começar com https:// e não ter espaços nem ; \$ \` aspas): $YOUTUBE_LINK"; exit 1
+fi
 if [ -z "${TS_AUTHKEY+x}" ] && tem_tty; then
   echo "Chave do Tailscale para publicar na internet sem abrir portas (opcional)."
   read -rsp "Cole a chave (tskey-auth-...) ou aperte Enter para pular: " TS_AUTHKEY < "$TTY" || true; echo
@@ -138,6 +141,12 @@ if [ -z "$DEB" ]; then
   if curl -fsSL -o "$DEB.sha256" "$URL.sha256" 2>/dev/null; then
     (cd "$TMP" && sha256sum -c "$(basename "$DEB").sha256" >/dev/null) || { echo "O arquivo baixado não confere (SHA-256). Tente de novo."; exit 1; }
     echo "  ${VERDE}✔${FIM} $(basename "$DEB") (SHA-256 conferido)"
+  elif [ "${LEGIS_SEM_CONFERIR:-0}" = "1" ]; then
+    echo "  Aviso: sem o .sha256 da versão; seguindo SEM conferir o pacote (LEGIS_SEM_CONFERIR=1)."
+  else
+    echo "Não consegui baixar o .sha256 do pacote para conferir o download. Tente de novo"
+    echo "(ou, por sua conta e risco, rode com LEGIS_SEM_CONFERIR=1 para instalar sem conferir)."
+    exit 1
   fi
 fi
 [ -f "$DEB" ] || { echo "Pacote não encontrado: $DEB"; exit 1; }

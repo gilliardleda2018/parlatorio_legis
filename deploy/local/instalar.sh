@@ -128,7 +128,7 @@ if [ "${IA:-0}" = "1" ]; then
   systemctl enable --now docker
   mkdir -p "$DADOS/ollama"
   docker inspect ollama >/dev/null 2>&1 || docker run -d --name ollama --restart unless-stopped -e OLLAMA_KEEP_ALIVE=30m \
-    -p 127.0.0.1:11434:11434 -v "$DADOS/ollama:/root/.ollama" ollama/ollama
+    -p 127.0.0.1:11434:11434 -v "$DADOS/ollama:/root/.ollama" "${OLLAMA_IMAGEM:-ollama/ollama:0.5.7}"   # versão fixa
   sleep 5
   docker exec ollama ollama pull qwen2.5:3b
   sed -i '/^IA=/d;/^OLLAMA_URL=/d;/^IA_MODELO=/d' /etc/parlatorio.env

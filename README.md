@@ -34,20 +34,25 @@ Variáveis de ambiente:
 - `TLS_CERT` e `TLS_KEY`: certificado próprio (por exemplo, de um domínio) no lugar do local
 - `TLS_NOMES`: nomes ou IPs extras para o certificado local, separados por vírgula
 - `TZ`: fuso das atas (o Docker já usa `America/Sao_Paulo`)
-- `PIN_PRESIDENTE`: PIN do painel do presidente (padrão 1234; troque em produção)
+- `PIN_PRESIDENTE`: PIN inicial do painel do presidente. Sem ele, o servidor sorteia um PIN de 6 dígitos na primeira partida e o mostra no log (`PIN inicial do presidente: …`) até a primeira troca
 - `TRANSCRICAO`: `auto` (padrão), `local`, `api`, `comando` ou `0` — veja **Transcrição dos discursos**
 - `HOST`: endereço onde o servidor escuta (padrão `0.0.0.0`; use `127.0.0.1` atrás de um proxy)
 - `PROXY_CONFIAVEL=1`: atrás de proxy (Caddy, nginx, Tailscale Funnel), usa o IP real do visitante no bloqueio por tentativas; `PROXY_IPS` diz de onde o proxy conecta: IPs ou faixas (padrão `127.0.0.1,::1`; em Docker, a rede do contêiner, ex. `172.26.0.0/16`)
 - `TROCA_PIN=0`: período de testes — deixa entrar com o PIN padrão (0000) sem obrigar a troca. Não use em produção.
 - `PARLATORIO_BANCO`: caminho do banco SQLite (padrão `dados/parlatorio.db`)
+- `MAX_CONEXOES`: conexões simultâneas aceitas (padrão 800); `TEMPO_LIMITE_CONEXAO`: segundos até uma conexão parada cair (padrão 60)
+- `RADIO_MAX_GB`: espaço máximo da programação da rádio (padrão 20)
 
-Os parlamentares começam com PIN `0000` e o painel com `1234` (ou o `PIN_PRESIDENTE`). No primeiro acesso o sistema **obriga a troca** por um PIN pessoal.
+Cada parlamentar começa com um **PIN inicial aleatório e próprio** (6 dígitos), que o presidente vê em **Plenário → PINs iniciais** e entrega a cada um. Ninguém consegue entrar na conta de um colega com um PIN conhecido de todos. O painel começa com o `PIN_PRESIDENTE` (ou o sorteado, mostrado no log). No primeiro acesso o sistema **obriga a troca** por um PIN pessoal, e o inicial some da lista. Bancos antigos em que vereadores ainda usavam `0000` recebem PINs iniciais novos na primeira partida desta versão. Com `TROCA_PIN=0` (testes), todos continuam com `0000`.
 
 ## Segurança de acesso
 
 - PINs guardados só como hash (PBKDF2-SHA256 com sal), nunca em texto. Bancos antigos são convertidos ao iniciar.
-- Após 5 PINs errados na mesma conta (ou 20 do mesmo endereço), novas tentativas ficam bloqueadas por 15 minutos.
-- PIN padrão ou óbvio (0000, 1234, 1111, sequências) obriga a troca antes de qualquer ação. O PIN do painel deve ter 6 dígitos ou mais.
+- Após 5 PINs errados na mesma conta (ou 20 do mesmo endereço), novas tentativas ficam bloqueadas por 15 minutos. A tentativa é contada antes de o PIN ser conferido, então pedidos em paralelo não escapam do limite.
+- PIN inicial, óbvio (0000, 1234, 1111, sequências) ou, no painel, com menos de 6 dígitos obriga a troca antes de qualquer outra coisa: até trocar, o servidor só responde a `/api/eu` e à troca de PIN.
+- A auditoria nunca grava PIN, senha, chave ou token, e no voto secreto registra só que a pessoa votou. Os logins ficam guardados só como hash: um backup do banco não abre sessões.
+- As páginas não podem ser abertas dentro de outro site (`Content-Security-Policy: frame-ancestors 'self'` e `X-Frame-Options`), e o endereço da mesa de som e a pasta do backup não vão para as telas públicas.
+- Pedidos malformados, conexões paradas e excesso de conexões são recusados sem derrubar o servidor.
 - O login expira após 12 h sem uso no painel do presidente e 30 dias no celular, e nunca dura mais de 90 dias. Trocar o PIN encerra os outros acessos daquela conta.
 - Votar ou pedir destaque na sessão virtual exige confirmar o PIN. O app pode lembrar por 10 minutos, só naquela página.
 - Botão **PIN** no painel e no app para trocar quando quiser.
@@ -80,7 +85,7 @@ O GitHub Actions roda tudo a cada push, em Python 3.11, 3.12 e 3.13.
 
 ## HTTPS
 
-Na primeira execução o servidor cria, com `openssl`, uma autoridade certificadora própria da casa (`dados/tls/ca.crt`) e um certificado válido para `localhost`, o nome da máquina e os IPs da rede. Depois:
+Na primeira execução o servidor cria, com `openssl`, uma autoridade certificadora própria da casa (`dados/tls/ca.crt`) e um certificado válido para `localhost`, o nome da máquina e os IPs da rede. A autoridade só pode assinar nomes e IPs da rede local (e os de `TLS_NOMES`), nunca um site da internet: mesmo que o servidor seja invadido, ela não serve para interceptar outros sites nos aparelhos. Isso vale para autoridades criadas a partir desta versão; para trocar uma antiga, apague `dados/tls/` e reinstale o certificado nos aparelhos. Depois:
 
 1. Em cada computador, tablet e celular, abra `http://IP-do-servidor:8090/certificado`. A página reconhece o aparelho e instala o certificado do jeito mais curto: no Windows, um `.cmd` que confia na autoridade só para o usuário (sem administrador) e abre o LEGIS; no iPhone/iPad/Mac, um perfil `.mobileconfig`; no Android e no Linux, o `.crt` com o caminho de cada um. Ela testa o `https://` e mostra **Abrir o LEGIS** quando o aparelho já confia. O arquivo puro continua em `/certificado.crt` (e em `/certificado` para quem não é navegador, como o `curl`).
 2. Use sempre `https://IP-do-servidor:8443`. Quem abrir pelo endereço `http://` é redirecionado (menos em `localhost`).
@@ -88,6 +93,17 @@ Na primeira execução o servidor cria, com `openssl`, uma autoridade certificad
 Com HTTPS, a gravação das falas funciona de qualquer computador da rede, não só no servidor. Se o IP ou o nome do servidor mudar, o certificado do servidor é renovado sozinho (na partida e a cada 5 minutos com o LEGIS ligado), e também 30 dias antes de vencer. A autoridade é mantida: os aparelhos não precisam reinstalar nada. Para forçar: `python3 server/servidor.py --renovar-certificado`.
 
 Em servidor com domínio público, use um proxy com Let's Encrypt (Caddy, por exemplo: `parlatorio.camara.gov.br { reverse_proxy localhost:8090 }`) e rode o Parlatório com `HTTPS=0`.
+
+## Passkey no voto (biometria do celular)
+
+Inspirado no Infoleg da Câmara dos Deputados (voto pelo aplicativo com identificação biométrica) e no ponto biométrico das câmaras municipais: o vereador confirma voto e presença com a digital, o rosto ou o bloqueio de tela do próprio celular (WebAuthn / passkey), em vez de digitar o PIN.
+
+- **Cadastro** (opcional): no app do parlamentar, cartão **🔐 Passkey** → *Cadastrar este celular*. Pede o PIN (uma sessão roubada não cadastra passkey própria). Dá para ter mais de um aparelho, ver quando cada um foi usado e remover (também com o PIN).
+- **Presidência** (Configurações → *Passkey no voto*): *Desligado* (padrão, só PIN), *Passkey ou PIN* (o app usa a biometria e, se ela for cancelada, pede o PIN) ou *Exigir passkey de quem cadastrou* (voto e destaque da sessão virtual, voto e presença do plenário só com a passkey). Quem não cadastrou continua como antes. A presidência vê quem tem passkey e pode **revogar todas** de um vereador (celular perdido).
+- **Endereço**: WebAuthn exige contexto seguro e não aceita IP. Abra pelo nome, com HTTPS: `https://<nome-da-maquina>.local:8443` (o certificado local já inclui o nome da máquina) ou o domínio da Câmara. Pelo IP, o app esconde o botão e explica. A passkey fica presa ao nome usado no cadastro. Atrás de proxy (Caddy etc. com `HTTPS=0`), ligue `PROXY_CONFIAVEL=1`: o servidor usa o `X-Forwarded-Proto: https` do proxy.
+- **Como o servidor confere** (`server/passkey.py`, só biblioteca padrão): desafio aleatório de uso único, válido por 2 minutos, por conta; `clientDataJSON` (tipo, desafio, origem igual ao endereço do LEGIS); hash do rpId; flags de presença (UP) e de verificação do usuário (UV, exigida; `PASSKEY_UV=0` aceita sem); contador de assinaturas sempre crescente (se o aparelho usa contador); e a assinatura sobre `authenticatorData || sha256(clientDataJSON)`. Algoritmos ES256 (P-256) e RS256. O CBOR do `attestationObject` e as contas de ECDSA/RSA são feitos em Python puro: verificar usa só a chave pública, então não há segredo a vazar e não dependemos de chamar o `openssl` com arquivos temporários. Attestation "none": o fabricante do aparelho não é conferido; a confiança vem do cadastro feito pelo próprio vereador com o PIN.
+- Asserções inválidas contam no mesmo bloqueio de tentativas do PIN. Cadastro, remoção, revogação, mudança de opção e recusas vão para a auditoria, sem nenhum dado da credencial.
+- **Testes** (`tests/test_passkey.py`): um autenticador simulado com chave gerada pelo `openssl`. Só para testes, `PASSKEY_ORIGEM` e `PASSKEY_RP` fixam a origem e o rpId esperados (ex.: `https://legis.teste:8443` e `legis.teste`); em produção deixe vazias: vale o host HTTPS do pedido.
 
 ## Sessões e ata
 
@@ -179,6 +195,17 @@ As importações rodam em segundo plano, com barra de progresso e registro. O se
 
 Testado com o SAPL público de Campina Grande (PB). Ainda **não envia** resultados de votação ao SAPL: isso exige um usuário com permissão de escrita e testes num SAPL de homologação.
 
+## Protocolo eletrônico, tramitação e fiscalização do Executivo
+
+Inspirado no SAPL 3.1, no SPLegis da Câmara de São Paulo, no Granicus Legistar e nas *Written Questions* do Parlamento do Reino Unido. Regras em `server/tramitacao.py`; telas em `public/tramitacao.js` (aba **Tramitação** do painel e aba **Protocolo** do app do vereador) e na página pública `/tramitacao`.
+
+- **Protocolo eletrônico:** o vereador protocola pelo app, sempre em seu nome, PL, PLC, PR, PDL, emenda à Lei Orgânica, requerimento, indicação, moção ou pedido de informação (tipos e siglas configuráveis), com ementa, texto e justificativa. A secretaria confere e **protocola** (ou devolve com o motivo; o autor corrige e reenvia). A numeração é automática por tipo e ano (`PL 12/2026`), nunca repete e respeita os números já existentes (inclusive os importados do SAPL). O **comprovante em PDF** traz número, data e hora, autoria e o **hash SHA-256 do texto** (ou da ementa, se não houver texto); a página pública confere o hash no navegador. A secretaria também protocola direto matérias do Executivo, da Mesa ou entregues em papel. A matéria protocolada entra no banco de projetos e vai à pauta como as demais.
+- **Pedidos de informação e indicações ao Executivo:** ao registrar o envio, conta o prazo (padrão de 30 dias, configurável conforme a Lei Orgânica, ou próprio do pedido). A resposta da prefeitura é registrada com resumo, data de recebimento e ofício em PDF opcional (até 2,8 MB, validado). Situação calculada: *aguardando*, *respondido (no prazo / fora do prazo)* ou *em atraso*. A página `/tramitacao` mostra a lista e o **placar** de respostas no prazo e atrasadas.
+- **Comissões e prazos regimentais:** comissões permanentes com membros e presidente; cada matéria passa por *protocolada → lida em plenário → em comissão (uma ou mais) → relator designado → parecer (favorável, contrário ou com emendas) → pedido de vista → pronta para a pauta → votada → enviada à sanção / arquivada*. Cada passo grava data e quem fez no histórico da matéria. Prazos de parecer (15 dias) e de vista (3 dias) configuráveis, com **aviso no painel** (número na aba Tramitação) do que vence em até 5 dias ou já venceu. **Reunião de comissão:** abre, marca a presença dos membros (quórum de maioria) e registra a votação do parecer por membro (sim/não). O **relator** vê no app as matérias que relata e envia o parecer. A votação no plenário (presencial ou virtual) já leva a matéria a *votada*.
+- **Linha do tempo pública** de cada matéria em `/tramitacao#<id>`, com protocolo, comissões, pareceres, votações e resposta do Executivo.
+
+Permissões: o vereador só protocola em seu nome e só envia parecer onde é relator; todo o resto (protocolar, devolver, distribuir, designar relator, vista, reuniões, envio e resposta do Executivo) é do painel do presidente. Matérias antigas ou importadas do SAPL continuam funcionando; para acompanhá-las aqui, use **Iniciar tramitação** (mantém o número). Não há escrita no SAPL. Prazos contados em dias corridos.
+
 ## Começar com os vereadores eleitos (TSE)
 
 Para criar o banco de uma câmara com os vereadores eleitos em 2024 (nome de urna, partido, número, votos e foto oficial do TSE) e a população do Censo 2022 (IBGE):
@@ -235,6 +262,20 @@ PARLATORIO_BANCO=dados/demo.db python3 server/servidor.py
 - sem IA: cada recurso funciona em modo simples (rascunho com quem falou e o resultado; perguntas respondidas com os trechos encontrados).
 
 As respostas automáticas sempre mostram as fontes, e o rascunho da ata só vale depois de revisado.
+
+## Emendas, comparativo e redação final
+
+Inspirado no AT4AM (Parlamento Europeu), no LEOS (Comissão Europeia), no LexComp (Senado) e na compilação de textos do SAPL 3.1. A lógica fica em `server/emendas.py`; as telas em `public/emendas.js` (painel e app) e `public/emendas.html` (página pública).
+
+- **Texto articulado.** O texto cadastrado em *Projetos → Texto e consulta* vira dispositivos com identificador estável: `art1`, `art1_parunico`, `art2_par1`, `art2_inc3`, `art2_inc2_alib`, `art11a` (art. 11-A). Reconhece “Art. 1º / Art. 10.”, “§ 1º”, “Parágrafo único.”, incisos romanos (“I –”), alíneas (“a)”), itens (“1.”) e títulos/capítulos.
+- **Emendas.** Supressiva, substitutiva (de um dispositivo ou do texto todo — substitutivo), modificativa (só o texto do dispositivo), aditiva (inserida após o dispositivo escolhido; sem rótulo, vira um dispositivo do mesmo tipo) e aglutinativa (substitui e funde outras emendas, que ficam prejudicadas quando ela é aprovada). Numeração automática por projeto (“Emenda nº 3 ao PL 12/2026”), autoria, data, texto e justificativa.
+  - O vereador apresenta pelo app (cartão *Emendas aos projetos*), sempre em nome próprio, e retira a própria emenda enquanto ela não tiver resultado. A presidência registra em nome de qualquer vereador ou da Mesa Diretora (*Projetos → Emendas e redação final*).
+  - **Resultado:** o botão *Pautar votação* põe a emenda na pauta como matéria própria, e a votação já existente (nominal, simbólica ou secreta) grava o resultado na emenda ao ser encerrada. Também dá para registrar à mão: aprovada, rejeitada, prejudicada ou desfazer.
+  - Limites: texto até 20 mil caracteres, justificativa de 10 a 5 mil, 300 emendas por projeto; só projetos em tramitação ou em pauta recebem emendas. A emenda é testada contra o texto atual antes de ser aceita.
+- **Comparativo (redline)** com `difflib`, palavra a palavra, lado a lado ou no texto, com `<ins>`/`<del>`: original × uma emenda, e original × texto final com todas as aprovadas. O texto é escapado antes de receber as marcas.
+- **Redação final / autógrafo.** As emendas aprovadas são aplicadas na ordem de apresentação e os dispositivos são **renumerados** (artigos em sequência, parágrafo único quando sobra um só, incisos e alíneas). Emenda cujo alvo sumiu (por exemplo, suprimido por outra) é pulada com aviso. As **remissões no corpo do texto** (“conforme o art. 3º”) **não** são reescritas: o sistema avisa quantos dispositivos foram renumerados para a revisão.
+  - `/redacao-final/<id>` (HTML para imprimir), `/redacao-final/<id>.pdf` (mesmo gerador de PDF da ata) e `/dados/akn/projeto/<id>/redacao-final.xml` (Akoma Ntoso com article/paragraph/point e as emendas como metadados em `<proprietary>`).
+- **Página pública** `/emendas?p=<id>`: emendas, situação, comparativo e o texto final. JSON: `/api/emendas`, `/api/emendas/<id>`, `/api/emendas/<id>/comparativo[?emenda=<id>]`.
 
 ## Instalar num servidor Debian limpo (recomendado)
 
@@ -426,3 +467,49 @@ O navegador só libera o microfone em conexão segura: grave abrindo o painel em
 ## Relatórios
 
 Tempo de fala por partido e por parlamentar, lista de pronunciamentos com apartes e cessões, e exportação em CSV da ata de tempos e das votações.
+
+## Auditoria íntegra, recibo de voto e governança da IA
+
+Lógica em `server/integridade.py`; telas públicas `/verificar` e `/ia`.
+
+- **Auditoria à prova de adulteração.** Cada linha nova da tabela `eventos` guarda `hash = sha256(hash_anterior|ts|autor|acao|args)`. Na primeira partida de um banco antigo, a coluna `hash` é criada (migração idempotente) e as linhas que já existiam ficam sem hash: elas formam o **início** da cadeia e não podem ser conferidas; a partir da primeira linha com hash, alterar, apagar ou inserir uma linha no meio quebra a conferência. `GET /api/integridade` (público) recalcula tudo e devolve `{ok, total, inicio, encadeados, ultimo_hash, primeira_quebra, selos, selos_ausentes}`.
+- **Selo da ata.** Ao encerrar e arquivar a sessão, o último hash da cadeia vai para o registro da sessão (`selo`) e para o fim da ata em PDF (“Selo de integridade: …”). Em `/verificar`, quem guardou a ata cola o selo e sabe se ele bate com uma sessão arquivada e se ainda está na cadeia (apagar o fim do registro e refazer a corrente também é percebido, porque o selo some).
+- **Recibo do voto nominal.** Depois de votar, o app do parlamentar mostra um recibo de 10 caracteres (HMAC-SHA256 com chave secreta do servidor sobre votação + parlamentar + voto) e o código da votação (`GET /api/recibo?votacao=<id>`, só para o próprio parlamentar). Em `/verificar` qualquer pessoa confere o par votação + recibo e recebe só “confere” ou “não confere”. Se o voto mudar antes do encerramento, vale o recibo do último voto. **Voto secreto nunca tem recibo** (só “seu voto foi contado”) e a auditoria continua sem o valor. A chave fica no estado do servidor (`_chaveRecibo`, nunca vai para as telas): restaurar um backup antigo do banco mantém a chave; apagar o banco invalida os recibos antigos.
+- **Uso de IA** (inspirado nas Diretrizes para IA nos Parlamentos da UIP, dez/2024, e na Portaria 227/2025 da Câmara dos Deputados). Toda chamada ao modelo — rascunho da ata, análise prévia, Pergunte ao Regimento, assistente do cidadão — fica na tabela `uso_ia` (data, recurso, modelo, tamanho e hash curto da entrada; nunca o texto das perguntas nem IP). Em **Relatórios → Rascunho da ata**, o presidente marca o rascunho como revisado, com o nome de quem revisou (ação `iaRevisarAta`); a ata em PDF e o painel mostram “Rascunho gerado por IA (modelo), revisado por … em …” ou “não revisado”. Respostas imediatas da IA (Regimento, assistente) vêm com o aviso de que não tiveram revisão humana. A página pública `/ia` mostra a política de uso de IA (texto padrão, editável em **Configurações → Uso de IA e integridade**) e as estatísticas do registro: usos por recurso e % dos conteúdos revisados.
+
+## Acompanhar, opinar na pauta, Tribuna Livre e citações com LexML
+
+Inspirado no SPLegis (Câmara Municipal de São Paulo), no eComment da Granicus, no Linkoln (CNR) e no LexML Brasil. Código em `server/feeds.py`, `server/tribuna.py` e `server/citacoes.py` (a cola com o servidor, rotas e ações, em `server/acompanhar.py`); telas em `public/acompanhar.js`, `projeto.html`, `normas.html`, `participe-pauta.js`, `presidente-cidadao.js` e `telao-placar.js`.
+
+**Acompanhar sem entrar no site**
+
+| Endereço | O que tem |
+|---|---|
+| `/feeds/projetos.atom` | Atom 1.0: projetos novos e cada mudança de situação (pauta, votação), a partir do histórico do banco de projetos |
+| `/feeds/projeto/<id>.atom` | Um projeto |
+| `/feeds/vereador/<id>.atom` | Falas, votos **nominais** e projetos do vereador (só sessões encerradas; voto secreto e simbólico não entram) |
+| `/feeds/sessoes.atom` | Sessões encerradas, com link para a ata pública (`/sessao/<id>`) e para o Akoma Ntoso |
+| `/agenda.ics` (`?projeto=<id>`) | iCalendar (RFC 5545, CRLF, escape e dobra em 75 octetos) |
+| `/projeto/<id>` | Página pública do projeto: texto com as leis citadas em link, histórico e botões de acompanhar |
+
+O LEGIS ainda não tem agenda de sessões futuras: a agenda traz as **sessões virtuais** (com início e fim, inclusive agendadas) e as **sessões já realizadas** como eventos passados. Os botões **Acompanhar (RSS)** e **Adicionar à agenda** (`webcal://`, o calendário assina e atualiza) aparecem na página do projeto, no perfil do vereador e na transparência.
+
+**Aviso por e-mail (opcional).** Só aparece quando o ambiente tem `SMTP_HOST`, `SMTP_USUARIO`, `SMTP_SENHA` e `SMTP_REMETENTE` (opcionais: `SMTP_PORTA`, padrão 587; `SMTP_LIMITE_HORA`, padrão 60 envios por hora; `ACOMPANHAR_INTERVALO`, segundos entre as verificações de novidades, padrão 60). O envio usa STARTTLS (`SMTP_STARTTLS=0` só para testes ou relay local) numa thread de fundo. Defina também `URL_PUBLICA` (ex.: `https://camara.exemplo.gov.br`): é o endereço usado nos links dos e-mails; sem ela, só vale um Host que seja IP, `localhost` ou nome do `TLS_NOMES`, para que um cabeçalho forjado não ponha link de outro site na mensagem.
+
+- **Double opt-in obrigatório**: o cidadão recebe um link de confirmação de uso único (vale 48 horas). O link abre uma página com um botão; só o clique (POST) confirma, então robôs de antivírus que abrem links não inscrevem ninguém.
+- **Descadastro** em todo e-mail (link e cabeçalho `List-Unsubscribe` com one-click, RFC 8058): apaga a inscrição.
+- **LGPD**: finalidade única (avisar sobre o andamento do projeto escolhido), base legal consentimento (art. 7º, I). A tabela `acompanhamentos` guarda só o e-mail, o projeto e dados técnicos (tokens, datas); o IP fica só na memória para limitar abusos (5 inscrições por hora por endereço, 3 confirmações por dia por e-mail). Inscrições não confirmadas somem em 48 horas. O e-mail nunca aparece em API pública, feed ou dado aberto.
+
+**Opinião do cidadão na pauta e Tribuna Livre** (em `/participe`)
+
+- Cada item da pauta da próxima sessão recebe opinião **a favor / contra / neutro** com comentário. Nome e e-mail são obrigatórios; o e-mail fica só com a Câmara (aparece apenas no painel do presidente). Limite: 6 por hora por endereço. **Nada é publicado nem conta no placar antes da aprovação da presidência** (Sessão → *Opinião do cidadão na pauta*, que mostra o placar publicado e o recebido). A presidência pode mostrar no telão o placar do item em discussão.
+- **Tribuna Livre**: inscrição online (nome, entidade ou bairro, tema, contato), 2 por dia por endereço. A presidência aprova, recusa, ordena (↑ ↓) e abre ou fecha as inscrições; a lista pública mostra só os aprovados, na ordem, sem o contato. As inscrições valem para a sessão em andamento (ao encerrá-la, a lista da próxima começa vazia).
+
+**Citações com links e LexML**
+
+O texto e a ementa do projeto, na página pública, ganham links nas normas citadas (“Lei nº 1.234/2020”, “Lei Municipal nº 123, de 5 de maio de 2019”, “art. 5º da Lei nº 8.080/1990”, “Constituição Federal, art. 30”, “Decreto-Lei nº 3.689/1941”, “Lei nº 14.133, de 1º de abril de 2021”, “CF/88”, “Lei Orgânica do Município”…). O servidor escapa o texto inteiro e só insere `<a>` nos trechos reconhecidos, pelos offsets do texto original (sem XSS). `POST /api/citacoes {"texto": …}` faz o mesmo para qualquer texto, como uma ata.
+
+- **URN LexML** (`urn:lex`, RFC 9676): federal `urn:lex:br:federal:lei:2021-04-01;14133`, com link para `https://www.lexml.gov.br/urn/<urn>`; municipal `urn:lex:br;sao.paulo;campinas:municipal:lei:2019-05-05;123` (estado e município por extenso, minúsculos, sem acento, palavras separadas por ponto). Sem a data completa usamos só o ano (`urn:lex:br:federal:lei:1993;8666`), forma que o LexML aceita quando o dia é desconhecido; dispositivos vão depois de `!` (`…;1988!art30`). As URNs municipais precisam da UF e do município da Câmara (primeira configuração).
+- **Federal ou municipal?** Com “federal”, “municipal” ou “estadual” no texto, vale o que está escrito. Sem isso, a lei é municipal se estiver cadastrada; federal se o número cai na faixa que a numeração federal usava naquele ano (ex.: 14.133 em 2021); senão, municipal. É uma heurística: cadastre as normas do município para acertar sempre.
+- **Normas municipais**: em Projetos → *Normas municipais*, a presidência cadastra ou importa um CSV simples (`tipo;numero;data;ementa;link`, vírgula também serve). A tabela é `normas_municipais` (o nome `normas` já guarda o Regimento e a Lei Orgânica em texto para o “Pergunte ao Regimento”). Citação de norma cadastrada vira link interno para `/normas#n-<id>`; municipal não cadastrada fica só com a URN (sem link).
+- **OAI-PMH** em `/oai` (verbos Identify, ListMetadataFormats, ListSets, ListIdentifiers, ListRecords e GetRecord; `oai_dc`; conjuntos `normas` e `projetos`; `resumptionToken` de 50 em 50). O e-mail do administrador é o da Câmara no rodapé (ou `OAI_EMAIL`). Cadastrar o provedor no LexML Brasil para a coleta é um passo **opcional e externo**: pede-se à equipe do LexML (Senado Federal) informando o endereço `https://<seu-dominio>/oai`.

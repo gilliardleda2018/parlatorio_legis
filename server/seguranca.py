@@ -57,7 +57,13 @@ def validar_novo_pin(pin: str, minimo: int = 4) -> str | None:
 
 
 class Bloqueio:
-    """Conta falhas de login por conta e por endereço IP (só em memória)."""
+    """Conta falhas de login por conta e por endereço IP (só em memória).
+
+    `tentar()` reserva a tentativa dentro da trava antes de conferir o PIN: pedidos em paralelo não passam todos
+    pela checagem antes de a primeira falha ser contada. Se o PIN estiver certo, `acertou()` devolve a reserva.
+    """
+
+    MAX_CHAVES = 50_000  # proteção de memória: chaves sem falhas recentes são descartadas
 
     def __init__(self):
         self._falhas: dict[str, list[float]] = {}
@@ -66,24 +72,54 @@ class Bloqueio:
     def _recentes(self, chave: str) -> list[float]:
         agora = time.time()
         lista = [t for t in self._falhas.get(chave, []) if agora - t < JANELA]
-        self._falhas[chave] = lista
+        if lista:
+            self._falhas[chave] = lista
+        else:
+            self._falhas.pop(chave, None)
         return lista
+
+    def _limpar(self):
+        if len(self._falhas) > self.MAX_CHAVES:
+            for chave in list(self._falhas):
+                self._recentes(chave)
+
+    def _espera(self, conta: str, ip: str) -> int:
+        for chave, limite in ((f"c:{conta}", LIMITE_CONTA), (f"i:{ip}", LIMITE_ENDERECO)):
+            lista = self._recentes(chave)
+            if len(lista) >= limite:
+                return int(JANELA - (time.time() - lista[-limite])) + 1
+        return 0
 
     def espera(self, conta: str, ip: str) -> int:
         """Segundos até poder tentar de novo (0 = liberado)."""
         with self._trava:
-            for chave, limite in ((f"c:{conta}", LIMITE_CONTA), (f"i:{ip}", LIMITE_ENDERECO)):
-                lista = self._recentes(chave)
-                if len(lista) >= limite:
-                    return int(JANELA - (time.time() - lista[-limite])) + 1
-            return 0
+            return self._espera(conta, ip)
+
+    def tentar(self, conta: str, ip: str) -> tuple[int, float | None]:
+        """Reserva uma tentativa (conta como falha até `acertou`). Devolve (espera, marca); espera > 0 = bloqueado."""
+        with self._trava:
+            espera = self._espera(conta, ip)
+            if espera:
+                return espera, None
+            marca = time.time()
+            for chave in (f"c:{conta}", f"i:{ip}"):
+                self._falhas.setdefault(chave, []).append(marca)
+            self._limpar()
+            return 0, marca
 
     def falhou(self, conta: str, ip: str):
         with self._trava:
             agora = time.time()
             for chave in (f"c:{conta}", f"i:{ip}"):
-                self._recentes(chave).append(agora)
+                self._falhas.setdefault(chave, []).append(agora)
+            self._limpar()
 
-    def acertou(self, conta: str):
+    def acertou(self, conta: str, ip: str | None = None, marca: float | None = None):
         with self._trava:
             self._falhas.pop(f"c:{conta}", None)
+            if ip is not None and marca is not None:
+                lista = self._falhas.get(f"i:{ip}", [])
+                if marca in lista:
+                    lista.remove(marca)
+                if not lista:
+                    self._falhas.pop(f"i:{ip}", None)

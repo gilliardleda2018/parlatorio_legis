@@ -35,7 +35,7 @@ class PainelDosPacotes(unittest.TestCase):
         cls.proc = subprocess.Popen([sys.executable, str(RAIZ / "packaging" / "painel.py"), "--sem-navegador"], env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cls.base = f"http://127.0.0.1:{cls.porta}"
-        for _ in range(50):
+        for _ in range(450):  # até 45 s: em máquina ocupada o painel sobe devagar
             try:
                 pagina = urllib.request.urlopen(cls.base + "/", timeout=1).read().decode()
                 break
@@ -121,7 +121,7 @@ class PainelOnline(unittest.TestCase):
         cls.proc = subprocess.Popen([sys.executable, str(RAIZ / "packaging" / "painel.py"), "--sem-navegador"], env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cls.base = f"http://127.0.0.1:{cls.porta}"
-        for _ in range(50):
+        for _ in range(450):  # até 45 s: em máquina ocupada o painel sobe devagar
             try:
                 urllib.request.urlopen(cls.base + "/", timeout=1).read()
                 break
@@ -169,6 +169,20 @@ class PainelOnline(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError):
             urllib.request.urlopen(r, timeout=5)
         self.assertEqual(self.pedir("/i/nada/codigoerrado1")[0], 404)
+
+    def test_host_localhost_pelo_proxy_nao_da_acesso(self):
+        """Pelo Funnel a conexão chega do loopback; mandar Host: localhost não pode pular a chave de acesso."""
+        for cab in ({"X-Forwarded-For": "1.2.3.4"}, {"Tailscale-Funnel-Request": "?1"}, {"Forwarded": "for=1.2.3.4"}):
+            r = urllib.request.Request(self.base + "/", headers={"Host": "127.0.0.1", **cab})
+            try:
+                with urllib.request.urlopen(r, timeout=5) as x:
+                    corpo = x.read().decode()
+            except urllib.error.HTTPError as e:
+                corpo = e.read().decode()
+            self.assertNotIn("const TOKEN", corpo, cab)
+            r = urllib.request.Request(self.base + "/api/estado", headers={"Host": "localhost", **cab})
+            with self.assertRaises(urllib.error.HTTPError, msg=str(cab)):
+                urllib.request.urlopen(r, timeout=5)
 
 
 if __name__ == "__main__":

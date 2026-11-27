@@ -34,9 +34,6 @@ on:
         required: false
         type: string
 
-permissions:
-  contents: write
-
 concurrency:
   group: pacotes
   cancel-in-progress: false
@@ -44,6 +41,8 @@ concurrency:
 jobs:
   camara:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # só este job publica releases
     steps:
       - uses: actions/checkout@v4
       - name: Gerar e publicar o pacote da Câmara

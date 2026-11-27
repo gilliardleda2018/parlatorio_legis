@@ -31,16 +31,34 @@ done
 OBRA=$(mktemp -d)
 trap 'rm -rf "$OBRA"' EXIT
 echo "== Dados oficiais de $MUNICIPIO/${UF^^} (TSE e IBGE)"
-python3 - "$UF" "$MUNICIPIO" "$BRASAO" "$NOME" "$CAMARA" "$OBRA" <<'PY'
+python3 - "$UF" "$MUNICIPIO" "$BRASAO" "$NOME" "$CAMARA" "$OBRA" "$YT_LINK" <<'PY'
 import json, re, sys, unicodedata
 from pathlib import Path
 sys.path.insert(0, "server")
 import cidade
-uf, municipio, brasao, nome, camara, obra = sys.argv[1:7]
+uf, municipio, brasao, nome, camara, obra, yt = sys.argv[1:8]
+
+
+def nome_valido(rotulo: str, valor: str, limite: int) -> str:
+    """Município e Câmara vão para scripts que rodam como root: só letras (com acento), dígitos, espaço e .-'"""
+    valor = " ".join(valor.split())
+    if not valor or len(valor) > limite or not all(c.isalnum() or c in " .-'" for c in valor):
+        sys.exit(f"{rotulo} inválido: use só letras, números, espaço e . - ' (até {limite} caracteres): {valor!r}")
+    return valor
+
+
+municipio = nome_valido("Município", municipio, 80)
+if camara.strip():
+    camara = nome_valido("Nome da Câmara", camara, 120)
+if yt and not re.fullmatch(r"https://[A-Za-z0-9./?=_@%&:+~#-]+", yt, re.ASCII):
+    sys.exit(f"Link do YouTube inválido (deve começar com https:// e não ter espaços nem ; $ ` aspas): {yt!r}")
 d = cidade.buscar(uf, municipio)
+d["municipio"] = nome_valido("Município", d["municipio"], 80)
 semac = "".join(c for c in unicodedata.normalize("NFD", d["municipio"]) if unicodedata.category(c) != "Mn").lower()
 d["nome"] = re.sub(r"[^a-z0-9]+", "-", (nome or semac).lower()).strip("-")
 d["camara"] = camara.strip() or f"Câmara Municipal de {d['municipio']}"
+if not re.fullmatch(r"[A-Za-z]{2}", d["uf"]) or not re.fullmatch(r"[a-z0-9-]{1,40}", d["nome"]):
+    sys.exit("Estado ou nome curto inválido.")
 if brasao:
     b = Path(brasao).read_bytes()
     mime = "image/png" if b[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg" if b[:2] == b"\xff\xd8" else \
@@ -57,16 +75,19 @@ print(f"{d['camara']}: {len(d['eleitos'])} vereadores, {sum(1 for e in d['eleito
 PY
 { read -r UF_OK; read -r MUN_OK; read -r SLUG; read -r CAMARA_OK; } < "$OBRA/info"
 
+# valor entre aspas simples para sh (o ' vira '\''): o config roda como root
+aspas() { printf "'%s'" "$(printf %s "$1" | sed "s/'/'\\\\''/g")"; }
+
 # perguntas do apt já respondidas: estado, município e nome vêm do pacote; o resto segue o padrão
 cat > "$OBRA/config" <<EOF
 #!/bin/sh
-# Pacote do LEGIS de $CAMARA_OK: estado, município e nome já definidos (nenhuma pergunta).
+# Pacote do LEGIS de uma Câmara: estado, município e nome já definidos (nenhuma pergunta).
 set -e
 . /usr/share/debconf/confmodule
-db_set legis/uf $(echo "$UF_OK" | tr 'A-Z' 'a-z')
-db_set legis/municipio $MUN_OK
-db_set legis/nome $SLUG
-${YT_LINK:+db_set legis/youtube_link $YT_LINK}
+db_set legis/uf $(aspas "$(echo "$UF_OK" | tr 'A-Z' 'a-z')")
+db_set legis/municipio $(aspas "$MUN_OK")
+db_set legis/nome $(aspas "$SLUG")
+${YT_LINK:+db_set legis/youtube_link $(aspas "$YT_LINK")}
 for q in uf municipio nome radio transcricao ia; do db_fset legis/\$q seen true || true; done
 db_input low legis/youtube_chave || true
 db_input low legis/tailscale_chave || true
@@ -87,7 +108,13 @@ PASTA="legis-$SLUG-completo-$VERSAO"
 mkdir "$OBRA/$PASTA"
 cp "$DEB" "$DEB.sha256" "$OBRA/$PASTA/"
 install -m 0755 packaging/instalar-legis.sh "$OBRA/$PASTA/instalar-legis.sh"
-sed "s/^# LEGIS — pacote completo de instalação/# LEGIS — $CAMARA_OK/" packaging/LEIA-ME.md > "$OBRA/$PASTA/LEIA-ME.md"
+python3 - "$CAMARA_OK" packaging/LEIA-ME.md "$OBRA/$PASTA/LEIA-ME.md" <<'PY'   # sem sed: o nome não vira expressão
+import sys
+from pathlib import Path
+camara, origem, destino = sys.argv[1:4]
+t = Path(origem).read_text(encoding="utf-8")
+Path(destino).write_text(t.replace("# LEGIS — pacote completo de instalação", f"# LEGIS — {camara}", 1), encoding="utf-8")
+PY
 tar -C "$OBRA" --owner=0 --group=0 -czf "$DESTINO/$PASTA.tar.gz" "$PASTA"
 echo
 echo "Pronto: $CAMARA_OK ($MUN_OK/$UF_OK)"

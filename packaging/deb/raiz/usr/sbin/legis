@@ -12,14 +12,27 @@ DADOS=/var/lib/legis
 ETC=/etc/legis
 ENVF=$ETC/legis.env
 LOG=/var/log/legis-extras.log
+# imagens dos contêineres com versão fixa (troque aqui, ou na variável, para atualizar)
+OLLAMA_IMAGEM="${OLLAMA_IMAGEM:-ollama/ollama:0.5.7}"
+TAILSCALE_IMAGEM="${TAILSCALE_IMAGEM:-tailscale/tailscale:v1.76.6}"
 
 le() { grep -E "^$1=" "$2" 2>/dev/null | tail -1 | cut -d= -f2-; }
+# instalacao.conf sem executar: aceita CHAVE='valor' (com '\'' dentro) e o formato antigo CHAVE=valor
+le_conf() {
+  local v; v=$(le "$1" "$ETC/instalacao.conf") || v=""   # chave ausente (arquivo antigo): vazio
+  if [ "${#v}" -ge 2 ] && [ "${v:0:1}" = "'" ] && [ "${v: -1}" = "'" ]; then
+    v=${v:1:${#v}-2}; v=${v//"'\''"/"'"}
+  fi
+  printf '%s' "$v"
+}
 root() { [ "$(id -u)" = 0 ] || { echo "Use: sudo legis $*"; exit 1; }; }
 reiniciar() { if [ -d /run/systemd/system ]; then systemctl restart legis.service; fi; }
 
 resumo() {
   local http https ip pin url
   http=$(le PORTA "$ENVF"); https=$(le PORTA_HTTPS "$ENVF"); pin=$(le PIN_PRESIDENTE "$ENVF")
+  # na instalação (postinst) o PIN não aparece: o registro do apt fica guardado
+  [ "${LEGIS_SEM_PIN:-0}" = 1 ] && pin="veja com  sudo grep PIN_PRESIDENTE $ENVF"
   ip=$(hostname -I 2>/dev/null | awk '{print $1}')
   url=$(cat "$ETC/endereco-internet" 2>/dev/null || true)
   local suf=""; [ "$https" != "443" ] && suf=":$https"
@@ -32,7 +45,7 @@ resumo() {
  1º acesso:       http://$ip$hsuf/certificado   (em cada aparelho: instala o certificado e abre o LEGIS)
  Internet:        ${url:-não publicado (sudo dpkg-reconfigure legis, com a chave do Tailscale)}
  Presidente:      /presidente — PIN inicial: ${pin:-?} (troque no primeiro acesso)
- Vereadores:      /parlamentar — PIN inicial 0000 (troca obrigatória)
+ Vereadores:      /parlamentar — PIN inicial de cada um em Plenário → PINs iniciais (troca obrigatória)
  Rádio:           $( grep -q '^RADIO_LOCAL=1' "$ENVF" 2>/dev/null && echo "https://$(hostname).local$suf/radio.mp3 (programação em Configurações → Rádio da Câmara)" || echo "não instalada")
  Checklist:       /usr/share/doc/legis/README.md
 EOF
@@ -72,8 +85,8 @@ extras() {
   root extras
   exec >>"$LOG" 2>&1
   echo "== $(date '+%F %T') instalação extra =="
-  # shellcheck disable=SC1090
-  . "$ETC/instalacao.conf"
+  local TRANSCRICAO IA JITSI NOME
+  TRANSCRICAO=$(le_conf TRANSCRICAO); IA=$(le_conf IA); JITSI=$(le_conf JITSI); NOME=$(le_conf NOME)
   local mudou=0
   if [ "${TRANSCRICAO:-false}" = "true" ] && [ ! -x "$DADOS/whisper/bin/python" ]; then
     echo "transcrição: instalando faster-whisper e o modelo small..."
@@ -83,7 +96,7 @@ extras() {
     if command -v docker >/dev/null; then
       echo "IA: iniciando o Ollama e baixando qwen2.5:3b (cerca de 2 GB)..."
       docker inspect legis-ollama >/dev/null 2>&1 || docker run -d --name legis-ollama --restart unless-stopped \
-        -e OLLAMA_KEEP_ALIVE=30m -p 127.0.0.1:11434:11434 -v "$DADOS/ollama:/root/.ollama" ollama/ollama
+        -e OLLAMA_KEEP_ALIVE=30m -p 127.0.0.1:11434:11434 -v "$DADOS/ollama:/root/.ollama" "$OLLAMA_IMAGEM"
       sleep 5
       docker exec legis-ollama ollama pull qwen2.5:3b
       printf 'IA=ollama\nOLLAMA_URL=http://127.0.0.1:11434\nIA_MODELO=qwen2.5:3b\n' >> "$ENVF"
@@ -111,16 +124,28 @@ extras() {
   "AllowFunnel": { "\${TS_CERT_DOMAIN}:443": true } }
 EOF
       docker rm -f legis-tailscale >/dev/null 2>&1 || true
-      docker run -d --name legis-tailscale --restart unless-stopped --network host \
-        -e TS_AUTHKEY="$(cat "$DADOS/.tailscale-chave")" -e TS_HOSTNAME="$NOME" -e TS_USERSPACE=true \
-        -e TS_STATE_DIR=/var/lib/tailscale -e TS_SERVE_CONFIG=/config/serve.json \
-        -v "$DADOS/tailscale:/var/lib/tailscale" tailscale/tailscale:stable
+      # a chave vai num arquivo só-leitura (TS_AUTHKEY=file:…), não no ambiente: não aparece no docker inspect.
+      # TS_AUTH_ONCE: depois de entrar, o contêiner não precisa mais dela (o arquivo é apagado abaixo)
+      local segredo="$DADOS/tailscale-segredo"
+      install -d -m 0700 "$segredo"
+      install -m 0600 "$DADOS/.tailscale-chave" "$segredo/chave"
       rm -f "$DADOS/.tailscale-chave"
+      docker run -d --name legis-tailscale --restart unless-stopped --network host \
+        -e TS_AUTHKEY=file:/run/legis-segredo/chave -e TS_AUTH_ONCE=true -e TS_HOSTNAME="$NOME" -e TS_USERSPACE=true \
+        -e TS_STATE_DIR=/var/lib/tailscale -e TS_SERVE_CONFIG=/var/lib/tailscale/serve.json \
+        -v "$segredo:/run/legis-segredo:ro" -v "$DADOS/tailscale:/var/lib/tailscale" "$TAILSCALE_IMAGEM"
       for _ in $(seq 1 40); do
         local dns; dns=$(docker exec legis-tailscale tailscale status --json 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin)['Self']['DNSName'].rstrip('.'))" 2>/dev/null || true)
         if [ -n "$dns" ]; then echo "https://$dns" > "$ETC/endereco-internet"; echo "internet: https://$dns"; break; fi
         sleep 3
       done
+      if [ -s "$ETC/endereco-internet" ] && [ -n "${dns:-}" ]; then
+        rm -f "$segredo/chave"   # já entrou na rede: a chave não é mais necessária
+      else
+        # não entrou a tempo: a chave volta para o lugar, para a próxima tentativa (sudo legis extras)
+        install -m 0600 "$segredo/chave" "$DADOS/.tailscale-chave" 2>/dev/null || true
+        echo "internet: o Tailscale não respondeu a tempo; rode de novo: sudo legis extras"
+      fi
     else
       echo "internet: o Docker não está instalado (sudo apt install docker.io) — pulando."
     fi

@@ -58,10 +58,10 @@ function desenharSessao() {
   $('fases').innerHTML = S.fases.map(f => {
     const n = (S.filas[f.id] || []).length;
     const usado = PL.usadoNaFase(f.id), total = f.totalMin * 60000;
-    return `<div class="fase ${f.id === S.faseAtual ? 'ativa' : ''}" onclick="A('setFase',{id:'${f.id}'})">
+    return `<button type="button" class="fase ${f.id === S.faseAtual ? 'ativa' : ''}" aria-pressed="${f.id === S.faseAtual}" onclick="A('setFase',{id:'${f.id}'})">
       <div class="t"><span>${esc(f.nome)} <small class="suave">· ${f.min} min</small></span><span class="conta">${n}</span></div>
       ${total ? `<div class="barra ${usado > total ? 'n-fim' : usado > total * .85 ? 'n-alerta' : ''}" data-fase="${f.id}"><i style="width:${Math.min(100, usado / total * 100)}%"></i></div>
-      <small class="suave tnum" data-fase-txt="${f.id}">${tempo(usado)} de ${tempo(total)}</small>` : ''}</div>`;
+      <small class="suave tnum" data-fase-txt="${f.id}">${tempo(usado)} de ${tempo(total)}</small>` : ''}</button>`;
   }).join('');
 
   const f = fila();
@@ -370,7 +370,7 @@ function editarParl(id) {
     <label class="linha">Líder de bancada<input type="checkbox" id="dLider" ${p.lider ? 'checked' : ''}></label>
     <label class="linha">Bloco<select class="campo" id="dBloco" style="width:auto">${Object.entries(NOMES_BLOCO).map(([k, v]) => `<option value="${k}" ${(p.bloco || '') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
     <label class="linha">Canal do microfone na mesa de som (0 = sem canal)<input class="campo" type="number" min="0" max="256" id="dCanal" value="${p.canal || 0}" style="width:100px"></label>
-    <label class="rot">PIN de acesso pelo celular (4 a 8 dígitos)<input class="campo" id="dPin" inputmode="numeric" placeholder="${id ? 'deixe em branco para manter' : 'padrão: 0000'}"></label>`,
+    <label class="rot">PIN de acesso pelo celular (4 a 8 dígitos)<input class="campo" id="dPin" inputmode="numeric" placeholder="${id ? 'deixe em branco para manter' : 'em branco: PIN aleatório'}"></label>`,
     async () => {
       await PL.acao('presidente', 'parlSalvar', { id, nome: $('dNome').value, partido: $('dPartido').value, lider: $('dLider').checked, pin: $('dPin').value, canal: +$('dCanal').value, bloco: $('dBloco').value });
       const arq = $('dFoto')?.files[0];
@@ -430,7 +430,9 @@ function csvOcorrencias() {
     ...[...(PL.estado.ocorrencias || [])].reverse().map(o => [new Date(o.ts).toLocaleString('pt-BR'), PL.OCORRENCIAS[o.tipo] || o.tipo, o.nome, o.motivo])]);
 }
 function baixarCsv(nome, linhas) {
-  const csv = '﻿' + linhas.map(l => l.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n');
+  /* evita injeção de fórmula ao abrir no Excel/LibreOffice (=, +, -, @, tab, CR), sem mexer em números como -3 */
+  const celula = c => { const t = String(c ?? ''); return /^[=+\-@\t\r]/.test(t) && !/^[+-]?\d+([.,]\d+)?$/.test(t) ? "'" + t : t; };
+  const csv = '﻿' + linhas.map(l => l.map(c => `"${celula(c).replace(/"/g, '""')}"`).join(';')).join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   a.download = `${nome}-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
@@ -467,7 +469,13 @@ function carregarConfig() {
   carregarTransmissao();
   desenharBackup();
   desenharSapl();
-  const m = S.mesa;
+  carregarMesa();
+}
+async function carregarMesa() {
+  let m;
+  try { m = await (await apiGet('/api/mesa')).json(); } catch { return; }
+  if (!m || m.erro) return;
+  mesaPastaBackup = m.pastaBackup || ''; desenharBackup();
   mesaOpcoes();
   $('mModelo').value = m.modelo || (m.driver === 'osc' ? 'osc' : m.driver === 'http' ? 'http' : '');
   $('mHost').value = m.host; $('mPorta').value = m.porta; $('mEndereco').value = m.endereco;
@@ -519,13 +527,14 @@ function desenharSapl() {
     ${job.log.length ? `<details style="margin-top:6px"><summary class="detalhe" style="cursor:pointer">Registro (${job.log.length})</summary><div class="suave tnum" style="font-size:12px;line-height:1.6;max-height:180px;overflow:auto">${job.log.map(esc).join('<br>')}</div></details>` : ''}`;
 }
 PL.aoMudar(() => { if (abaAtual === 'config') { desenharSapl(); desenharBackup(); } });
+let mesaPastaBackup = '';
 function desenharBackup() {
   const b = PL.estado.backup || {};
   const tam = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
   $('bkBotao').disabled = !!b.emAndamento;
   $('bkEstado').innerHTML = b.emAndamento ? '⏳ Fazendo backup…'
     : b.erro ? `<span style="color:var(--vermelho)">⚠ Falhou: ${esc(b.erro)}</span>`
-    : b.ultimo ? `✓ Último backup: <b>${new Date(b.ultimo).toLocaleString('pt-BR')}</b> · ${esc(b.arquivo)} (${tam(b.tamanho)}) · ${b.copias || 1} cópia(s) guardadas em <code>${esc(b.pasta || '')}</code><br>
+    : b.ultimo ? `✓ Último backup: <b>${new Date(b.ultimo).toLocaleString('pt-BR')}</b> · ${esc(b.arquivo)} (${tam(b.tamanho)}) · ${b.copias || 1} cópia(s) guardadas em <code>${esc(mesaPastaBackup)}</code><br>
         Nextcloud: ${b.nextcloud === 'enviado' ? '<span class="chip sim">enviado</span>' : b.nextcloud === 'desligado' || !b.nextcloud ? 'não configurado' : `<span class="chip nao">${esc(b.nextcloud)}</span>`}`
     : 'Nenhum backup ainda.';
 }
@@ -670,7 +679,7 @@ function desenharTransmissao() {
   $('trBotao').className = 'botao ' + (st.ativa || aqui ? 'perigo' : '');
   $('trBotao').disabled = !window.isSecureContext;
   $('trAjuda').innerHTML = !window.isSecureContext ? 'Para transmitir, abra este painel por HTTPS ou em localhost (o navegador só libera o áudio em conexão segura).'
-    : st.ativa ? `No ar há ${min} min · ${(Math.max(st.bytes, aqui ? Tr.bytes : 0) / 1048576).toFixed(1)} MB enviados${S.transmissao.publico ? ` · <a href="${esc(S.transmissao.publico)}" target="_blank" rel="noopener">ouvir</a>` : ''}`
+    : st.ativa ? `No ar há ${min} min · ${(Math.max(st.bytes, aqui ? Tr.bytes : 0) / 1048576).toFixed(1)} MB enviados${S.transmissao.publico ? ` · <a href="${esc(PL.urlSegura(S.transmissao.publico))}" target="_blank" rel="noopener">ouvir</a>` : ''}`
     : st.erro ? `<span class="n-fim">${esc(st.erro)}</span>`
     : S.transmissao?.configurada ? 'Usa a mesma entrada de áudio da gravação e envia para o servidor de rádio configurado.'
     : (S.youtube?.configurado && S.youtube?.ligado) ? 'Usa a mesma entrada de áudio da gravação e envia ao YouTube (a rádio não está configurada).'
@@ -680,7 +689,7 @@ function desenharTransmissao() {
   $('trCamera').classList.toggle('oculto', !(yt.configurado && yt.ligado));
   $('trCamera').disabled = aqui || st.ativa;
   $('trYoutube').innerHTML = !(yt.configurado && yt.ligado) ? ''
-    : ys.ativa ? `<span class="rec">▶ YouTube no ar</span> · ${ys.modo === 'camera' ? 'câmera' : 'tela automática'}${yt.link ? ` · <a href="${esc(yt.link)}" target="_blank" rel="noopener">assistir</a>` : ''}`
+    : ys.ativa ? `<span class="rec">▶ YouTube no ar</span> · ${ys.modo === 'camera' ? 'câmera' : 'tela automática'}${yt.link ? ` · <a href="${esc(PL.urlSegura(yt.link))}" target="_blank" rel="noopener">assistir</a>` : ''}`
     : ys.erro ? `<span class="n-fim">YouTube: ${esc(ys.erro)}</span>`
     : (aqui || st.ativa) ? '<span class="chip ambar">YouTube conectando…</span>' : '▶ Também vai para o YouTube.';
   $('ytCfgEstado').innerHTML = yt.configurado ? `<span class="chip ${yt.ligado ? 'sim' : ''}">${yt.ligado ? 'ligado' : 'chave salva, desligado'}</span>` : '<span class="chip">sem chave</span>';
@@ -993,11 +1002,11 @@ function editarProjeto(id) {
     <div class="rot">Grupos vulneráveis atendidos${opcoes('fVuln', d.vulneraveisNomes, p.vulneraveis || [])}</div>
     ${!naPauta ? `<label class="linha">Situação<select class="campo" id="fSit" style="width:auto">${[...(p.situacao === 'proposta' ? ['proposta'] : []), 'em_tramitacao', 'aprovada', 'rejeitada', 'retirada', 'arquivado'].map(k => `<option value="${k}" ${p.situacao === k ? 'selected' : ''}>${SIT_PROJ[k]}</option>`).join('')}</select></label>` : '<p class="detalhe" style="margin:0">Na pauta da sessão: a situação muda pela votação.</p>'}
     <div class="previa-nota" id="fPrevia"></div>
-    ${p.saplUrl ? `<p class="detalhe" style="margin:0">Importado do SAPL · <a href="${esc(p.saplUrl)}" target="_blank" rel="noopener noreferrer">abrir no SAPL ↗</a>${p.textoUrl ? ` · <a href="${esc(p.textoUrl)}" target="_blank" rel="noopener noreferrer">texto original ↗</a>` : ''}</p>` : ''}
+    ${p.saplUrl ? `<p class="detalhe" style="margin:0">Importado do SAPL · <a href="${esc(PL.urlSegura(p.saplUrl))}" target="_blank" rel="noopener noreferrer">abrir no SAPL ↗</a>${p.textoUrl ? ` · <a href="${esc(PL.urlSegura(p.textoUrl))}" target="_blank" rel="noopener noreferrer">texto original ↗</a>` : ''}</p>` : ''}
     ${p.situacao === 'proposta' ? `<div class="rot">Proposta de parlamentar${p.instrumento ? ' · instrumento sugerido: ' + esc(p.instrumento) : ''}
       ${p.justificativa ? `<div style="color:var(--texto);font-size:13px;white-space:pre-wrap">${esc(p.justificativa)}</div>` : ''}
       <small>Para protocolar, informe o número oficial e mude a situação para “Em tramitação”.</small></div>` : ''}
-    ${(p.historico || []).length ? `<div class="rot">Histórico<div style="font-size:13px;color:var(--texto)">${p.historico.map(h => `${new Date(h.ts).toLocaleDateString('pt-BR')} · ${esc(h.sessao)} · ${h.evento === 'votacao' ? 'votação: ' + (PL.SITUACOES[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim}×${h.contagem.nao})` : '') : 'em pauta: ' + (PL.SITUACOES[h.situacao] || h.situacao)}`).join('<br>')}</div></div>` : ''}`,
+    ${(p.historico || []).length ? `<div class="rot">Histórico<div style="font-size:13px;color:var(--texto)">${p.historico.map(h => `${new Date(h.ts).toLocaleDateString('pt-BR')} · ${esc(h.sessao)} · ${h.evento === 'tramitacao' ? 'tramitação' : h.evento === 'votacao' ? 'votação: ' + (PL.SITUACOES[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim}×${h.contagem.nao})` : '') : 'em pauta: ' + (PL.SITUACOES[h.situacao] || h.situacao)}`).join('<br>')}</div></div>` : ''}`,
     async () => {
       await PL.acao('presidente', 'projetoSalvar', fichaDoFormulario(id));
       carregarProjetos();
@@ -1161,7 +1170,7 @@ async function editarTranscricao(id) {
   dlg.classList.add('largo');
   dialogo(`Discurso — ${d.nome}`, `
     <div class="detalhe">${esc(d.fase)} · ${new Date(d.inicio).toLocaleString('pt-BR')} · ${t.revisada ? 'texto revisado' : t.motor ? 'transcrição automática (' + esc(t.motor) + ')' : 'sem transcrição'}</div>
-    <audio controls preload="none" src="${d.audio}" style="width:100%"></audio>
+    <audio controls preload="none" src="${esc(PL.urlSegura(d.audio))}" style="width:100%"></audio>
     <label class="rot">Texto do discurso — corrija o que a transcrição automática errou; separe parágrafos com uma linha em branco
       <textarea class="campo" id="tTexto" rows="14" style="font:inherit;line-height:1.5;resize:vertical">${esc(t.texto || '')}</textarea></label>
     <label class="linha">Publicar na página pública (busca de discursos e perfil do parlamentar)<input type="checkbox" id="tPub" ${t.publicada ? 'checked' : ''}></label>
@@ -1170,6 +1179,19 @@ async function editarTranscricao(id) {
   dlg.addEventListener('close', () => dlg.classList.remove('largo'), { once: true });
 }
 
+/* PIN inicial de cada vereador: aleatório, só o presidente vê, até o vereador trocar no primeiro acesso */
+async function verPinsIniciais() {
+  let r;
+  try { r = await (await apiGet('/api/pins-iniciais')).json(); } catch { return; }
+  const pins = r.pins || {};
+  const linhas = PL.estado.parls.filter(p => pins[p.id])
+    .map(p => `<tr><td>${esc(p.nome)}</td><td class="tnum" style="font-size:1.2em;letter-spacing:.1em"><b>${esc(pins[p.id])}</b></td></tr>`).join('');
+  dialogo('PINs iniciais dos vereadores', linhas
+    ? `<p class="detalhe" style="margin-top:0">Entregue a cada vereador o PIN dele. No primeiro acesso pelo celular o sistema obriga a troca por um PIN pessoal, e o inicial some desta lista.</p>
+       <table class="tab"><thead><tr><th>Vereador</th><th>PIN inicial</th></tr></thead><tbody>${linhas}</tbody></table>`
+    : '<p class="detalhe" style="margin:0">Todos os vereadores já trocaram o PIN inicial.</p>',
+    () => window.print(), 'Imprimir');
+}
 function dialogo(titulo, html, aoConfirmar, rotulo = 'Salvar') {
   $('dlgTitulo').textContent = titulo; $('dlgCorpo').innerHTML = html; $('dlgOk').textContent = rotulo;
   $('dlgOk').onclick = async () => { try { await aoConfirmar(); dlg.close(); } catch {} };

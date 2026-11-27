@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
 
   ollama:
-    image: ollama/ollama
+    image: ${OLLAMA_IMAGEM:-ollama/ollama:0.5.7}   # versão fixa; para atualizar, troque aqui ou defina OLLAMA_IMAGEM
     profiles: ["ia"]
     restart: unless-stopped
     environment:

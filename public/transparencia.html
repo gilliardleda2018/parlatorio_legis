@@ -100,7 +100,7 @@
   <div class="tiles" id="tiles"></div>
 
   <section class="cartao" id="projetos">
-    <h2>Projetos por relevância social</h2>
+    <h2>Projetos por relevância social<span class="esp"></span><span data-acompanhar data-feed="/feeds/projetos.atom" data-titulo="Projetos" style="text-transform:none;letter-spacing:0"></span></h2>
     <p class="detalhe" style="margin-top:0">A nota (0–100) combina pessoas beneficiadas, abrangência, grupos vulneráveis atendidos e urgência, conforme a ficha social de cada projeto.
       São estimativas com fonte declarada: servem para comparar e priorizar, não substituem a análise do mérito.</p>
     <div class="filtros">
@@ -153,7 +153,7 @@
 
   <section class="cartao neutro" id="discursos"></section>
 
-  <section class="cartao neutro" id="sessoes"><h2>Sessões realizadas</h2><div style="overflow-x:auto"><table class="tab" id="tabSessoes"></table></div></section>
+  <section class="cartao neutro" id="sessoes"><h2>Sessões realizadas<span class="esp"></span><span data-acompanhar data-feed="/feeds/sessoes.atom" data-agenda="/agenda.ics" data-titulo="Sessões" style="text-transform:none;letter-spacing:0;font-weight:600"></span></h2><div style="overflow-x:auto"><table class="tab" id="tabSessoes"></table></div></section>
   <p class="suave" style="text-align:center;font-size:13px" id="rodape"></p>
 </main>
 <div id="dica" role="tooltip"></div>
@@ -161,10 +161,12 @@
 <script src="/assistente.js"></script>
 <script src="/aovivo.js"></script>
 <script src="/discursos.js"></script>
+<script src="/acompanhar.js"></script>
 
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const urlSegura = u => { const t = String(u ?? '').trim(); return /^(https?:\/\/|\/(?![\/\\]))/i.test(t) ? t : ''; };
 const num = n => (n ?? 0).toLocaleString('pt-BR');
 const data = ms => new Date(ms).toLocaleDateString('pt-BR');
 function dur(seg) { seg = Math.round(seg); const h = Math.floor(seg / 3600), m = Math.floor(seg % 3600 / 60); return h ? `${h}h${String(m).padStart(2, '0')}` : `${m} min`; }
@@ -246,10 +248,11 @@ function desenharProjetos() {
         <div class="em">${esc(p.ementa)}</div>
         <div class="tags">${(p.areas || []).map(a => `<span class="tag">${esc(D.areas[a])}</span>`).join('')}${(p.vulneraveis || []).map(v => `<span class="tag" style="background:color-mix(in srgb,var(--c-vulneraveis) 30%,var(--cartao3))">${esc(D.vulneraveisNomes[v])}</span>`).join('')}</div>
         <details><summary>Detalhes</summary>
+          <a href="/projeto/${esc(p.id)}">Página do projeto</a> · <a href="/feeds/projeto/${esc(p.id)}.atom">📡 acompanhar</a><br>
           ${p.autor ? 'Autoria: ' + esc(p.autor) + '<br>' : ''}${p.abrangencia ? 'Abrangência: ' + esc(D.abrangenciaNomes[p.abrangencia]) + '<br>' : ''}${p.urgencia ? 'Urgência: ' + esc(D.urgenciaNomes[p.urgencia]) + '<br>' : ''}
           ${p.fonte ? 'Fonte da estimativa: ' + esc(p.fonte) + '<br>' : ''}
-          ${p.textoUrl ? `<a href="${esc(p.textoUrl)}" target="_blank" rel="noopener noreferrer">Texto original</a> · ` : ''}${p.saplUrl ? `<a href="${esc(p.saplUrl)}" target="_blank" rel="noopener noreferrer">Tramitação no SAPL</a><br>` : ''}
-          ${(p.historico || []).map(h => `${data(h.ts)} · ${esc(h.sessao)} · ${h.evento === 'votacao' ? 'votação: ' + (SIT[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim} sim, ${h.contagem.nao} não)` : '') : 'pauta'}`).join('<br>')}
+          ${p.textoUrl ? `<a href="${esc(urlSegura(p.textoUrl))}" target="_blank" rel="noopener noreferrer">Texto original</a> · ` : ''}${p.saplUrl ? `<a href="${esc(urlSegura(p.saplUrl))}" target="_blank" rel="noopener noreferrer">Tramitação no SAPL</a><br>` : ''}
+          ${(p.historico || []).map(h => `${data(h.ts)} · ${esc(h.sessao)} · ${h.evento === 'tramitacao' ? 'tramitação' : h.evento === 'votacao' ? 'votação: ' + (SIT[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim} sim, ${h.contagem.nao} não)` : '') : 'pauta'}`).join('<br>')}
         </details></div>
       <div class="lado">${barraNota(p.relevancia)}<div class="suave" style="font-size:12px;margin-top:4px">${p.beneficiados ? num(p.beneficiados) + ' pessoas beneficiadas' : ''}</div></div>
     </div>`).join('') : '<p class="vazio">Nenhum projeto encontrado.</p>';
@@ -364,7 +367,7 @@ function desenharVotacoes() {
 
 function desenharSessoes() {
   $('tabSessoes').innerHTML = D.sessoes.length ? '<tr><th>Data</th><th>Sessão</th><th class="n">Duração</th><th class="n">Presentes</th><th class="n">Pronunciamentos</th><th class="n">Votações</th></tr>' +
-    D.sessoes.map(s => `<tr><td>${data(s.inicio)}</td><td>${s.fonte ? `<a href="${esc(s.fonte)}" target="_blank" rel="noopener noreferrer" style="color:var(--texto)">${esc(s.titulo)}</a>` : `<a href="/sessao/${s.id}" style="color:var(--texto)">${esc(s.titulo)}</a>`}</td><td class="n">${s.semHorario ? '—' : dur(s.duracao)}</td><td class="n">${s.membros ? s.presentes + '/' + s.membros : '—'}</td><td class="n">${s.semHorario ? (s.pauta + ' na pauta') : s.falas}</td><td class="n">${s.votacoes || '—'}</td></tr>`).join('')
+    D.sessoes.map(s => `<tr><td>${data(s.inicio)}</td><td>${s.fonte ? `<a href="${esc(urlSegura(s.fonte))}" target="_blank" rel="noopener noreferrer" style="color:var(--texto)">${esc(s.titulo)}</a>` : `<a href="/sessao/${s.id}" style="color:var(--texto)">${esc(s.titulo)}</a>`}</td><td class="n">${s.semHorario ? '—' : dur(s.duracao)}</td><td class="n">${s.membros ? s.presentes + '/' + s.membros : '—'}</td><td class="n">${s.semHorario ? (s.pauta + ' na pauta') : s.falas}</td><td class="n">${s.votacoes || '—'}</td></tr>`).join('')
     : '<tr><td class="vazio">Nenhuma sessão encerrada ainda.</td></tr>';
 }
 

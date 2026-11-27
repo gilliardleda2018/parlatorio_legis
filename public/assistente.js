@@ -2,6 +2,7 @@
    (projetos, sessões, discursos publicados, parlamentares, contatos) e mostra as fontes. */
 (() => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const urlSegura = u => { const t = String(u ?? '').trim(); return /^(https?:\/\/|\/(?![\/\\]))/i.test(t) ? t : ''; };
   const css = document.createElement('style');
   css.textContent = `.assist-bt{position:fixed;right:18px;bottom:18px;z-index:60;border:0;border-radius:999px;padding:12px 18px;font-weight:700;
       background:var(--destaque,#1f8a4c);color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.35);cursor:pointer;font-size:15px}
@@ -40,9 +41,9 @@
     const r = await fetch('/api/perguntar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pergunta, historico, escopo: 'tudo' }) }).then(x => x.json()).catch(() => ({ erro: 'Sem conexão.' }));
     if (r.erro) { espera.textContent = r.erro; return; }
-    const fontes = (r.fontes || []).map((f, k) => `<a href="${esc(f.link || '#')}">[${k + 1}] ${esc(f.titulo)}</a>`).join(' · ');
-    espera.innerHTML = r.resposta ? `${esc(r.resposta)}${fontes ? `<div class="fontes">Fontes: ${fontes}</div>` : ''}`
-      : `Encontrei estes registros:<div class="fontes">${(r.fontes || []).slice(0, 4).map((f, k) => `<div style="margin-top:4px"><a href="${esc(f.link || '#')}">[${k + 1}] ${esc(f.titulo)}</a> — ${esc(f.texto.slice(0, 160))}…</div>`).join('')}</div>`;
+    const fontes = (r.fontes || []).map((f, k) => `<a href="${esc(urlSegura(f.link) || '#')}">[${k + 1}] ${esc(f.titulo)}</a>`).join(' · ');
+    espera.innerHTML = r.resposta ? `${esc(r.resposta)}${fontes ? `<div class="fontes">Fontes: ${fontes}</div>` : ''}${r.seloIA ? `<div class="fontes"><a href="/ia">${esc(r.seloIA)}</a></div>` : ''}`
+      : `Encontrei estes registros:<div class="fontes">${(r.fontes || []).slice(0, 4).map((f, k) => `<div style="margin-top:4px"><a href="${esc(urlSegura(f.link) || '#')}">[${k + 1}] ${esc(f.titulo)}</a> — ${esc(f.texto.slice(0, 160))}…</div>`).join('')}</div>`;
     historico.push({ de: 'eu', texto: pergunta }, { de: 'assistente', texto: r.resposta || '' });
     msgs.scrollTop = msgs.scrollHeight;
   };
