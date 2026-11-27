@@ -250,7 +250,7 @@ function desenharProjetos() {
           ${p.autor ? 'Autoria: ' + esc(p.autor) + '<br>' : ''}${p.abrangencia ? 'Abrangência: ' + esc(D.abrangenciaNomes[p.abrangencia]) + '<br>' : ''}${p.urgencia ? 'Urgência: ' + esc(D.urgenciaNomes[p.urgencia]) + '<br>' : ''}
           ${p.fonte ? 'Fonte da estimativa: ' + esc(p.fonte) + '<br>' : ''}
           ${p.textoUrl ? `<a href="${esc(urlSegura(p.textoUrl))}" target="_blank" rel="noopener noreferrer">Texto original</a> · ` : ''}${p.saplUrl ? `<a href="${esc(urlSegura(p.saplUrl))}" target="_blank" rel="noopener noreferrer">Tramitação no SAPL</a><br>` : ''}
-          ${(p.historico || []).map(h => `${data(h.ts)} · ${esc(h.sessao)} · ${h.evento === 'votacao' ? 'votação: ' + (SIT[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim} sim, ${h.contagem.nao} não)` : '') : 'pauta'}`).join('<br>')}
+          ${(p.historico || []).map(h => `${data(h.ts)} · ${esc(h.sessao)} · ${h.evento === 'tramitacao' ? 'tramitação' : h.evento === 'votacao' ? 'votação: ' + (SIT[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim} sim, ${h.contagem.nao} não)` : '') : 'pauta'}`).join('<br>')}
         </details></div>
       <div class="lado">${barraNota(p.relevancia)}<div class="suave" style="font-size:12px;margin-top:4px">${p.beneficiados ? num(p.beneficiados) + ' pessoas beneficiadas' : ''}</div></div>
     </div>`).join('') : '<p class="vazio">Nenhum projeto encontrado.</p>';

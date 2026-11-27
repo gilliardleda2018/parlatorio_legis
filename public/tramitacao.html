@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tramitação e fiscalização — LEGIS</title>
+<meta name="description" content="Pedidos de informação e indicações ao Executivo com prazo, placar de respostas e linha do tempo de cada matéria.">
+<link rel="icon" type="image/png" href="/marca/legis-32.png">
+<link rel="stylesheet" href="/aggilli.css">
+<style>
+  main { max-width: 1240px; margin: 0 auto; padding: 24px 16px 56px; display: flex; flex-direction: column; gap: 16px }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px }
+  .tile { background: var(--cartao); border-radius: var(--raio); padding: 16px }
+  .tile b { display: block; font-size: 32px; font-variant-numeric: tabular-nums; line-height: 1.1 }
+  .tile span { color: var(--suave); font-size: 13px }
+  .tile.ruim b { color: var(--vermelho) } .tile.bom b { color: var(--verde, #199e70) }
+  .filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px }
+  .filtros .campo { width: auto }
+  table.tab { width: 100%; border-collapse: collapse; font-size: 14px }
+  table.tab th { text-align: left; color: var(--suave); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; padding: 8px }
+  table.tab td { padding: 8px; border-top: 1px solid var(--linha); vertical-align: top }
+  .linha-tempo { list-style: none; margin: 0; padding: 0 0 0 18px; border-left: 2px solid var(--linha) }
+  .linha-tempo li { position: relative; padding: 0 0 14px 10px }
+  .linha-tempo li::before { content: ''; position: absolute; left: -25px; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--destaque) }
+  .linha-tempo time { color: var(--suave); font-size: 12px; display: block }
+  .hash { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all }
+  .grade2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px }
+  @media (max-width: 900px) { .grade2 { grid-template-columns: 1fr } }
+  a.mat { color: var(--texto); font-weight: 700 }
+  #detalhe { scroll-margin-top: 90px }
+  .vazio { color: var(--suave) }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="menu">
+  <a class="marca" href="/"><img id="logoNav" src="/marca/legis-icone.png" alt=""><span><span id="casaNav">Parlatório Legis</span><small>Tramitação e fiscalização</small></span></a>
+  <span class="esp"></span>
+  <a class="item" href="#executivo">Pedidos ao Executivo</a><a class="item" href="#materias">Matérias</a><a class="item" href="#comissoes">Comissões</a><a class="item" href="/transparencia">Transparência</a><a class="item" href="/participe">Participe</a>
+</div></nav>
+
+<main>
+  <section class="cartao oculto" id="detalhe" aria-live="polite"></section>
+
+  <section class="cartao" id="executivo">
+    <h2>Pedidos de informação e indicações ao Executivo</h2>
+    <p class="detalhe" style="margin-top:0">A Câmara fiscaliza a Prefeitura pedindo informações e fazendo indicações. A Lei Orgânica dá um prazo para a resposta
+      (aqui, <b id="prazoPadrao">30</b> dias, salvo prazo próprio de cada pedido). O placar mostra quantos foram respondidos dentro do prazo.</p>
+    <div class="tiles" id="placar"></div>
+    <div class="filtros" style="margin-top:14px">
+      <input class="campo" id="fBuscaEx" placeholder="Buscar…" style="flex:1;min-width:180px" aria-label="Buscar pedido">
+      <select class="campo" id="fSitEx" aria-label="Situação"><option value="">Todas as situações</option><option value="aguardando">Aguardando resposta</option>
+        <option value="em_atraso">Em atraso</option><option value="respondido">Respondidos</option><option value="nao_enviado">Ainda não enviados</option></select>
+    </div>
+    <table class="tab" id="tabExec"></table>
+  </section>
+
+  <section class="cartao neutro" id="materias">
+    <h2>Matérias em tramitação</h2>
+    <div class="filtros">
+      <input class="campo" id="fBusca" placeholder="Buscar número, ementa ou autor…" style="flex:1;min-width:180px" aria-label="Buscar matéria">
+      <select class="campo" id="fTipo" aria-label="Tipo"><option value="">Todos os tipos</option></select>
+    </div>
+    <table class="tab" id="tabMat"></table>
+  </section>
+
+  <section class="cartao neutro" id="comissoes"><h2>Comissões permanentes</h2><div id="listaComissoes"></div></section>
+</main>
+
+<script src="/comum.js"></script>
+<script src="/rodape.js"></script>
+<script src="/assistente.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const { esc, urlSegura } = PL;
+const DIA = 864e5;
+const data = ts => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—';
+const dataHora = ts => ts ? new Date(ts).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+const COR = { aguardando: 'ambar', em_atraso: 'nao', respondido: 'sim' };
+let D = null;
+
+function situacaoEx(x) {
+  const ex = x.executivo;
+  if (!ex) return { k: 'nao_enviado', html: '<span class="suave">Ainda não enviado</span>' };
+  let extra = '';
+  if (ex.resposta) extra = ex.resposta.noPrazo ? ' no prazo' : ' fora do prazo';
+  else if (ex.situacao === 'em_atraso') extra = ` há ${Math.floor((D.agora - ex.vence) / DIA) + 1} dia(s)`;
+  else extra = ` · faltam ${Math.ceil((ex.vence - D.agora) / DIA)} dia(s)`;
+  return { k: ex.situacao, html: `<span class="chip ${COR[ex.situacao] || ''}">${esc(ex.situacaoNome)}${esc(extra)}</span>` };
+}
+
+async function carregar() {
+  D = await (await fetch('/api/tramitacao/publico')).json();
+  const c = D.casa, raiz = document.documentElement;
+  raiz.style.setProperty('--destaque', c.destaque || '#1f8a4c');
+  raiz.dataset.tema = c.tema === 'claro' ? 'claro' : 'escuro';
+  $('logoNav').src = c.logoV ? `/imagem/logo?v=${c.logoV}` : '/marca/legis-icone.png';
+  $('casaNav').textContent = c.nome;
+  document.title = `Tramitação e fiscalização — ${c.nome}`;
+  $('prazoPadrao').textContent = D.prazos.executivo;
+  if (window.Rodape) Rodape.mostrar(D.rodape, D.casa);
+  const p = D.placar;
+  $('placar').innerHTML = `<div class="tile"><b>${p.enviados}</b><span>enviados à Prefeitura</span></div>
+    <div class="tile bom"><b>${p.noPrazo}</b><span>respondidos no prazo</span></div>
+    <div class="tile"><b>${p.foraDoPrazo}</b><span>respondidos fora do prazo</span></div>
+    <div class="tile"><b>${p.aguardando}</b><span>aguardando, dentro do prazo</span></div>
+    <div class="tile ruim"><b>${p.emAtraso}</b><span>em atraso, sem resposta</span></div>
+    <div class="tile"><b>${p.pctNoPrazo == null ? '—' : p.pctNoPrazo + '%'}</b><span>dos vencidos respondidos no prazo</span></div>`;
+  $('fTipo').innerHTML = '<option value="">Todos os tipos</option>' + D.tipos.map(t => `<option value="${esc(t.sigla)}">${esc(t.nome)}</option>`).join('');
+  $('listaComissoes').innerHTML = D.comissoes.length ? `<table class="tab">${D.comissoes.map(c => `<tr><td><b>${esc(c.nome)}</b></td>
+      <td>${c.membros.map(esc).join(', ')}${c.presidente ? `<div class="suave" style="font-size:12px">Presidente: ${esc(c.presidente)}</div>` : ''}</td></tr>`).join('')}</table>`
+    : '<p class="vazio">Nenhuma comissão cadastrada.</p>';
+  desenharExec(); desenharMat();
+  abrirDoEndereco();
+}
+
+function desenharExec() {
+  const q = $('fBuscaEx').value.toLowerCase(), sit = $('fSitEx').value;
+  const lista = D.pedidos.filter(x => (!q || `${x.numero} ${x.ementa} ${x.autor}`.toLowerCase().includes(q)) && (!sit || situacaoEx(x).k === sit))
+    .sort((a, b) => (b.executivo?.enviado || 0) - (a.executivo?.enviado || 0));
+  $('tabExec').innerHTML = lista.length ? '<tr><th>Matéria</th><th>Autoria</th><th>Enviado</th><th>Prazo</th><th>Situação</th></tr>' + lista.map(x => `<tr>
+      <td><a class="mat" href="#${encodeURIComponent(x.id)}">${esc(x.numero)}</a><div style="font-size:13px">${esc(x.ementa)}</div></td>
+      <td>${esc(x.autor)}</td><td>${x.executivo ? data(x.executivo.enviado) : '—'}</td>
+      <td>${x.executivo ? data(x.executivo.vence) + ` <span class="suave" style="font-size:12px">(${x.executivo.prazoDias} dias)</span>` : '—'}</td>
+      <td>${situacaoEx(x).html}${x.executivo?.resposta ? `<div class="suave" style="font-size:12px">em ${data(x.executivo.resposta.ts)}</div>` : ''}</td></tr>`).join('')
+    : '<tr><td class="vazio">Nenhum pedido encontrado.</td></tr>';
+}
+
+function desenharMat() {
+  const q = $('fBusca').value.toLowerCase(), tipo = $('fTipo').value;
+  const lista = D.materias.filter(x => (!q || `${x.numero} ${x.ementa} ${x.autor}`.toLowerCase().includes(q)) && (!tipo || x.tipo === tipo))
+    .sort((a, b) => (b.etapaEm || 0) - (a.etapaEm || 0));
+  $('tabMat').innerHTML = lista.length ? '<tr><th>Matéria</th><th>Autoria</th><th>Etapa</th></tr>' + lista.map(x => `<tr>
+      <td><a class="mat" href="#${encodeURIComponent(x.id)}">${esc(x.numero)}</a> <span class="suave" style="font-size:12px">${esc(x.tipoNome)}</span><div style="font-size:13px">${esc(x.ementa)}</div></td>
+      <td>${esc(x.autor)}</td><td><span class="chip">${esc(x.etapaNome)}</span><div class="suave" style="font-size:12px">desde ${data(x.etapaEm)}</div></td></tr>`).join('')
+    : '<tr><td class="vazio">Nenhuma matéria.</td></tr>';
+}
+
+async function abrirDoEndereco() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  const caixa = $('detalhe');
+  if (!/^[A-Za-z0-9]+$/.test(id)) { caixa.classList.add('oculto'); return; }
+  const r = await fetch('/api/tramitacao/materia/' + encodeURIComponent(id));
+  if (!r.ok) { caixa.classList.add('oculto'); return; }
+  const { materia: m, linhaDoTempo } = await r.json();
+  const ex = m.executivo;
+  caixa.innerHTML = `<h2>${esc(m.numero)}<span class="esp"></span><a class="botao pq fantasma" href="#" id="fecharDet">Fechar</a></h2>
+    <p style="margin:0 0 4px;font-size:17px">${esc(m.ementa)}</p>
+    <p class="detalhe" style="margin:0">${esc(m.tipoNome)} · autoria: ${esc(m.autor)} · etapa atual: <b>${esc(m.etapaNome)}</b>${m.resultado ? ' (' + esc(m.resultado) + ')' : ''}</p>
+    <div class="grade2" style="margin-top:14px">
+      <div>
+        <h3 style="margin-top:0">Linha do tempo</h3>
+        <ol class="linha-tempo">${linhaDoTempo.map(e => `<li><time>${dataHora(e.ts)}</time>${esc(e.texto)}${e.por ? ` <span class="suave" style="font-size:12px">· ${esc(e.por)}</span>` : ''}</li>`).join('') || '<li>Sem registros.</li>'}</ol>
+      </div>
+      <div>
+        ${m.protocolo ? `<h3 style="margin-top:0">Protocolo</h3><p class="detalhe" style="margin:0">${esc(m.protocolo.numero)} em ${dataHora(m.protocolo.ts)}</p>
+          <p class="detalhe" style="margin:6px 0 0">SHA-256 do ${m.protocolo.base === 'texto' ? 'texto' : 'conteúdo (ementa)'} protocolado:</p><div class="hash">${esc(m.protocolo.hash)}</div>
+          <p class="detalhe" style="margin:6px 0 0" id="conferencia"></p>
+          <a class="botao pq" style="margin-top:8px" href="/api/tramitacao/comprovante/${encodeURIComponent(m.id)}.pdf" target="_blank" rel="noopener">📄 Comprovante de protocolo</a>` : ''}
+        ${m.comissoes.length ? `<h3>Comissões</h3>${m.comissoes.map(c => `<div style="border-top:1px solid var(--linha);padding:8px 0;font-size:14px">
+          <b>${esc(c.nome)}</b> — ${esc(c.situacaoNome)}${c.relator ? `<div class="suave" style="font-size:13px">Relator: ${esc(c.relator)}</div>` : ''}
+          ${c.parecer ? `<details style="font-size:13px"><summary>Parecer ${esc(c.parecer.votoNome)} (${data(c.parecer.ts)})</summary><div style="white-space:pre-wrap">${esc(c.parecer.texto)}</div></details>` : ''}
+          ${c.votacao ? `<div style="font-size:13px">Votação na comissão: ${c.votacao.sim.length} sim (${c.votacao.sim.map(esc).join(', ')}) × ${c.votacao.nao.length} não${c.votacao.nao.length ? ' (' + c.votacao.nao.map(esc).join(', ') + ')' : ''}</div>` : ''}</div>`).join('')}` : ''}
+        ${ex ? `<h3>Executivo</h3><p style="margin:0;font-size:14px">Enviado em ${data(ex.enviado)}${ex.oficio ? ' (' + esc(ex.oficio) + ')' : ''}; prazo de ${ex.prazoDias} dias, até ${data(ex.vence)}.</p>
+          <p style="margin:6px 0">${situacaoEx(m).html}</p>
+          ${ex.resposta ? `<div style="white-space:pre-wrap;font-size:14px">${esc(ex.resposta.texto)}</div>${ex.resposta.anexo ? `<a class="botao pq" style="margin-top:6px" href="/api/tramitacao/resposta/${encodeURIComponent(m.id)}.pdf" target="_blank" rel="noopener">📄 Resposta da Prefeitura (${esc(ex.resposta.anexo.nome)})</a>` : ''}` : ''}` : ''}
+        ${urlSegura(m.saplUrl) ? `<p><a href="${esc(urlSegura(m.saplUrl))}" target="_blank" rel="noopener noreferrer">Ver no SAPL ↗</a></p>` : ''}
+      </div>
+    </div>
+    ${m.texto ? `<details style="margin-top:10px"><summary style="cursor:pointer">Texto</summary><div style="white-space:pre-wrap;font-size:14px">${esc(m.texto)}</div></details>` : ''}
+    ${m.justificativa ? `<details><summary style="cursor:pointer">Justificativa</summary><div style="white-space:pre-wrap;font-size:14px">${esc(m.justificativa)}</div></details>` : ''}`;
+  caixa.classList.remove('oculto');
+  $('fecharDet').onclick = e => { e.preventDefault(); history.replaceState(null, '', location.pathname); caixa.classList.add('oculto'); };
+  caixa.scrollIntoView({ behavior: 'smooth' });
+  // conferência do hash no próprio navegador
+  if (m.protocolo && window.crypto?.subtle) {
+    const base = m.protocolo.base === 'texto' ? (m.texto || '') : (m.ementa || '');
+    const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(base.trim()));
+    const hex = [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
+    $('conferencia').textContent = hex === m.protocolo.hash ? '✓ O conteúdo publicado confere com o hash do protocolo.' : '⚠ O conteúdo atual difere do protocolado (foi alterado depois).';
+  }
+}
+
+['fBuscaEx', 'fSitEx'].forEach(id => $(id).addEventListener('input', desenharExec));
+['fBusca', 'fTipo'].forEach(id => $(id).addEventListener('input', desenharMat));
+addEventListener('hashchange', abrirDoEndereco);
+carregar();
+</script>
+</body>
+</html>

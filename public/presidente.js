@@ -1006,7 +1006,7 @@ function editarProjeto(id) {
     ${p.situacao === 'proposta' ? `<div class="rot">Proposta de parlamentar${p.instrumento ? ' · instrumento sugerido: ' + esc(p.instrumento) : ''}
       ${p.justificativa ? `<div style="color:var(--texto);font-size:13px;white-space:pre-wrap">${esc(p.justificativa)}</div>` : ''}
       <small>Para protocolar, informe o número oficial e mude a situação para “Em tramitação”.</small></div>` : ''}
-    ${(p.historico || []).length ? `<div class="rot">Histórico<div style="font-size:13px;color:var(--texto)">${p.historico.map(h => `${new Date(h.ts).toLocaleDateString('pt-BR')} · ${esc(h.sessao)} · ${h.evento === 'votacao' ? 'votação: ' + (PL.SITUACOES[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim}×${h.contagem.nao})` : '') : 'em pauta: ' + (PL.SITUACOES[h.situacao] || h.situacao)}`).join('<br>')}</div></div>` : ''}`,
+    ${(p.historico || []).length ? `<div class="rot">Histórico<div style="font-size:13px;color:var(--texto)">${p.historico.map(h => `${new Date(h.ts).toLocaleDateString('pt-BR')} · ${esc(h.sessao)} · ${h.evento === 'tramitacao' ? 'tramitação' : h.evento === 'votacao' ? 'votação: ' + (PL.SITUACOES[h.resultado] || h.resultado) + (h.contagem ? ` (${h.contagem.sim}×${h.contagem.nao})` : '') : 'em pauta: ' + (PL.SITUACOES[h.situacao] || h.situacao)}`).join('<br>')}</div></div>` : ''}`,
     async () => {
       await PL.acao('presidente', 'projetoSalvar', fichaDoFormulario(id));
       carregarProjetos();

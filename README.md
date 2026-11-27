@@ -195,6 +195,17 @@ As importações rodam em segundo plano, com barra de progresso e registro. O se
 
 Testado com o SAPL público de Campina Grande (PB). Ainda **não envia** resultados de votação ao SAPL: isso exige um usuário com permissão de escrita e testes num SAPL de homologação.
 
+## Protocolo eletrônico, tramitação e fiscalização do Executivo
+
+Inspirado no SAPL 3.1, no SPLegis da Câmara de São Paulo, no Granicus Legistar e nas *Written Questions* do Parlamento do Reino Unido. Regras em `server/tramitacao.py`; telas em `public/tramitacao.js` (aba **Tramitação** do painel e aba **Protocolo** do app do vereador) e na página pública `/tramitacao`.
+
+- **Protocolo eletrônico:** o vereador protocola pelo app, sempre em seu nome, PL, PLC, PR, PDL, emenda à Lei Orgânica, requerimento, indicação, moção ou pedido de informação (tipos e siglas configuráveis), com ementa, texto e justificativa. A secretaria confere e **protocola** (ou devolve com o motivo; o autor corrige e reenvia). A numeração é automática por tipo e ano (`PL 12/2026`), nunca repete e respeita os números já existentes (inclusive os importados do SAPL). O **comprovante em PDF** traz número, data e hora, autoria e o **hash SHA-256 do texto** (ou da ementa, se não houver texto); a página pública confere o hash no navegador. A secretaria também protocola direto matérias do Executivo, da Mesa ou entregues em papel. A matéria protocolada entra no banco de projetos e vai à pauta como as demais.
+- **Pedidos de informação e indicações ao Executivo:** ao registrar o envio, conta o prazo (padrão de 30 dias, configurável conforme a Lei Orgânica, ou próprio do pedido). A resposta da prefeitura é registrada com resumo, data de recebimento e ofício em PDF opcional (até 2,8 MB, validado). Situação calculada: *aguardando*, *respondido (no prazo / fora do prazo)* ou *em atraso*. A página `/tramitacao` mostra a lista e o **placar** de respostas no prazo e atrasadas.
+- **Comissões e prazos regimentais:** comissões permanentes com membros e presidente; cada matéria passa por *protocolada → lida em plenário → em comissão (uma ou mais) → relator designado → parecer (favorável, contrário ou com emendas) → pedido de vista → pronta para a pauta → votada → enviada à sanção / arquivada*. Cada passo grava data e quem fez no histórico da matéria. Prazos de parecer (15 dias) e de vista (3 dias) configuráveis, com **aviso no painel** (número na aba Tramitação) do que vence em até 5 dias ou já venceu. **Reunião de comissão:** abre, marca a presença dos membros (quórum de maioria) e registra a votação do parecer por membro (sim/não). O **relator** vê no app as matérias que relata e envia o parecer. A votação no plenário (presencial ou virtual) já leva a matéria a *votada*.
+- **Linha do tempo pública** de cada matéria em `/tramitacao#<id>`, com protocolo, comissões, pareceres, votações e resposta do Executivo.
+
+Permissões: o vereador só protocola em seu nome e só envia parecer onde é relator; todo o resto (protocolar, devolver, distribuir, designar relator, vista, reuniões, envio e resposta do Executivo) é do painel do presidente. Matérias antigas ou importadas do SAPL continuam funcionando; para acompanhá-las aqui, use **Iniciar tramitação** (mantém o número). Não há escrita no SAPL. Prazos contados em dias corridos.
+
 ## Começar com os vereadores eleitos (TSE)
 
 Para criar o banco de uma câmara com os vereadores eleitos em 2024 (nome de urna, partido, número, votos e foto oficial do TSE) e a população do Censo 2022 (IBGE):
