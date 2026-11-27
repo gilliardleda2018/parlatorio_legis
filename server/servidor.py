@@ -345,6 +345,18 @@ if RADIO_LOCAL and not S["transmissao"].get("configurada"):  # banco novo ou ant
     S["_transmissao"]["preset"] = "local"
 
 
+# O instalador só substitui a configuração inicial da rádio. Destinos escolhidos pela Mesa continuam valendo.
+_azura_porta = os.environ.get("LEGIS_AZURACAST_DJ_PORTA", "")
+_azura_senha = os.environ.get("LEGIS_AZURACAST_DJ_SENHA", "")
+if (_azura_porta.isdecimal() and 1 <= int(_azura_porta) <= 65535 and _azura_senha
+        and (not S["transmissao"].get("configurada") or S["_transmissao"].get("preset") == "local")
+        and not S["_transmissao"].get("personalizada")):
+    S["_transmissao"].update(preset="azuracast", fallback_local=True, host="127.0.0.1", porta=int(_azura_porta),
+                             mount="/", usuario="legis", senha=_azura_senha, tls=False)
+    S["transmissao"].update(configurada=True, local=True, publico="/radio.mp3",
+                            nome=f"{S['casa']['nome']} — Rádio")
+
+
 def migrar_projetos():
     """Primeira execução com o banco de projetos: cria as fichas a partir das sessões arquivadas e da pauta."""
     if db.execute("select count(*) from projetos").fetchone()[0]:
@@ -2260,7 +2272,7 @@ def transmissaoConfigurar(ator, preset="azuracast", host="", porta=8005, mount="
         raise Erro("O endereço para ouvir deve começar com https:// (ou http://).")
     local = preset == "local"
     cfg = S["_transmissao"]
-    cfg.update(preset=preset if preset in transmissao.PRESETS else "icecast", host=host, porta=porta, mount=mount,
+    cfg.update(personalizada=True, fallback_local=False, preset=preset if preset in transmissao.PRESETS else "icecast", host=host, porta=porta, mount=mount,
                usuario=usuario, tls=bool(tls), bitrate=int(bitrate))
     if senha is not None and str(senha) != "":
         cfg["senha"] = str(senha)[:200]
@@ -2533,6 +2545,16 @@ def camara_configurada() -> bool:
     return bool(db.execute("select count(*) from sessoes").fetchone()[0])
 
 
+def configuracao_cidade_disponivel() -> bool:
+    """A importação inicial pode substituir apenas os dados de exemplo."""
+    return not (
+        camara_configurada()
+        or S["projetosRev"]
+        or any(S[k] for k in ("hist", "presenca", "votacao", "votacoes", "orador", "virtuais"))
+        or db.execute("select 1 from gravacoes limit 1").fetchone()
+    )
+
+
 def aplicar_cidade(dados: dict):
     """Troca os dados de exemplo pelos do município (já baixados por cidade.buscar). Chamar com a trava."""
     S["casa"].update(nome=dados.get("camara") or f"Câmara Municipal de {dados['municipio']}", titulo="Sessão Ordinária",
@@ -2563,6 +2585,9 @@ def aplicar_cidade(dados: dict):
         S["partidos"].setdefault(e["partido"], "#5b6b86")
     if S["transmissao"].get("local"):
         S["transmissao"]["nome"] = f"{S['casa']['nome']} — Rádio"
+
+
+def concluir_configuracao_cidade():
     try:
         (BANCO.parent / ".sem-municipio").unlink(missing_ok=True)   # aviso do instalador .deb
     except OSError:
@@ -3295,8 +3320,8 @@ class Manipulador(BaseHTTPRequestHandler):
                 return self._json(401, {"erro": "Entre como presidente."})
             if ator.get("deveTrocar"):
                 return self._json(403, {"erro": "Troque o PIN padrão antes de continuar.", "codigo": "trocarPin"})
-            if camara_configurada():
-                return self._json(409, {"erro": "Esta Câmara já está configurada. Ajuste os vereadores em Plenário."})
+            if not configuracao_cidade_disponivel():
+                return self._json(409, {"erro": "Esta Câmara já está configurada ou possui registros de uso. Ajuste os vereadores em Plenário."})
         if not trava_cidade.acquire(blocking=False):
             return self._json(409, {"erro": "A busca já está em andamento."})
         try:
@@ -3307,12 +3332,13 @@ class Manipulador(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._json(502, {"erro": f"Não foi possível falar com o TSE agora ({e.__class__.__name__}). Verifique a internet e tente de novo."})
             with trava:
-                if camara_configurada():
+                if not configuracao_cidade_disponivel():
                     return self._json(409, {"erro": "Esta Câmara já está configurada."})
                 aplicar_cidade(dados)
                 registrar("presidente", "configurarCidade", {"uf": dados["uf"], "municipio": dados["municipio"],
                                                               "vereadores": len(dados["eleitos"])})
                 confirmar()
+                concluir_configuracao_cidade()
             return self._json(200, {"ok": True, "nome": S["casa"]["nome"], "vereadores": len(dados["eleitos"]),
                                     "fotos": sum(1 for e in dados["eleitos"] if e.get("foto")), "populacao": dados["populacao"]})
         finally:

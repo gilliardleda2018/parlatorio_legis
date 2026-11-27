@@ -23,7 +23,7 @@ fi
 for d in server public scripts; do
   cp -r "$d" "$R/opt/legis/"
 done
-mkdir -p "$R/opt/legis/deploy" && cp -r deploy/tailscale deploy/radio deploy/jitsi "$R/opt/legis/deploy/"
+mkdir -p "$R/opt/legis/deploy" && cp -r deploy/tailscale deploy/radio deploy/jitsi deploy/azuracast "$R/opt/legis/deploy/"
 find "$R/opt/legis" \( -name __pycache__ -o -name '*.pyc' \) -prune -exec rm -rf {} +
 cp deploy/deb/README.md "$R/usr/share/doc/legis/README.md"
 printf 'LEGIS — Sistema de Gestão Parlamentar\nCopyright Aggilli Intelligence.\nCódigo-fonte: https://github.com/gilliardleda2018/parlatorio_legis\n' > "$R/usr/share/doc/legis/copyright"

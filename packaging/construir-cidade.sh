@@ -86,7 +86,7 @@ VERSAO=${NOME_DEB#legis-"$SLUG"_}; VERSAO=${VERSAO%_all.deb}
 PASTA="legis-$SLUG-completo-$VERSAO"
 mkdir "$OBRA/$PASTA"
 cp "$DEB" "$DEB.sha256" "$OBRA/$PASTA/"
-install -m 0755 packaging/instalar-legis.sh "$OBRA/$PASTA/instalar-legis.sh"
+install -m 0755 packaging/instalar-legis.sh packaging/instalar-legis.py "$OBRA/$PASTA/"
 sed "s/^# LEGIS — pacote completo de instalação/# LEGIS — $CAMARA_OK/" packaging/LEIA-ME.md > "$OBRA/$PASTA/LEIA-ME.md"
 tar -C "$OBRA" --owner=0 --group=0 -czf "$DESTINO/$PASTA.tar.gz" "$PASTA"
 echo

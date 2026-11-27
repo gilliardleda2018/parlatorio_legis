@@ -7,24 +7,30 @@ Instala o LEGIS (Sistema de Gestão Parlamentar) num servidor **Debian 12 ou 13*
 No servidor, como administrador, dentro desta pasta:
 
 ```bash
-sudo bash instalar-legis.sh
+sudo python3 instalar-legis.py
 ```
 
-É automático: não pergunta nada. Instala o LEGIS com a rádio da Câmara já criada (sobe junto com o LEGIS), a videoconferência própria (Jitsi), a transcrição e as legendas, e a IA local se a máquina tiver 8 GB de RAM. A cidade é escolhida no primeiro acesso ao painel do presidente, e os vereadores vêm do TSE.
+O instalador verifica Docker e Compose, instala os componentes ausentes pelo APT e confirma que o Docker local responde. Depois instala o Legis e a rádio, inicia o serviço e verifica a resposta local. No final, informe a UF e o município para importar os vereadores eleitos de 2024 do TSE. O instalador também tenta obter as fotos e a população do IBGE. Jitsi, transcrição/legendas e IA local são provisionados em segundo plano conforme as opções e os recursos do servidor.
 
-Para escolher tudo na instalação, rode `sudo bash instalar-legis.sh --perguntar`. Também dá para passar as respostas, por exemplo `sudo UF=ma MUNICIPIO=Tuntum NOME=tuntum TS_AUTHKEY=tskey-auth-... bash instalar-legis.sh`:
+Se o Debian ainda não tiver Python, execute `sudo bash instalar-legis.sh`. As duas entradas aceitam `--sem-perguntar` para instalação em lote e `--perguntar` para configurar os componentes opcionais. Para preencher a cidade de antemão, use `sudo UF=MA MUNICIPIO=Tuntum NOME=tuntum python3 instalar-legis.py --sem-perguntar`.
 
 | Opção | Para quê |
 |---|---|
-| Estado e município | o LEGIS busca no TSE os vereadores eleitos em 2024 (nome, partido e foto) e no IBGE a população. Pode deixar em branco: o painel do presidente pergunta a cidade no primeiro acesso |
+| Estado e município | o LEGIS busca no TSE os vereadores eleitos em 2024 (nome, partido e foto) e no IBGE a população. Pode preencher no final da instalação ou no primeiro acesso ao painel |
 | Nome curto | endereço `https://NOME.local` na rede da Câmara (o nome da máquina passa a ser esse) |
 | Transcrição e legendas | transcreve os discursos e legenda a transmissão (cerca de 600 MB) |
 | IA local | rascunho da ata, perguntas e assistente do cidadão, no próprio servidor (8 GB de RAM) |
 | Videoconferência (Jitsi) | servidor próprio da Câmara para a sessão híbrida (`JITSI=s`, padrão com 4 GB de RAM) |
 | Chave do YouTube | `YOUTUBE_CHAVE=…`: o botão Transmitir já manda a sessão para o canal da Câmara |
-| Chave do Tailscale | opcional: publica na internet em `https://NOME.<sua-tailnet>.ts.net` sem abrir portas |
+| AzuraCast | instala o servidor de rádio, cria a estação Rádio da Câmara e configura o operador de transmissão do Legis. `AZURACAST=n` mantém a rádio Liquidsoap |
+| Acesso remoto | informe `TS_AUTHKEY` ou autorize pelo link exibido. O instalador aplica o proxy automaticamente após a autorização |
+| Publicação aberta | `TAILSCALE_PUBLICO=s` ativa o Funnel para o Legis quando a rede permite. O painel do AzuraCast fica privado no Tailscale |
 
 Leva alguns minutos. Transcrição, IA e publicação na internet terminam em segundo plano: acompanhe com `sudo legis estado`.
+
+## Rádio e acesso remoto
+
+O painel do AzuraCast fica em `https://NOME.<sua-tailnet>.ts.net:8443`. O Legis fica no mesmo domínio, na porta HTTPS padrão. Para consultar os endereços use `sudo legis estado`. A senha inicial do AzuraCast é gerada por instalação. O administrador do servidor pode consultá-la com `sudo cat /etc/legis/azuracast/provisionamento.json`. Use a administração do AzuraCast para carregar programação. A rádio local do Legis continua disponível na rede da Câmara.
 
 ## Depois de instalar
 
