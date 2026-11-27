@@ -226,6 +226,7 @@ def _dim_jpeg(d: bytes) -> tuple[int, int, int]:
 
 # ------------------------------------------------------------------ ata
 TIPOS = {"aparte": "Aparte", "ordem": "Questão de ordem", "pelaordem": "Pela ordem"}
+SECOES_PAUTA = {"expediente": "Expediente", "ordem_do_dia": "Ordem do Dia"}
 SITUACOES = {"pendente": "Pendente", "em_discussao": "Em discussão", "em_votacao": "Em votação", "aprovada": "Aprovada",
              "rejeitada": "Rejeitada", "adiada": "Adiada", "retirada": "Retirada", "sem_quorum": "Sem quórum"}
 QUORUNS = {"simples": "maioria simples", "absoluta": "maioria absoluta", "dois_tercos": "dois terços"}
@@ -318,11 +319,17 @@ def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = N
     # 2. pauta
     n += 1
     pdf.secao(n, "Pauta")
-    if r["pauta"]:
-        pdf.tabela([("Matéria", .17, "e"), ("Ementa", .5, "e"), ("Autoria", .19, "e"), ("Situação", .14, "e")],
-                   [[m["numero"], m["ementa"], m.get("autor") or "—", SITUACOES.get(m["situacao"], m["situacao"])] for m in r["pauta"]])
-    else:
+    if not r["pauta"]:
         pdf.paragrafo("Sem matérias na pauta.", 9.5, False, CINZA)
+    for chave, titulo in SECOES_PAUTA.items():
+        itens = [m for m in r["pauta"] if m.get("secao", "ordem_do_dia") == chave]
+        if itens:
+            pdf.garantir(46)
+            pdf.paragrafo(titulo, 10, True)
+            pdf.tabela([("Matéria", .17, "e"), ("Ementa", .5, "e"), ("Autoria", .19, "e"), ("Situação", .14, "e")],
+                       [[m["numero"], m["ementa"], m.get("autor") or "—", SITUACOES.get(m["situacao"], m["situacao"])]
+                        for m in itens])
+            pdf.espaco(6)
 
     # 3. pronunciamentos
     n += 1
@@ -387,6 +394,12 @@ def gerar_ata(r: dict, logo_jpeg: bytes | None = None, gerado_em: int | None = N
                     for o in reversed(r["ocorrencias"])])
     else:
         pdf.paragrafo("Nenhuma ocorrência registrada.", 9.5, False, CINZA)
+
+    if r.get("andamento"):
+        n += 1
+        pdf.secao(n, "Linha do tempo da sessão")
+        pdf.tabela([("Hora", .15, "c"), ("Registro", .85, "e")],
+                   [[_hora(e["ts"]), e["rotulo"]] for e in r["andamento"]])
 
     # 6. gravações
     gravs = r.get("gravacoes") or []

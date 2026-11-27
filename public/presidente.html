@@ -131,6 +131,8 @@
   .cores button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer }
   .cores button.on { border-color: var(--texto) }
   .fases-cfg td { padding: 4px }
+  .pauta-secao + .pauta-secao { margin-top: 18px }
+  .pauta-secao h3 { display: flex; gap: 8px; align-items: center; margin: 12px 0 8px; font-size: 15px }
 </style>
 </head>
 <body>
@@ -232,7 +234,7 @@
       <div class="grade2">
         <div class="cartao neutro">
           <h2>Pauta da sessão<span class="esp"></span><button class="botao pq" onclick="escolherDoBanco()">+ Do banco de projetos</button><button class="botao pq" onclick="editarMateria()">+ Matéria nova</button></h2>
-          <ul class="lista" id="pauta"></ul>
+          <div id="pauta"></div>
         </div>
         <div class="coluna">
           <div class="cartao" id="votacao"></div>
@@ -363,6 +365,7 @@
     <section class="aba" id="aba-sessoes">
       <div class="coluna">
         <div class="cartao" id="sessaoAtual"></div>
+        <div class="cartao neutro"><h2>Linha do tempo da sessão</h2><div id="andamentoSessao"></div></div>
         <div class="cartao neutro">
           <h2>Sessões anteriores<span class="esp"></span><button class="botao pq" onclick="carregarSessoes()">Atualizar</button></h2>
           <table class="tab" id="tabSessoes"></table>

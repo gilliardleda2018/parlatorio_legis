@@ -252,17 +252,12 @@ function ceder(de) {
 /* ---------------- pauta e votação ---------------- */
 function desenharPauta() {
   const S = PL.estado, v = S.votacao;
-  $('pauta').innerHTML = S.pauta.length ? S.pauta.map((m, k) => `<li style="align-items:flex-start;${m.id === S.materiaAtual ? 'outline:2px solid var(--ciano)' : ''}">
-    <span class="ord" style="padding-top:2px">${k + 1}</span>
-    <span class="nm"><b>${esc(m.numero)}</b><span style="display:block;font-size:14px;margin:2px 0 4px">${esc(m.ementa)}</span>
-      <small>${m.autor ? 'Autoria: ' + esc(m.autor) + ' · ' : ''}</small><span class="chip ${m.situacao === 'aprovada' ? 'sim' : m.situacao === 'rejeitada' ? 'nao' : m.situacao === 'em_votacao' ? 'ambar' : ''}">${PL.SITUACOES[m.situacao] || m.situacao}</span></span>
-    <span class="acoes" style="max-width:250px">
-      <button class="botao pq" onclick="A('materiaMover',{id:'${m.id}',d:-1})">↑</button><button class="botao pq" onclick="A('materiaMover',{id:'${m.id}',d:1})">↓</button>
-      <button class="botao pq" onclick="A('materiaAtual',{id:'${m.id}'})" title="Mostrar no telão">Em discussão</button>
-      <button class="botao pq principal" onclick="abrirVotacao('${m.id}')" ${v?.aberta ? 'disabled' : ''}>Votar</button>
-      <button class="botao pq fantasma" onclick="editarMateria('${m.id}')">Editar</button>
-      <button class="botao pq fantasma" onclick="if(confirm('Remover esta matéria da pauta?'))A('materiaRemover',{id:'${m.id}'})">✕</button>
-    </span></li>`).join('') : '<li class="vazio" style="background:none">Pauta vazia.</li>';
+  $('pauta').innerHTML = Object.entries(PL.SECOES_PAUTA).map(([secao, titulo]) => {
+    const itens = S.pauta.filter(m => (m.secao ?? 'ordem_do_dia') === secao);
+    return `<section class="pauta-secao"><h3>${titulo} <span class="chip">${itens.length}</span></h3>
+      <ul class="lista">${itens.length ? itens.map((m, k) => itemPauta(m, k, itens.length, v)).join('')
+        : '<li class="vazio">Nenhuma matéria.</li>'}</ul></section>`;
+  }).join('');
 
   if (!v) {
     $('votacao').innerHTML = `<h2>Votação</h2><p class="vazio">Nenhuma votação em andamento. Use “Votar” em uma matéria da pauta.</p>`;
@@ -302,6 +297,44 @@ function desenharPauta() {
     : '<p class="vazio">Nenhuma votação concluída.</p>';
 }
 
+function itemPauta(m, posicao, total, v) {
+  const atual = m.id === PL.estado.materiaAtual;
+  const podeEncaminhar = !['aprovada', 'rejeitada', 'retirada', 'em_votacao'].includes(m.situacao);
+  const cor = { aprovada: 'sim', rejeitada: 'nao', em_votacao: 'ambar' }[m.situacao] || '';
+  const emVotacao = v?.aberta && v.materia === m.id;
+  return `<li style="align-items:flex-start;${atual ? 'outline:2px solid var(--ciano)' : ''}">
+    <span class="ord">${posicao + 1}</span>
+    <span class="nm"><b>${esc(m.numero)}</b><span style="display:block;font-size:14px;margin:2px 0 4px">${esc(m.ementa)}</span>
+      <small>${m.autor ? 'Autoria: ' + esc(m.autor) + ' · ' : ''}</small><span class="chip ${cor}">${esc(PL.SITUACOES[m.situacao] || m.situacao)}</span></span>
+    <span class="acoes" style="max-width:250px">
+      <button class="botao pq" aria-label="Subir na seção" onclick="A('materiaMover',{id:'${m.id}',d:-1})" ${posicao === 0 ? 'disabled' : ''}>↑</button>
+      <button class="botao pq" aria-label="Descer na seção" onclick="A('materiaMover',{id:'${m.id}',d:1})" ${posicao === total - 1 ? 'disabled' : ''}>↓</button>
+      <button class="botao pq" onclick="A('materiaAtual',{id:'${m.id}'})" title="Mostrar no telão" ${v?.aberta ? 'disabled' : ''}>Em discussão</button>
+      <button class="botao pq principal" onclick="abrirVotacao('${m.id}')" ${v?.aberta ? 'disabled' : ''}>Votar</button>
+      ${podeEncaminhar ? `<button class="botao pq" onclick="encaminharMateria('${m.id}')">Encaminhar</button>` : ''}
+      <button class="botao pq fantasma" onclick="editarMateria('${m.id}')">Editar</button>
+      <button class="botao pq fantasma" aria-label="Remover da pauta" ${emVotacao ? 'disabled' : ''}
+        onclick="if(confirm('Remover esta matéria da pauta?'))A('materiaRemover',{id:'${m.id}'})">✕</button>
+    </span></li>`;
+}
+
+function encaminharMateria(id) {
+  const m = PL.estado.pauta.find(x => x.id === id);
+  if (!m) return;
+  dialogo('Encaminhar matéria', `<b>${esc(m.numero)}</b>
+    <label class="rot">Encaminhamento<select class="campo" id="dSituacao">
+      ${m.situacao === 'adiada' ? '<option value="pendente">Retomar na pauta</option>' : '<option value="adiada">Adiar</option>'}
+      <option value="retirada">Retirar da pauta</option>
+    </select></label>
+    <label class="rot">Motivo para o registro público (opcional)<textarea class="campo" id="dMotivo" maxlength="300" rows="2"></textarea></label>`,
+    () => PL.acao('presidente', 'materiaSituacao', { id, situacao: $('dSituacao').value, motivo: $('dMotivo').value }), 'Registrar');
+}
+
+function seletorSecaoPauta(secao = 'ordem_do_dia') {
+  return `<label class="rot">Seção<select class="campo" id="dSecao">${Object.entries(PL.SECOES_PAUTA).map(([valor, titulo]) =>
+    `<option value="${valor}" ${secao === valor ? 'selected' : ''}>${titulo}</option>`).join('')}</select></label>`;
+}
+
 function abrirVotacao(mid) {
   const m = PL.estado.pauta.find(x => x.id === mid), q = PL.quorum();
   dialogo('Abrir votação', `<div><b>${esc(m.numero)}</b> — ${esc(m.ementa)}</div>
@@ -317,8 +350,10 @@ function editarMateria(id) {
     <label class="rot">Número<input class="campo" id="dNum" value="${esc(m.numero)}" placeholder="PL 123/2026"></label>
     <label class="rot">Ementa<textarea class="campo" id="dEmenta" rows="3">${esc(m.ementa)}</textarea></label>
     <label class="rot">Autoria<input class="campo" id="dAutor" value="${esc(m.autor)}" list="dlParls"></label>
+    ${seletorSecaoPauta(m.secao)}
     <datalist id="dlParls">${PL.estado.parls.map(p => `<option value="${esc(p.nome)}">`).join('')}<option value="Executivo Municipal"><option value="Mesa Diretora"></datalist>`,
-    () => A('materiaSalvar', { id, numero: $('dNum').value, ementa: $('dEmenta').value, autor: $('dAutor').value }));
+    () => PL.acao('presidente', 'materiaSalvar', { id, numero: $('dNum').value, ementa: $('dEmenta').value,
+      autor: $('dAutor').value, secao: $('dSecao').value }));
 }
 
 /* ---------------- plenário ---------------- */
@@ -1018,10 +1053,14 @@ async function escolherDoBanco() {
   try { d = await (await apiGet('/api/transparencia?interno=1')).json(); } catch (e) { return PL.avisar(e.message, true); }
   const naPauta = new Set(PL.estado.pauta.map(m => m.id));
   const disp = d.projetos.filter(p => ['em_tramitacao', 'proposta'].includes(p.situacao) && !naPauta.has(p.id));
-  dialogo('Incluir projetos na pauta', disp.length ? `<p class="detalhe" style="margin:0">Ordenados por relevância social.</p>` + disp.map(p => `<label class="linha" style="align-items:flex-start;border-top:1px solid var(--linha)">
+  dialogo('Incluir projetos na pauta', disp.length ? seletorSecaoPauta() + `<p class="detalhe" style="margin:0">Ordenados por relevância social.</p>` + disp.map(p => `<label class="linha" style="align-items:flex-start;border-top:1px solid var(--linha)">
       <span><input type="checkbox" name="dPautar" value="${p.id}"> <b>${esc(p.numero)}</b> ${esc(p.ementa)}</span>${barraNota(p.relevancia)}</label>`).join('')
     : '<p class="vazio">Nenhum projeto em tramitação disponível.</p>',
-    async () => { for (const i of document.querySelectorAll('input[name=dPautar]:checked')) await PL.acao('presidente', 'pautaIncluir', { id: i.value }); }, 'Incluir na pauta');
+    async () => {
+      for (const i of document.querySelectorAll('input[name=dPautar]:checked')) {
+        await PL.acao('presidente', 'pautaIncluir', { id: i.value, secao: $('dSecao').value });
+      }
+    }, 'Incluir na pauta');
 }
 
 /* ---------------- sessões e ata ---------------- */
@@ -1033,8 +1072,10 @@ async function apiGet(caminho) {
 }
 function desenharSessaoAtual() {
   const S = PL.estado;
-  const marcos = [...Object.values(S.presenca), ...S.hist.map(h => h.inicio), ...S.ocorrencias.map(o => o.ts)];
+  const andamento = S.andamento || [];
+  const marcos = [...Object.values(S.presenca), ...S.hist.map(h => h.inicio), ...S.ocorrencias.map(o => o.ts), ...andamento.map(e => e.ts)];
   const inicio = marcos.length ? Math.min(...marcos) : null;
+  $('andamentoSessao').innerHTML = tabelaAndamento(andamento);
   $('sessaoAtual').innerHTML = `<h2>Sessão em andamento</h2>
     <div style="font-size:22px;font-weight:700">${esc(S.casa.titulo)}</div>
     <div class="detalhe">${inicio ? 'Primeiro registro às ' + hora(inicio) + ' de ' + new Date(inicio).toLocaleDateString('pt-BR') : 'Nenhum registro ainda'}</div>
@@ -1049,6 +1090,11 @@ function desenharSessaoAtual() {
       <button class="botao" onclick="abrirAta('atual')">Prévia da ata (PDF)</button>
       <button class="botao principal" onclick="encerrarSessao()">Encerrar e arquivar sessão…</button>
     </div>`;
+}
+function tabelaAndamento(eventos) {
+  if (!eventos?.length) return '<p class="vazio">Nenhum andamento registrado.</p>';
+  return `<table class="tab"><thead><tr><th>Hora</th><th>Registro</th></tr></thead><tbody>
+    ${eventos.map(e => `<tr><td class="tnum">${hora(e.ts)}</td><td>${esc(e.rotulo)}</td></tr>`).join('')}</tbody></table>`;
 }
 async function carregarSessoes() {
   try { sessoesArquivadas = (await (await apiGet('/api/sessoes')).json()).sessoes; }
@@ -1099,6 +1145,7 @@ async function verSessao(id) {
   dlg.classList.add('largo');
   dialogo(r.titulo, `
     <div class="detalhe">${new Date(r.inicio).toLocaleString('pt-BR')} — ${hora(r.fim)} · ${Object.keys(r.presenca).length}/${r.parls.length} presentes</div>
+    ${r.andamento?.length ? '<h3>Linha do tempo da sessão</h3>' + tabelaAndamento(r.andamento) : ''}
     <h3 style="font-size:15px;margin:8px 0 0">Votações</h3>
     ${r.votacoes.length ? '<table class="tab">' + r.votacoes.map(v => `<tr><td><b>${esc(v.numero)}</b> ${esc(v.ementa)}</td><td>${v.tipo}</td>
       <td class="tnum">${v.contagem ? `${v.contagem.sim} × ${v.contagem.nao} (${v.contagem.abst})` : '—'}</td>

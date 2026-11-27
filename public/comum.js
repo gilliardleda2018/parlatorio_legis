@@ -161,6 +161,7 @@ const PL = (() => {
   }
   const sigla = s => s ? `<span class="sigla" style="--cor-partido:${corPartido(s)}">${esc(s)}</span>` : '';
   const TIPOS = { aparte: 'Aparte', ordem: 'Questão de ordem', pelaordem: 'Pela ordem', inscricao: 'Inscrição' };
+  const SECOES_PAUTA = { expediente: 'Expediente', ordem_do_dia: 'Ordem do Dia' };
   const SITUACOES = { pendente: 'Pendente', em_discussao: 'Em discussão', em_votacao: 'Em votação', aprovada: 'Aprovada', rejeitada: 'Rejeitada', adiada: 'Adiada', retirada: 'Retirada', sem_quorum: 'Sem quórum' };
   const QUORUNS = { simples: 'Maioria simples', absoluta: 'Maioria absoluta', dois_tercos: 'Dois terços' };
   const VOTOS = { sim: 'Sim', nao: 'Não', abst: 'Abstenção' };
@@ -269,7 +270,7 @@ const PL = (() => {
 
   return {
     conectar, agora, entrar, quemSou, sair, acao, esc, tempo, hora, relogio, decorrido, restante, nivel, pintar,
-    parl, fase, corPartido, avatar, sigla, TIPOS, SITUACOES, QUORUNS, VOTOS, quorum, usadoNaFase, bipe, avisar, lerImagem,
+    parl, fase, corPartido, avatar, sigla, TIPOS, SECOES_PAUTA, SITUACOES, QUORUNS, VOTOS, quorum, usadoNaFase, bipe, avisar, lerImagem,
     MICS, OCORRENCIAS, mic, micChip, gravando, token: papel => localStorage.getItem(tokenChave(papel)),
     video, sincronizarMicrofone, encerrarVideo, temVideo: () => !!jitsi,
     exigirTrocaPin, pedirPin, esquecerPin,
