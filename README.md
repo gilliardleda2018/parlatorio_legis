@@ -238,14 +238,14 @@ As respostas automáticas sempre mostram as fontes, e o rascunho da ata só vale
 
 ## Instalar num servidor Debian limpo (recomendado)
 
-Num Debian 12 ou 13, ou Ubuntu 24.04, recém-instalado, um comando instala tudo: LEGIS, vereadores eleitos do TSE (com fotos), população do IBGE, rádio da Câmara, transcrição e legendas, IA local, transmissão para rádio e YouTube e publicação pelo Tailscale.
+Num Debian 12 ou 13, ou Ubuntu 24.04, recém-instalado, um comando instala tudo, **sem perguntas**: LEGIS, rádio da Câmara, transcrição e legendas, IA local (se houver 8 GB de RAM), transmissão para rádio e YouTube. No primeiro acesso, o painel do presidente pergunta a cidade e traz do TSE os vereadores eleitos (com fotos) e do IBGE a população. Para publicar na internet pelo Tailscale, passe a chave: `sudo TS_AUTHKEY=tskey-auth-... bash instalar-legis.sh`. Para escolher tudo na instalação: `--perguntar`.
 
 ```bash
 curl -fsSLO https://github.com/gilliardleda2018/parlatorio_legis/releases/latest/download/instalar-legis.sh
 sudo bash instalar-legis.sh
 ```
 
-Sem internet boa no local, leve o **pacote completo** `legis-completo-<versão>.tar.gz` (instalador, `.deb` e LEIA-ME) num pendrive e rode `sudo bash instalar-legis.sh` dentro da pasta. O servidor ainda precisa de internet para baixar as dependências do Debian. Instalação sem perguntas: `sudo UF=ma MUNICIPIO=Tuntum NOME=tuntum RADIO=s TRANSCRICAO=s IA=n bash instalar-legis.sh`. Para gerar o pacote: `bash packaging/construir-pacote.sh`.
+Sem internet boa no local, leve o **pacote completo** `legis-completo-<versão>.tar.gz` (instalador, `.deb` e LEIA-ME) num pendrive e rode `sudo bash instalar-legis.sh` dentro da pasta. O servidor ainda precisa de internet para baixar as dependências do Debian. Instalação sem perguntas: `sudo UF=ma MUNICIPIO=Tuntum NOME=tuntum RADIO=s TRANSCRICAO=s IA=n bash instalar-legis.sh`. Para gerar o pacote: `bash packaging/construir-pacote.sh`. Para publicar uma versão nova (testes, pacote e release no GitHub): `bash packaging/publicar-versao.sh "Título"`.
 
 ## Instalador .deb (Debian 12/13, Ubuntu 24.04)
 

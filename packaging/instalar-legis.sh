@@ -7,11 +7,13 @@
 # Ou, do pacote completo (pendrive, sem baixar o .deb de novo):
 #   tar xzf legis-completo-<versão>.tar.gz && cd legis-completo-<versão> && sudo bash instalar-legis.sh
 #
-# Pergunta o que faltar. Para instalar sem perguntas, passe as respostas como variáveis:
-#   UF=ma MUNICIPIO="Tuntum"   estado e município (vereadores eleitos do TSE, com fotos; população do IBGE).
-#                              Em branco: o painel do presidente pergunta a cidade no primeiro acesso.
+# Totalmente automático: não pergunta nada. Instala o LEGIS, a rádio da Câmara, a transcrição e as
+# legendas, e a IA local se a máquina tiver 8 GB de RAM. A cidade é escolhida no primeiro acesso ao
+# painel do presidente (os vereadores vêm do TSE). Para escolher na instalação, use --perguntar
+# (sudo bash instalar-legis.sh --perguntar) ou passe as respostas como variáveis:
+#   UF=ma MUNICIPIO="Tuntum"   estado e município (vereadores eleitos do TSE, com fotos; população do IBGE)
 #   NOME=tuntum                nome curto: https://tuntum.local na rede e https://tuntum.<tailnet>.ts.net na internet
-#   RADIO=1 TRANSCRICAO=1 IA=0 rádio da Câmara, transcrição e legendas, IA local (8 GB de RAM)
+#   RADIO=s TRANSCRICAO=s IA=n rádio da Câmara, transcrição e legendas, IA local (padrão: s, s e automático)
 #   TS_AUTHKEY=tskey-auth-...  publica na internet pelo Tailscale (opcional)
 #   SEM_HOSTNAME=1             não troca o nome da máquina
 #   DEB=/caminho/legis.deb     usa este pacote em vez de baixar a última versão
@@ -21,6 +23,14 @@ REPO="gilliardleda2018/parlatorio_legis"
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || pwd)"
 TTY=/dev/tty
 VERDE=$'\e[32m'; NEGRITO=$'\e[1m'; FIM=$'\e[0m'
+PERGUNTAR=0
+for arg in "$@"; do
+  case "$arg" in
+    --perguntar) PERGUNTAR=1 ;;
+    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "Opção desconhecida: $arg (use --perguntar ou --help)"; exit 1 ;;
+  esac
+done
 
 [ "$(id -u)" = 0 ] || { echo "Rode como administrador: sudo bash instalar-legis.sh"; exit 1; }
 . /etc/os-release
@@ -28,7 +38,7 @@ case "${ID:-}:${VERSION_ID:-}" in
   debian:12|debian:13|ubuntu:24.04|ubuntu:24.10|ubuntu:25.04) ;;
   *) echo "Aviso: testado em Debian 12/13 e Ubuntu 24.04; este é ${PRETTY_NAME:-desconhecido}. Continuando." ;;
 esac
-tem_tty() { [ -r "$TTY" ] && { : < "$TTY"; } 2>/dev/null; }
+tem_tty() { [ "$PERGUNTAR" = 1 ] && [ -r "$TTY" ] && { : < "$TTY"; } 2>/dev/null; }
 perguntar() {  # perguntar VARIAVEL "texto" [padrão] — lê do terminal mesmo com "curl | sudo bash"
   local atual="${!1:-}"
   if [ -z "${!1+x}" ] && tem_tty; then
@@ -46,9 +56,11 @@ apt-get update -q >/dev/null
 apt-get install -y -q ca-certificates curl python3 debconf >/dev/null
 
 # ---- perguntas
-echo
-echo "Estado e município: o LEGIS busca no TSE os vereadores eleitos (nome, partido e foto)."
-echo "Pode deixar em branco: o painel do presidente pergunta a cidade no primeiro acesso."
+if tem_tty; then
+  echo
+  echo "Estado e município: o LEGIS busca no TSE os vereadores eleitos (nome, partido e foto)."
+  echo "Pode deixar em branco: o painel do presidente pergunta a cidade no primeiro acesso."
+fi
 perguntar UF "Estado (sigla, ex.: MA)"
 UF="$(echo "$UF" | tr 'A-Z' 'a-z' | tr -cd 'a-z')"
 MUNICIPIO_OK=""
@@ -91,6 +103,9 @@ if [ -z "${TS_AUTHKEY+x}" ] && tem_tty; then
   read -rsp "Cole a chave (tskey-auth-...) ou aperte Enter para pular: " TS_AUTHKEY < "$TTY" || true; echo
 fi
 TS_AUTHKEY="${TS_AUTHKEY:-}"
+ok() { sim "$1" && echo "sim" || echo "não"; }
+echo
+echo "${NEGRITO}Instalando:${FIM} cidade: ${MUNICIPIO:+$MUNICIPIO/${UF^^}}${MUNICIPIO:-escolhida no painel do presidente} · rádio: $(ok "$RADIO") · transcrição: $(ok "$TRANSCRICAO") · IA local: $(ok "$IA") (${MEMORIA_GB} GB de RAM) · internet: $([ -n "$TS_AUTHKEY" ] && echo "Tailscale" || echo "só rede local")"
 
 # ---- pacote .deb: o do lado deste script, DEB=…, ou a última versão publicada (com o SHA-256 conferido)
 if [ -z "${DEB:-}" ]; then

@@ -10,9 +10,11 @@ No servidor, como administrador, dentro desta pasta:
 sudo bash instalar-legis.sh
 ```
 
-O instalador pergunta:
+É automático: não pergunta nada. Instala o LEGIS, a rádio da Câmara, a transcrição e as legendas, e a IA local se a máquina tiver 8 GB de RAM. A cidade é escolhida no primeiro acesso ao painel do presidente, e os vereadores vêm do TSE.
 
-| Pergunta | Para quê |
+Para escolher tudo na instalação, rode `sudo bash instalar-legis.sh --perguntar`. Também dá para passar as respostas, por exemplo `sudo UF=ma MUNICIPIO=Tuntum NOME=tuntum TS_AUTHKEY=tskey-auth-... bash instalar-legis.sh`:
+
+| Opção | Para quê |
 |---|---|
 | Estado e município | o LEGIS busca no TSE os vereadores eleitos em 2024 (nome, partido e foto) e no IBGE a população. Pode deixar em branco: o painel do presidente pergunta a cidade no primeiro acesso |
 | Nome curto | endereço `https://NOME.local` na rede da Câmara (o nome da máquina passa a ser esse) |

@@ -38,9 +38,9 @@ EOF
   if [ -f "$DADOS/.sem-municipio" ]; then
     cat <<EOF
 
- ATENÇÃO: a Câmara ainda não foi configurada (estado e município).
- Abra "Configurar o LEGIS" no menu de aplicativos
- ou rode no terminal:  sudo dpkg-reconfigure legis
+ PRÓXIMO PASSO: escolher a cidade. Abra o painel do presidente (endereço acima +
+ /presidente): a caixa "De qual cidade é esta Câmara?" traz os vereadores do TSE.
+ (ou, no servidor: sudo dpkg-reconfigure legis)
 EOF
   fi
 }
