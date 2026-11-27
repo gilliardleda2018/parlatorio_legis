@@ -34,20 +34,25 @@ Variáveis de ambiente:
 - `TLS_CERT` e `TLS_KEY`: certificado próprio (por exemplo, de um domínio) no lugar do local
 - `TLS_NOMES`: nomes ou IPs extras para o certificado local, separados por vírgula
 - `TZ`: fuso das atas (o Docker já usa `America/Sao_Paulo`)
-- `PIN_PRESIDENTE`: PIN do painel do presidente (padrão 1234; troque em produção)
+- `PIN_PRESIDENTE`: PIN inicial do painel do presidente. Sem ele, o servidor sorteia um PIN de 6 dígitos na primeira partida e o mostra no log (`PIN inicial do presidente: …`) até a primeira troca
 - `TRANSCRICAO`: `auto` (padrão), `local`, `api`, `comando` ou `0` — veja **Transcrição dos discursos**
 - `HOST`: endereço onde o servidor escuta (padrão `0.0.0.0`; use `127.0.0.1` atrás de um proxy)
 - `PROXY_CONFIAVEL=1`: atrás de proxy (Caddy, nginx, Tailscale Funnel), usa o IP real do visitante no bloqueio por tentativas; `PROXY_IPS` diz de onde o proxy conecta: IPs ou faixas (padrão `127.0.0.1,::1`; em Docker, a rede do contêiner, ex. `172.26.0.0/16`)
 - `TROCA_PIN=0`: período de testes — deixa entrar com o PIN padrão (0000) sem obrigar a troca. Não use em produção.
 - `PARLATORIO_BANCO`: caminho do banco SQLite (padrão `dados/parlatorio.db`)
+- `MAX_CONEXOES`: conexões simultâneas aceitas (padrão 800); `TEMPO_LIMITE_CONEXAO`: segundos até uma conexão parada cair (padrão 60)
+- `RADIO_MAX_GB`: espaço máximo da programação da rádio (padrão 20)
 
-Os parlamentares começam com PIN `0000` e o painel com `1234` (ou o `PIN_PRESIDENTE`). No primeiro acesso o sistema **obriga a troca** por um PIN pessoal.
+Cada parlamentar começa com um **PIN inicial aleatório e próprio** (6 dígitos), que o presidente vê em **Plenário → PINs iniciais** e entrega a cada um. Ninguém consegue entrar na conta de um colega com um PIN conhecido de todos. O painel começa com o `PIN_PRESIDENTE` (ou o sorteado, mostrado no log). No primeiro acesso o sistema **obriga a troca** por um PIN pessoal, e o inicial some da lista. Bancos antigos em que vereadores ainda usavam `0000` recebem PINs iniciais novos na primeira partida desta versão. Com `TROCA_PIN=0` (testes), todos continuam com `0000`.
 
 ## Segurança de acesso
 
 - PINs guardados só como hash (PBKDF2-SHA256 com sal), nunca em texto. Bancos antigos são convertidos ao iniciar.
-- Após 5 PINs errados na mesma conta (ou 20 do mesmo endereço), novas tentativas ficam bloqueadas por 15 minutos.
-- PIN padrão ou óbvio (0000, 1234, 1111, sequências) obriga a troca antes de qualquer ação. O PIN do painel deve ter 6 dígitos ou mais.
+- Após 5 PINs errados na mesma conta (ou 20 do mesmo endereço), novas tentativas ficam bloqueadas por 15 minutos. A tentativa é contada antes de o PIN ser conferido, então pedidos em paralelo não escapam do limite.
+- PIN inicial, óbvio (0000, 1234, 1111, sequências) ou, no painel, com menos de 6 dígitos obriga a troca antes de qualquer outra coisa: até trocar, o servidor só responde a `/api/eu` e à troca de PIN.
+- A auditoria nunca grava PIN, senha, chave ou token, e no voto secreto registra só que a pessoa votou. Os logins ficam guardados só como hash: um backup do banco não abre sessões.
+- As páginas não podem ser abertas dentro de outro site (`Content-Security-Policy: frame-ancestors 'self'` e `X-Frame-Options`), e o endereço da mesa de som e a pasta do backup não vão para as telas públicas.
+- Pedidos malformados, conexões paradas e excesso de conexões são recusados sem derrubar o servidor.
 - O login expira após 12 h sem uso no painel do presidente e 30 dias no celular, e nunca dura mais de 90 dias. Trocar o PIN encerra os outros acessos daquela conta.
 - Votar ou pedir destaque na sessão virtual exige confirmar o PIN. O app pode lembrar por 10 minutos, só naquela página.
 - Botão **PIN** no painel e no app para trocar quando quiser.
@@ -80,7 +85,7 @@ O GitHub Actions roda tudo a cada push, em Python 3.11, 3.12 e 3.13.
 
 ## HTTPS
 
-Na primeira execução o servidor cria, com `openssl`, uma autoridade certificadora própria da casa (`dados/tls/ca.crt`) e um certificado válido para `localhost`, o nome da máquina e os IPs da rede. Depois:
+Na primeira execução o servidor cria, com `openssl`, uma autoridade certificadora própria da casa (`dados/tls/ca.crt`) e um certificado válido para `localhost`, o nome da máquina e os IPs da rede. A autoridade só pode assinar nomes e IPs da rede local (e os de `TLS_NOMES`), nunca um site da internet: mesmo que o servidor seja invadido, ela não serve para interceptar outros sites nos aparelhos. Isso vale para autoridades criadas a partir desta versão; para trocar uma antiga, apague `dados/tls/` e reinstale o certificado nos aparelhos. Depois:
 
 1. Em cada computador, tablet e celular, abra `http://IP-do-servidor:8090/certificado`. A página reconhece o aparelho e instala o certificado do jeito mais curto: no Windows, um `.cmd` que confia na autoridade só para o usuário (sem administrador) e abre o LEGIS; no iPhone/iPad/Mac, um perfil `.mobileconfig`; no Android e no Linux, o `.crt` com o caminho de cada um. Ela testa o `https://` e mostra **Abrir o LEGIS** quando o aparelho já confia. O arquivo puro continua em `/certificado.crt` (e em `/certificado` para quem não é navegador, como o `curl`).
 2. Use sempre `https://IP-do-servidor:8443`. Quem abrir pelo endereço `http://` é redirecionado (menos em `localhost`).

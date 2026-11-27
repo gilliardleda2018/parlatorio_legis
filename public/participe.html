@@ -48,9 +48,9 @@
     <h2 id="ao-vivo">Perguntas ao vivo<span class="esp"></span><span class="chip sim">recebendo agora</span></h2>
     <p class="detalhe" style="margin-top:0" id="avTitulo"></p>
     <form class="form-contrib" onsubmit="event.preventDefault(); perguntar(this)">
-      <div class="linha2"><input class="campo" name="nome" placeholder="Seu nome" required minlength="3" maxlength="80" autocomplete="name">
-        <input class="campo" name="bairro" placeholder="Bairro ou povoado (opcional)" maxlength="60"></div>
-      <textarea class="campo" name="texto" rows="2" placeholder="Sua pergunta à Câmara (até 500 caracteres)" required minlength="10" maxlength="500"></textarea>
+      <div class="linha2"><input class="campo" aria-label="Seu nome" name="nome" placeholder="Seu nome" required minlength="3" maxlength="80" autocomplete="name">
+        <input class="campo" aria-label="Bairro ou povoado (opcional)" name="bairro" placeholder="Bairro ou povoado (opcional)" maxlength="60"></div>
+      <textarea class="campo" aria-label="Sua pergunta à Câmara (até 500 caracteres)" name="texto" rows="2" placeholder="Sua pergunta à Câmara (até 500 caracteres)" required minlength="10" maxlength="500"></textarea>
       <input class="isca" name="site" tabindex="-1" autocomplete="off" aria-hidden="true">
       <button class="botao principal">Enviar pergunta</button>
       <small class="suave">A presidência escolhe as perguntas que serão lidas; as aprovadas aparecem abaixo e podem ir para o telão do plenário.</small>
@@ -74,11 +74,11 @@
     <p class="detalhe" style="margin-top:0" id="ideiaExplica"></p>
     <details><summary class="botao principal" style="display:inline-flex;cursor:pointer">💡 Propor uma ideia</summary>
       <form class="form-contrib" onsubmit="event.preventDefault(); proporIdeia(this)">
-        <input class="campo" name="titulo" placeholder="Título da ideia (ex.: Iluminação na praça do Centro)" required minlength="8" maxlength="120">
-        <textarea class="campo" name="texto" rows="4" placeholder="Explique a ideia: o problema, a proposta e quem ganha com ela" required minlength="30" maxlength="3000"></textarea>
-        <div class="linha2"><input class="campo" name="nome" placeholder="Seu nome" required minlength="3" maxlength="80" autocomplete="name">
-          <input class="campo" name="bairro" placeholder="Bairro ou povoado (opcional)" maxlength="60"></div>
-        <input class="campo" name="email" type="email" placeholder="E-mail para saber da resposta (opcional, não é publicado)" maxlength="120" autocomplete="email">
+        <input class="campo" aria-label="Título da ideia (ex.: Iluminação na praça do Centro)" name="titulo" placeholder="Título da ideia (ex.: Iluminação na praça do Centro)" required minlength="8" maxlength="120">
+        <textarea class="campo" aria-label="Explique a ideia: o problema, a proposta e quem ganha com ela" name="texto" rows="4" placeholder="Explique a ideia: o problema, a proposta e quem ganha com ela" required minlength="30" maxlength="3000"></textarea>
+        <div class="linha2"><input class="campo" aria-label="Seu nome" name="nome" placeholder="Seu nome" required minlength="3" maxlength="80" autocomplete="name">
+          <input class="campo" aria-label="Bairro ou povoado (opcional)" name="bairro" placeholder="Bairro ou povoado (opcional)" maxlength="60"></div>
+        <input class="campo" aria-label="E-mail para saber da resposta (opcional, não é publicado)" name="email" type="email" placeholder="E-mail para saber da resposta (opcional, não é publicado)" maxlength="120" autocomplete="email">
         <input class="isca" name="site" tabindex="-1" autocomplete="off" aria-hidden="true">
         <button class="botao principal">Publicar ideia</button></form></details>
     <div id="ideiaLista"></div>
@@ -127,18 +127,18 @@ function contribuicoes(chave) {
       <button class="botao pq fantasma" onclick="apoiar('${c.id}', this)" aria-label="Apoiar esta contribuição">👍 Apoiar (${c.apoios})</button>
       ${c.resposta ? `<div class="resp"><span class="chip ${c.resposta.situacao === 'acatada' ? 'sim' : c.resposta.situacao === 'nao_acatada' ? 'nao' : 'ambar'}">${esc(D.situacoes[c.resposta.situacao])}</span>
         <b>${esc(c.resposta.autor)}</b>: ${esc(c.resposta.texto)}</div>` : ''}
-      ${D.podeResponder ? `<div class="grupo" style="margin-top:8px"><select class="campo" style="width:auto">${Object.entries(D.situacoes).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
-        <input class="campo" placeholder="Resposta ao cidadão" style="flex:1;min-width:160px"><button class="botao pq" onclick="responder(this,'${c.id}')">Responder</button></div>` : ''}
+      ${D.podeResponder ? `<div class="grupo" style="margin-top:8px"><select class="campo" style="width:auto" aria-label="Situação da resposta">${Object.entries(D.situacoes).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+        <input class="campo" aria-label="Resposta ao cidadão" placeholder="Resposta ao cidadão" style="flex:1;min-width:160px"><button class="botao pq" onclick="responder(this,'${c.id}')">Responder</button></div>` : ''}
     </div>`).join('');
 }
 function formulario(chave) {
   if (!D.projeto.aberta) return '';
   return `<details><summary class="botao pq" style="display:inline-flex;cursor:pointer;margin-top:8px">Comentar ${chave === 'geral' ? 'o projeto' : 'este artigo'}</summary>
     <form class="form-contrib" onsubmit="event.preventDefault(); comentar(this, '${chave}')">
-      <div class="linha2"><input class="campo" name="nome" placeholder="Seu nome" required minlength="3" maxlength="80" autocomplete="name">
-        <input class="campo" name="bairro" placeholder="Bairro ou povoado (opcional)" maxlength="60"></div>
-      <textarea class="campo" name="texto" rows="3" placeholder="Sua sugestão ou comentário" required minlength="10" maxlength="2000"></textarea>
-      <input class="campo" name="email" type="email" placeholder="E-mail para saber da resposta (opcional, não é publicado)" maxlength="120" autocomplete="email">
+      <div class="linha2"><input class="campo" aria-label="Seu nome" name="nome" placeholder="Seu nome" required minlength="3" maxlength="80" autocomplete="name">
+        <input class="campo" aria-label="Bairro ou povoado (opcional)" name="bairro" placeholder="Bairro ou povoado (opcional)" maxlength="60"></div>
+      <textarea class="campo" aria-label="Sua sugestão ou comentário" name="texto" rows="3" placeholder="Sua sugestão ou comentário" required minlength="10" maxlength="2000"></textarea>
+      <input class="campo" aria-label="E-mail para saber da resposta (opcional, não é publicado)" name="email" type="email" placeholder="E-mail para saber da resposta (opcional, não é publicado)" maxlength="120" autocomplete="email">
       <input class="isca" name="site" tabindex="-1" autocomplete="off" aria-hidden="true">
       <button class="botao principal">Enviar contribuição</button></form></details>`;
 }

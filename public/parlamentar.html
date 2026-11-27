@@ -326,7 +326,7 @@ function desenharIdeias() {
       <div class="grupo"><span class="chip ${EVID[i.evidencia]}">Evidência ${i.evidencia}</span><span class="chip">${CUSTO[i.custo]}</span></div>
       <p class="detalhe">${esc(i.notaEvidencia)}</p>
       <div class="rotulo">Como propor na Câmara</div><p>${esc(i.instrumento)}</p>
-      <details class="fontes"><summary class="rotulo" style="cursor:pointer">Fontes (${i.fontes.length})</summary>${i.fontes.map(f => `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.titulo)}</a>`).join('')}</details>
+      <details class="fontes"><summary class="rotulo" style="cursor:pointer">Fontes (${i.fontes.length})</summary>${i.fontes.map(f => `<a href="${esc(PL.urlSegura(f.url))}" target="_blank" rel="noopener noreferrer">${esc(f.titulo)}</a>`).join('')}</details>
       <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">${i.situacao === 'proposto_por_voce' ? '<span class="chip sim">✓ Você já propôs</span>'
         : `<button class="botao principal" onclick="abrirProposta('${i.id}')">Propor este projeto</button>${i.situacao === 'proposto_por_outro' ? '<p class="detalhe" style="margin:0">Outro parlamentar já apresentou proposta inspirada nesta prática.</p>' : ''}`}
         ${i.feedback === 'descartado' ? `<button class="botao pq fantasma" onclick="darFeedback('${i.id}','')">Voltar a recomendar</button>`

@@ -1,6 +1,7 @@
 /* Faixa "Ao vivo" das páginas públicas: aparece só enquanto a sessão está sendo transmitida. */
 (() => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const urlSegura = u => { const t = String(u ?? '').trim(); return /^(https?:\/\/|\/(?![\/\\]))/i.test(t) ? t : ''; };
   const faixa = document.createElement('section');
   faixa.className = 'aovivo';
   faixa.hidden = true;
@@ -20,7 +21,7 @@
       faixa.hidden = false;
       if (url !== d.radio + '#prog') {
         url = d.radio + '#prog';
-        faixa.innerHTML = `<span class="sinal" style="letter-spacing:.04em">📻 Rádio da Câmara</span><span class="info">${esc(d.casa)} — programação</span><audio controls preload="none" src="${esc(d.radio)}"></audio>`;
+        faixa.innerHTML = `<span class="sinal" style="letter-spacing:.04em">📻 Rádio da Câmara</span><span class="info">${esc(d.casa)} — programação</span><audio controls preload="none" src="${esc(urlSegura(d.radio))}"></audio>`;
       }
       return;
     }
@@ -30,8 +31,8 @@
     if (url !== (d.publico || '') + '|' + (d.youtube || '')) {
       url = (d.publico || '') + '|' + (d.youtube || '');
       faixa.innerHTML = `<span class="sinal"><i></i>Ao vivo</span><span class="info"></span>
-        ${d.youtube ? `<a class="botao" href="${esc(d.youtube)}" target="_blank" rel="noopener" style="text-decoration:none">▶ Assistir no YouTube</a>` : ''}
-        ${d.publico ? `<audio controls preload="none" src="${esc(d.publico)}"></audio>` : ''}
+        ${d.youtube ? `<a class="botao" href="${esc(urlSegura(d.youtube))}" target="_blank" rel="noopener" style="text-decoration:none">▶ Assistir no YouTube</a>` : ''}
+        ${d.publico ? `<audio controls preload="none" src="${esc(urlSegura(d.publico))}"></audio>` : ''}
         <div class="leg" aria-live="polite" title="Legenda automática"></div>`;
     }
     faixa.querySelector('.info').innerHTML = info + (d.perguntas && !location.pathname.startsWith('/participe') ? ' · <a href="/participe#ao-vivo">✋ envie sua pergunta</a>' : '');

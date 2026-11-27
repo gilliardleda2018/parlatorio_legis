@@ -54,14 +54,11 @@ EOF
   chmod 640 "$ENVF"; chgrp legis "$ENVF"
 fi
 
-cat > "$ETC/instalacao.conf" <<EOF
-UF=$UF
-MUNICIPIO=$MUNICIPIO
-NOME=$NOME
-TRANSCRICAO=$TRANSCRICAO
-IA=$IA
-JITSI=$JITSI
-EOF
+# CHAVE='valor' (o ' vira '\''): "legis extras" lê sem executar (le_conf em /usr/sbin/legis)
+aspas() { printf "'%s'" "$(printf %s "$1" | tr -d '\n' | sed "s/'/'\\\\''/g")"; }
+for CHAVE in UF MUNICIPIO NOME TRANSCRICAO IA JITSI; do
+  printf '%s=%s\n' "$CHAVE" "$(aspas "${!CHAVE}")"
+done > "$ETC/instalacao.conf"
 
 # vereadores eleitos (TSE) e população (IBGE): só num banco novo — ou no banco de exemplo
 # criado quando a instalação foi feita sem o município (ex.: instalador gráfico, que não pergunta nada)
@@ -152,6 +149,6 @@ if [ -f "$DADOS/.sem-municipio" ] && [ -z "${LEGIS_CONFIGURADOR:-}" ] && command
   done
 fi
 
-/usr/sbin/legis resumo || true
+LEGIS_SEM_PIN=1 /usr/sbin/legis resumo || true   # o PIN não vai para o registro do apt
 echo "${EXTRAS:-}"
 exit 0

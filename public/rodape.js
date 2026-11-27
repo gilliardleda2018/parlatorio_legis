@@ -2,6 +2,7 @@
    Uso: Rodape.mostrar(rodape, casa) — só aparecem os campos preenchidos em Configurações. */
 const Rodape = (() => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const urlSegura = u => { const t = String(u ?? '').trim(); return /^(https?:\/\/|\/(?![\/\\]))/i.test(t) ? t : ''; };
   const ic = d => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
   const ICONES = {
     instagram: ic('<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/>'),
@@ -24,9 +25,9 @@ const Rodape = (() => {
     if (c.telefone) linhas.push(`<li>${ICONES.telefone}<a href="tel:${esc(c.telefone.replace(/[^\d+]/g, ''))}">${esc(c.telefone)}</a></li>`);
     if (c.whatsapp) linhas.push(`<li>${ICONES.whatsapp}<a href="https://wa.me/${esc(c.whatsapp.replace(/\D/g, '').replace(/^(?!55)/, '55'))}" target="_blank" rel="noopener noreferrer">${esc(c.whatsapp)}</a></li>`);
     if (c.email) linhas.push(`<li>${ICONES.email}<a href="mailto:${esc(c.email)}">${esc(c.email)}</a></li>`);
-    if (c.site) linhas.push(`<li>${ICONES.site}<a href="${esc(c.site)}" target="_blank" rel="noopener noreferrer">${esc(semProtocolo(c.site))}</a></li>`);
+    if (c.site) linhas.push(`<li>${ICONES.site}<a href="${esc(urlSegura(c.site))}" target="_blank" rel="noopener noreferrer">${esc(semProtocolo(c.site))}</a></li>`);
     const redes = ['instagram', 'facebook', 'youtube', 'linkedin'].filter(k => c[k]).map(k =>
-      `<a class="rede" href="${esc(c[k])}" target="_blank" rel="noopener noreferrer" aria-label="${ROTULO[k]}" title="${k === 'instagram' ? esc(arroba(c[k])) : ROTULO[k]}">${ICONES[k]}${k === 'instagram' ? `<span>${esc(arroba(c[k]))}</span>` : ''}</a>`).join('');
+      `<a class="rede" href="${esc(urlSegura(c[k]))}" target="_blank" rel="noopener noreferrer" aria-label="${ROTULO[k]}" title="${k === 'instagram' ? esc(arroba(c[k])) : ROTULO[k]}">${ICONES[k]}${k === 'instagram' ? `<span>${esc(arroba(c[k]))}</span>` : ''}</a>`).join('');
     return (linhas.length ? `<ul>${linhas.join('')}</ul>` : '') + (redes ? `<div class="redes">${redes}</div>` : '');
   }
 
@@ -63,7 +64,7 @@ const Rodape = (() => {
     f.id = 'rodapePublico'; f.className = 'rodape-pub';
     f.innerHTML = `<div class="grade">
         <div class="col"><div class="marca-r"><img src="${logoCasa}" alt="Brasão">${esc(casa?.nome || 'Câmara Municipal')}</div>${contatos(c)}</div>
-        <div class="col dir"><a class="marca-r" href="${esc(a.site || 'https://www.aggillintelligence.com.br')}" target="_blank" rel="noopener noreferrer" style="color:var(--texto)">
+        <div class="col dir"><a class="marca-r" href="${esc(urlSegura(a.site) || 'https://www.aggillintelligence.com.br')}" target="_blank" rel="noopener noreferrer" style="color:var(--texto)">
           <span><small>Desenvolvido por</small>Aggilli Intelligence</span><img src="/marca/logo.svg" alt="Aggilli Intelligence"></a>${contatos(a)}</div>
       </div><div class="fim"><span class="selo-legis" style="width:120px;margin-bottom:6px"><img class="legis-auto" src="/marca/legis-claro.webp" alt="LEGIS — Sistema de Gestão Parlamentar"></span><br>LEGIS · Sistema de Gestão Parlamentar</div>`;
     document.body.append(f);

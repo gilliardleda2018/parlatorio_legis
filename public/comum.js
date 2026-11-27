@@ -8,13 +8,22 @@ const PL = (() => {
   const tokenChave = papel => 'parlatorio.token.' + papel;
 
   /* ----- conexão (SSE) ----- */
+  let reconexao = null;
   function conectar() {
     const fonte = new EventSource('/eventos');
     const bolinha = () => document.querySelectorAll('.conexao');
     fonte.onopen = () => bolinha().forEach(b => { b.className = 'conexao on'; b.title = 'Conectado'; });
-    fonte.onerror = () => bolinha().forEach(b => { b.className = 'conexao off'; b.title = 'Sem conexão — tentando novamente'; });
+    fonte.onerror = () => {
+      bolinha().forEach(b => { b.className = 'conexao off'; b.title = 'Sem conexão — tentando novamente'; });
+      /* fechada de vez (ex.: resposta não-SSE): o navegador não tenta de novo sozinho */
+      if (fonte.readyState === 2 && !reconexao) {
+        fonte.close();
+        reconexao = setTimeout(() => { reconexao = null; conectar(); }, 3000);
+      }
+    };
     fonte.onmessage = e => {
-      const m = JSON.parse(e.data);
+      let m;
+      try { m = JSON.parse(e.data); } catch { return; }
       desvio = m.agora - Date.now();
       if (m.tipo === 'legenda') { ouvintesLegenda.forEach(f => f(m)); return; }
       if (m.tipo !== 'estado') return;
@@ -106,7 +115,7 @@ const PL = (() => {
       d.style.cssText = 'background:var(--cartao);color:var(--texto);border:0;border-top:4px solid var(--ambar);border-radius:14px;padding:18px;width:min(360px,92vw)';
       d.innerHTML = `<form method="dialog" style="display:flex;flex-direction:column;gap:12px">
         <b>Confirme com seu PIN</b><span style="color:var(--suave);font-size:14px">${esc(mensagem)}</span>
-        <input class="campo" type="password" inputmode="numeric" autocomplete="current-password" style="font-size:24px;letter-spacing:.3em;text-align:center" id="pinConf">
+        <input class="campo" type="password" inputmode="numeric" autocomplete="current-password" style="font-size:24px;letter-spacing:.3em;text-align:center" id="pinConf" aria-label="PIN">
         <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--suave)"><input type="checkbox" id="pinLembrar" checked> não pedir de novo por 10 minutos</label>
         <div style="display:flex;gap:8px;justify-content:flex-end"><button class="botao fantasma" value="">Cancelar</button><button class="botao principal" value="ok">Confirmar</button></div></form>`;
       document.body.append(d);
@@ -123,6 +132,8 @@ const PL = (() => {
 
   /* ----- formatação ----- */
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  /* só aceita http(s) ou caminho relativo do próprio site; bloqueia javascript:, data: etc. */
+  const urlSegura = u => { const t = String(u ?? '').trim(); return /^(https?:\/\/|\/(?![\/\\]))/i.test(t) ? t : ''; };
   function tempo(ms) {
     const neg = ms < 0; ms = Math.abs(ms);
     const s = neg ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
@@ -221,8 +232,10 @@ const PL = (() => {
   function avisar(texto, erro = false) {
     let box = document.getElementById('avisos');
     if (!box) { box = document.createElement('div'); box.id = 'avisos'; document.body.append(box); }
+    box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite');
     const el = document.createElement('div');
-    el.className = 'aviso' + (erro ? ' erro' : ''); el.textContent = texto;
+    el.className = 'aviso' + (erro ? ' erro' : ''); if (erro) el.setAttribute('role', 'alert');
+    el.textContent = texto;
     box.append(el); setTimeout(() => el.remove(), 3500);
   }
 
@@ -277,7 +290,7 @@ const PL = (() => {
   }
 
   return {
-    conectar, agora, entrar, quemSou, sair, acao, esc, tempo, hora, relogio, decorrido, restante, nivel, pintar,
+    conectar, agora, entrar, quemSou, sair, acao, esc, urlSegura, tempo, hora, relogio, decorrido, restante, nivel, pintar,
     parl, fase, corPartido, avatar, sigla, TIPOS, SITUACOES, QUORUNS, VOTOS, ORIENTACOES, bancada, orientacoesHtml, quorum, usadoNaFase, bipe, avisar, lerImagem,
     MICS, OCORRENCIAS, mic, micChip, gravando, token: papel => localStorage.getItem(tokenChave(papel)),
     video, sincronizarMicrofone, encerrarVideo, temVideo: () => !!jitsi,

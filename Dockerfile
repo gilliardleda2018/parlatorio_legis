@@ -4,7 +4,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg openssl tzdata poppler-utils && rm -rf /var/lib/apt/lists/*
 # Transcrição local dos discursos (opcional): docker compose build --build-arg TRANSCRICAO=1
 ARG TRANSCRICAO=0
-RUN if [ "$TRANSCRICAO" = "1" ]; then python -m venv /opt/whisper && /opt/whisper/bin/pip install --no-cache-dir faster-whisper; fi
+RUN if [ "$TRANSCRICAO" = "1" ]; then python -m venv /opt/whisper && /opt/whisper/bin/pip install --no-cache-dir faster-whisper==1.1.0; fi
 COPY server ./server
 COPY public ./public
 COPY scripts ./scripts

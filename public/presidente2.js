@@ -227,7 +227,7 @@ $('cidOk').onclick = async () => {
     const pop = r.populacao ? ` · ${r.populacao.toLocaleString('pt-BR')} habitantes (IBGE)` : '';
     $('cidCorpo').innerHTML = `<p style="margin:0;font-size:1.15em"><b>✔ ${esc(r.nome)}</b></p>
       <p class="detalhe" style="margin:0">${r.vereadores} vereadores eleitos em 2024, ${r.fotos} com foto${pop}.</p>
-      <p class="detalhe" style="margin:0">O PIN inicial de cada vereador é <b>0000</b>, com troca obrigatória no primeiro acesso.
+      <p class="detalhe" style="margin:0">Cada vereador recebeu um PIN inicial próprio: veja em <b>Plenário → PINs iniciais</b>. A troca é obrigatória no primeiro acesso.
       Suplentes que assumiram depois e mudanças de partido se ajustam em <b>Plenário</b>.</p>`;
     $('cidRodape').innerHTML = '<button class="botao principal" id="cidFim">Começar</button>';
     $('cidFim').onclick = () => $('dlgCidade').close();

@@ -17,7 +17,8 @@
   @media (max-width: 820px) { .grade3, .grade2 { grid-template-columns: 1fr } }
 
   /* fases */
-  .fase { padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; display: flex; flex-direction: column; gap: 6px }
+  .fase { padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; display: flex; flex-direction: column; gap: 6px;
+    width: 100%; background: none; color: inherit; font: inherit; text-align: left }
   .fase:hover { background: var(--cartao2) }
   .fase.ativa { background: var(--cartao2); border-color: var(--destaque-suave) }
   .fase .t { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600 }
@@ -333,6 +334,7 @@
           <h2>Parlamentares<span class="esp"></span>
             <button class="botao pq" onclick="todosPresentes(true)">Marcar todos presentes</button>
             <button class="botao pq" onclick="todosPresentes(false)">Limpar presença</button>
+            <button class="botao pq" onclick="verPinsIniciais()">PINs iniciais</button>
             <button class="botao pq principal" onclick="editarParl()">+ Parlamentar</button></h2>
           <div class="grupo" style="align-items:center;margin-bottom:10px">
             <span class="detalhe">Bloco por partido:</span>

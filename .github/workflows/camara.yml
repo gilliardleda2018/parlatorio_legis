@@ -18,6 +18,8 @@ on:
         required: true
         type: string
       camara:
+    permissions:
+      contents: write   # só este job publica releases
         description: "Nome da Câmara (em branco: Câmara Municipal de <município>)"
         required: false
         type: string
@@ -33,9 +35,6 @@ on:
         description: "Link público da live no YouTube (opcional)"
         required: false
         type: string
-
-permissions:
-  contents: write
 
 concurrency:
   group: pacotes

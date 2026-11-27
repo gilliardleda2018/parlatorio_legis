@@ -26,6 +26,17 @@ while [ $# -gt 0 ]; do
     *) echo "Opção desconhecida: $1"; exit 1 ;;
   esac
 done
+# município, Câmara e link entram no instalar.sh que roda como root: só caracteres seguros
+python3 - "$MUNICIPIO" "$CAMARA" "$YT" <<'PY'
+import re, sys
+municipio, camara, yt = sys.argv[1:4]
+for rotulo, valor, limite, obrigatorio in (("Município", municipio, 80, True), ("Nome da Câmara", camara, 120, False)):
+    valor = " ".join(valor.split())
+    if (obrigatorio or valor) and (not valor or len(valor) > limite or not all(c.isalnum() or c in " .-'" for c in valor)):
+        sys.exit(f"{rotulo} inválido: use só letras, números, espaço e . - ' (até {limite} caracteres): {valor!r}")
+if yt and not re.fullmatch(r"https://[A-Za-z0-9./?=_@%&:+~#-]+", yt, re.ASCII):
+    sys.exit(f"Link do YouTube inválido (deve começar com https:// e não ter espaços nem ; $ ` aspas): {yt!r}")
+PY
 OBRA=$(mktemp -d)
 trap 'rm -rf "$OBRA"' EXIT
 
@@ -45,6 +56,8 @@ SLUG=$(basename "$PASTA")
 DEB=$(ls "$PASTA"legis-"$SLUG"_*_all.deb)
 VERSAO=$(basename "$DEB"); VERSAO=${VERSAO#legis-"$SLUG"_}; VERSAO=${VERSAO%_all.deb}
 ROTULO=$(dpkg-deb -f "$DEB" X-Legis-Cidade)
+[[ "$ROTULO" =~ ^[^\$\`\"\\]+$ ]] && [ "$(printf %s "$ROTULO" | wc -l)" = 0 ] || { echo "Rótulo da Câmara inválido: $ROTULO"; exit 1; }
+[[ "$SLUG" =~ ^[a-z0-9-]{1,40}$ ]] || { echo "Nome curto inválido: $SLUG"; exit 1; }
 
 # arquivos com nomes fixos (o .sha256 confere o nome fixo)
 SAIDA="$OBRA/publicar"; mkdir -p "$SAIDA"
@@ -53,20 +66,23 @@ cp "$DEB" "$SAIDA/legis-${SLUG}_all.deb"
 install -m 0755 packaging/instalar-legis.sh "$SAIDA/instalar-legis.sh"
 cp "$PASTA"legis-"$SLUG"-completo-*.tar.gz "$SAIDA/legis-${SLUG}-completo.tar.gz"
 BASE="https://github.com/$REPO/releases/download/camara-$SLUG"
+SHA_INSTALADOR=$(sha256sum "$SAIDA/instalar-legis.sh" | cut -d' ' -f1)   # conferido antes de executar
 cat > "$SAIDA/instalar.sh" <<EOF
 #!/bin/bash
-# Instala o LEGIS de $ROTULO direto do GitHub, sem perguntas.
+# Instala o LEGIS de uma Câmara direto do GitHub, sem perguntas.
 #   curl -fsSL $BASE/instalar.sh | sudo bash
 set -euo pipefail
+ROTULO=$(printf '%q' "$ROTULO")
 [ "\$(id -u)" = 0 ] || { echo "Rode como administrador:  curl -fsSL $BASE/instalar.sh | sudo bash"; exit 1; }
 baixar() { curl -fsSL -o "\$2" "\$1" 2>/dev/null || wget -qO "\$2" "\$1"; }
 T=\$(mktemp -d)
-echo "== LEGIS de $ROTULO: baixando o pacote do GitHub..."
+echo "== LEGIS de \$ROTULO: baixando o pacote do GitHub..."
 baixar "$BASE/legis-${SLUG}_all.deb" "\$T/legis-${SLUG}_all.deb"
 baixar "$BASE/legis-${SLUG}_all.deb.sha256" "\$T/legis-${SLUG}_all.deb.sha256"
 (cd "\$T" && sha256sum -c "legis-${SLUG}_all.deb.sha256" >/dev/null) || { echo "O pacote baixado não confere (SHA-256)."; exit 1; }
 echo "   pacote conferido (SHA-256), versão $VERSAO"
 baixar "$BASE/instalar-legis.sh" "\$T/instalar-legis.sh"
+echo "$SHA_INSTALADOR  \$T/instalar-legis.sh" | sha256sum -c - >/dev/null || { echo "O instalador baixado não confere (SHA-256)."; exit 1; }
 DEB="\$T/legis-${SLUG}_all.deb" bash "\$T/instalar-legis.sh"
 EOF
 # configuração da Câmara, para o GitHub regenerar o pacote a cada versão nova

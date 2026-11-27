@@ -115,7 +115,7 @@ EOF
   if [ -n "${TS_AUTHKEY:-}" ] || [ -d dados/tailscale ]; then
     cat <<EOF
   tailscale:
-    image: tailscale/tailscale:stable
+    image: ${TAILSCALE_IMAGEM:-tailscale/tailscale:v1.76.6}
     hostname: $NOME
     restart: unless-stopped
     environment:

@@ -29,6 +29,7 @@ import sys
 import sqlite3
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import urllib.parse
@@ -83,9 +84,32 @@ def _de_proxy(ip: str) -> bool:
     except ValueError:
         return False
     return any(endereco in rede for rede in PROXY_IPS if rede.version == endereco.version)
-PIN_PRESIDENTE = os.environ.get("PIN_PRESIDENTE", "1234")  # PIN inicial; depois da troca vale o salvo (com hash)
+# PIN inicial do painel: o de PIN_PRESIDENTE ou, sem ele, um aleatório criado na primeira partida (mostrado no log
+# até a primeira troca). Depois da troca vale o salvo (com hash).
+PIN_PRESIDENTE = os.environ.get("PIN_PRESIDENTE", "").strip()
 # Período de testes: TROCA_PIN=0 deixa entrar com PIN padrão (0000) sem obrigar a troca. Em produção, deixe ligado.
 TROCA_PIN_OBRIGATORIA = os.environ.get("TROCA_PIN", "1") != "0"
+
+
+def url_segura(u) -> str:
+    """Só endereços http(s) vindos de fora (SAPL etc.) vão para links das páginas: nunca javascript: e afins."""
+    u = str(u or "").strip()
+    return u if re.match(r"(?i)^https?://[^\s<>\"']+$", u) else ""
+
+
+def novo_pin_inicial() -> str:
+    """PIN inicial de cada conta: aleatório (6 dígitos, nunca óbvio). Em período de testes (TROCA_PIN=0), 0000."""
+    if not TROCA_PIN_OBRIGATORIA:
+        return "0000"
+    while True:
+        pin = f"{secrets.randbelow(10 ** 6):06d}"
+        if not seguranca.pin_fraco(pin):
+            return pin
+
+
+def chave_token(token: str) -> str:
+    """Os tokens de login ficam guardados só como hash: um backup do banco não abre sessões."""
+    return hashlib.sha256(str(token).encode()).hexdigest()
 OCIOSO_PRESIDENTE = 12 * 3600_000      # login do painel expira após 12 h sem uso
 OCIOSO_PARLAMENTAR = 30 * 86400_000    # no celular, após 30 dias sem uso
 VALIDADE_MAXIMA = 90 * 86400_000       # nenhum login dura mais que 90 dias
@@ -106,6 +130,9 @@ BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", BANCO.parent / "backups"))
 BACKUP_HORA = os.environ.get("BACKUP_HORA", "03:00")   # backup diário automático (vazio desliga)
 BACKUP_MANTER = int(os.environ.get("BACKUP_MANTER", "14"))
 LIMITE_CORPO = 4 * 1024 * 1024
+TEMPO_LIMITE_CONEXAO = int(os.environ.get("TEMPO_LIMITE_CONEXAO", "60"))   # segundos sem receber nem enviar nada
+MAX_CONEXOES = int(os.environ.get("MAX_CONEXOES", "800"))   # conexões simultâneas (telas, celulares, ouvintes da rádio)
+RADIO_MAX_GB = float(os.environ.get("RADIO_MAX_GB", "20"))  # espaço máximo da programação da rádio
 TIPOS_IMAGEM = {"image/png", "image/jpeg", "image/webp"}
 
 trava = threading.RLock()
@@ -122,6 +149,20 @@ def uid() -> str:
 
 class Erro(Exception):
     """Erro de regra: volta para a tela como mensagem."""
+
+
+class TrocaPin(Exception):
+    """Login com PIN inicial ou fraco: antes de qualquer outra coisa, é preciso trocar o PIN."""
+
+
+def pin_exige_troca(papel: str, pin: str, pid) -> bool:
+    if seguranca.pin_fraco(pin):
+        return True
+    if papel == "presidente":
+        # PIN curto (menos de 6) ou o inicial aleatório mostrado no log: troca obrigatória.
+        # Um PIN_PRESIDENTE forte do ambiente (ex.: o sorteado pelo instalador da AWS) pode seguir valendo.
+        return len(str(pin)) < 6 or (not S.get("_pinPresidente") and pin == S.get("_pinInicialPresidente"))
+    return pid in S["_pinsIniciais"]
 
 
 # ---------------------------------------------------------------- banco
@@ -190,9 +231,16 @@ def salvar():
     db.commit()
 
 
+CAMPOS_SIGILOSOS = ("dataUrl", "pin", "senha", "chave", "token", "segredo", "password", "jwt")
+
+
 def registrar(autor: str, acao: str, args: dict):
+    """Auditoria: nunca grava PIN, senha, chave ou token (o registro vai junto nos backups)."""
     limpo = {k: (f"<{len(v)} caracteres>" if isinstance(v, str) and len(v) > 2000 else v)
-             for k, v in args.items() if k not in ("dataUrl", "pin")}
+             for k, v in args.items() if k not in CAMPOS_SIGILOSOS}
+    for k in list(limpo):
+        if any(s in k.lower() for s in ("senha", "chave", "segredo", "token")):
+            limpo[k] = "<oculto>"
     db.execute(
         "insert into eventos (ts, autor, acao, args) values (?, ?, ?, ?)",
         (agora(), autor, acao, json.dumps(limpo, ensure_ascii=False)),
@@ -255,7 +303,8 @@ def estado_inicial() -> dict:
         "votacoes": [],
         "hist": [],
         "sinal": {"n": 0, "tipo": ""},
-        "_pins": {p["id"]: seguranca.hash_pin("0000") for p in parls},
+        "_pins": {},
+        "_pinsIniciais": {},
         "_tokens": {},
         **NOVOS_CAMPOS(),
     }
@@ -292,6 +341,8 @@ def NOVOS_CAMPOS() -> dict:
         "presencaModo": {},     # pid -> "remoto" quando a presença foi registrada pela videoconferência
         "_remoto": {"sala": ""},  # nome da sala: nunca vai para as telas públicas
         "_pinPresidente": None,   # hash do PIN do painel depois da primeira troca
+        "_pinInicialPresidente": "",  # PIN inicial aleatório (sem PIN_PRESIDENTE), até a primeira troca
+        "_pinsIniciais": {},      # pid -> PIN inicial (aleatório ou definido pelo presidente), até o vereador trocar
         "backup": {"ultimo": None, "arquivo": None, "tamanho": 0, "nextcloud": None, "erro": None, "emAndamento": False},
         "mesa": dict(CFG_PADRAO),
         "_resumoAtual": None,    # rascunho da ata por IA da sessão em andamento (só o presidente vê)
@@ -305,10 +356,36 @@ def NOVOS_CAMPOS() -> dict:
     }
 
 
+def definir_pin_inicial(estado: dict, pid: str, pin: str | None = None) -> str:
+    """Dá a um vereador um PIN inicial (aleatório, ou o que o presidente escolheu). Vale até ele trocar."""
+    pin = str(pin) if pin else novo_pin_inicial()
+    estado["_pins"][pid] = seguranca.hash_pin(pin)
+    estado["_pinsIniciais"][pid] = pin
+    return pin
+
+
+def preparar_pins(estado: dict):
+    """Contas sem PIN pessoal recebem PIN inicial aleatório; bancos antigos com o 0000 de todos são corrigidos."""
+    for p in estado["parls"]:
+        if p["id"] not in estado["_pins"]:
+            definir_pin_inicial(estado, p["id"])
+    if TROCA_PIN_OBRIGATORIA and not estado.get("_pinsMigrados"):
+        for pid, h in list(estado["_pins"].items()):
+            if pid not in estado["_pinsIniciais"] and seguranca.verificar_pin("0000", h):
+                definir_pin_inicial(estado, pid)
+        estado["_pinsMigrados"] = True
+    if not PIN_PRESIDENTE and not estado.get("_pinPresidente") and not estado.get("_pinInicialPresidente"):
+        estado["_pinInicialPresidente"] = novo_pin_inicial() if TROCA_PIN_OBRIGATORIA else "1234"
+    # tokens antigos (guardados em texto) passam a ser guardados só como hash
+    estado["_tokens"] = {(t if len(t) == 64 else chave_token(t)): a for t, a in estado["_tokens"].items()}
+
+
 def carregar() -> dict:
     linha = db.execute("select json from estado where id = 1").fetchone()
     if not linha:
-        return estado_inicial()
+        estado = estado_inicial()
+        preparar_pins(estado)
+        return estado
     estado = json.loads(linha[0])
     for k, v in NOVOS_CAMPOS().items():
         estado.setdefault(k, v)
@@ -335,6 +412,7 @@ def carregar() -> dict:
     for g in estado.pop("gravacoes", []):  # versões anteriores guardavam as gravações no estado
         g.setdefault("sessao", estado["sessao"]["id"])
         grav_salvar(g)
+    preparar_pins(estado)
     return estado
 
 
@@ -1296,9 +1374,10 @@ def parlSalvar(ator, nome, partido, lider=False, pin=None, id=None, canal=0, blo
         p = {"id": uid(), "nome": nome.strip(), "partido": partido.strip().upper(), "lider": bool(lider), "fotoV": 0,
              "canal": canal}
         S["parls"].append(p)
-        S["_pins"][p["id"]] = seguranca.hash_pin("0000")
+        if not pin:
+            definir_pin_inicial(S, p["id"])
     if pin:
-        S["_pins"][p["id"]] = seguranca.hash_pin(str(pin))
+        definir_pin_inicial(S, p["id"], str(pin))  # PIN dado pelo presidente: o vereador troca no primeiro acesso
         S["_tokens"] = {t: a for t, a in S["_tokens"].items() if a.get("pid") != p["id"]}
     if bloco is not None:
         p["bloco"] = bloco
@@ -1335,6 +1414,7 @@ def parlRemover(ator, id):
     S["micsManuais"].pop(id, None)
     S["micsCortados"] = [x for x in S["micsCortados"] if x != id]
     S["_pins"].pop(id, None)
+    S["_pinsIniciais"].pop(id, None)
     S["_tokens"] = {t: a for t, a in S["_tokens"].items() if a.get("pid") != id}
 
 
@@ -1446,7 +1526,7 @@ def _sapl_parlamentares(cli, atualizar_fotos: bool, capitalizar: bool):
                 p = {"id": uid(), "nome": nome, "partido": partido, "lider": False, "fotoV": 0, "canal": 0, "bloco": "",
                      "saplId": sp["id"]}
                 S["parls"].append(p)
-                S["_pins"][p["id"]] = seguranca.hash_pin("0000")
+                definir_pin_inicial(S, p["id"])
             p["saplUrl"] = f"{cli.base}/parlamentar/{sp['id']}"
             if partido:
                 S["partidos"].setdefault(partido, "#5b6b86")
@@ -1481,7 +1561,7 @@ def _sapl_salvar_materia(cli, m: dict, siglas: dict, nomes_parl: dict) -> dict:
         if not novo and p["situacao"] != "em_pauta" and situacao != "em_tramitacao":
             p["situacao"] = situacao  # o SAPL já registrou o desfecho da matéria
         p.update(numero=_numero_materia(m, siglas), ementa=(m.get("ementa") or "").strip(), autor=autor, saplId=m["id"],
-                 saplUrl=f"{cli.base}/materia/{m['id']}", textoUrl=m.get("texto_original") or "")
+                 saplUrl=f"{cli.base}/materia/{m['id']}", textoUrl=url_segura(m.get("texto_original")))
         proj_salvar(p)
         S["projetosRev"] += 1
     return p
@@ -1899,6 +1979,21 @@ def logo_ata() -> bytes | None:
 
 
 # ---------------------------------------------------------------- regras automáticas
+def sempre(laco):
+    """Threads de fundo nunca morrem em silêncio: um erro inesperado vai para o log e o laço recomeça."""
+    def rodar():
+        while True:
+            try:
+                laco()
+            except Exception:  # noqa: BLE001
+                print(f"Erro na tarefa de fundo {laco.__name__} (recomeçando):", flush=True)
+                traceback.print_exc()
+                time.sleep(1)
+    rodar.__name__ = laco.__name__
+    return rodar
+
+
+@sempre
 def tique():
     """Avisos sonoros, corte de microfone e fim de aparte, 4 vezes por segundo."""
     while True:
@@ -1990,6 +2085,9 @@ def canais_desejados() -> dict[int, bool]:
 def pacote() -> str:
     pub = {k: v for k, v in S.items() if not k.startswith("_")}
     pub["votacao"] = publico_votacao(S["votacao"])
+    # telas públicas: só o tipo da mesa de som (endereço e URL, que podem ter credenciais, ficam em /api/mesa)
+    pub["mesa"] = {k: S["mesa"].get(k) for k in ("driver", "modelo", "canalTribuna")}
+    pub["backup"] = {k: v for k, v in S["backup"].items() if k != "pasta"}
     pub["microfones"], pub["tribunaAberta"] = microfones()
     pub["mesaStatus"] = mesa.publico()
     pub["mesaPresets"] = PRESETS
@@ -2125,6 +2223,7 @@ def _pos_gravacao(g: dict):
             confirmar()
 
 
+@sempre
 def trabalhador_transcricao():
     while True:
         gid = fila_transcricao.get()
@@ -2737,7 +2836,7 @@ def aplicar_cidade(dados: dict):
     novo = estado_inicial()
     for k in ("presenca", "filas", "orador", "interr", "pedidos", "votacao"):
         S[k] = novo[k]
-    S["pauta"], S["parls"], S["_pins"] = [], [], {}
+    S["pauta"], S["parls"], S["_pins"], S["_pinsIniciais"] = [], [], {}, {}
     S["_tokens"] = {t: a for t, a in S["_tokens"].items() if a.get("papel") == "presidente"}
     if dados.get("populacao"):
         S["relevancia"]["populacao"] = dados["populacao"]
@@ -2750,7 +2849,7 @@ def aplicar_cidade(dados: dict):
             db.execute("insert or replace into imagens (chave, mime, dados) values (?, ?, ?)", (p["id"], "image/jpeg", e["foto"]))
             p["fotoV"] = agora()
         S["parls"].append(p)
-        S["_pins"][p["id"]] = seguranca.hash_pin("0000")
+        definir_pin_inicial(S, p["id"])
         S["partidos"].setdefault(e["partido"], "#5b6b86")
     if S["transmissao"].get("local"):
         S["transmissao"]["nome"] = f"{S['casa']['nome']} — Rádio"
@@ -2872,6 +2971,7 @@ def dados_abertos_sessoes() -> list[dict]:
 # ---------------------------------------------------------------- HTTP
 class Manipulador(BaseHTTPRequestHandler):
     server_version = "ParlatorioLegis/2"
+    timeout = TEMPO_LIMITE_CONEXAO  # conexão parada (slowloris) cai sozinha; o /eventos manda sinal a cada 10 s
 
     def log_message(self, fmt, *args):
         if os.environ.get("PARLATORIO_LOG"):
@@ -2887,8 +2987,15 @@ class Manipulador(BaseHTTPRequestHandler):
         self.wfile.write(corpo)
         return True
 
+    def _tamanho(self) -> int:
+        """Content-Length validado: negativo ou inválido seria lido até o cliente fechar (memória sem limite)."""
+        bruto = (self.headers.get("Content-Length") or "0").strip()
+        if not bruto.isdigit():
+            raise Erro("Content-Length inválido.")
+        return int(bruto)
+
     def _ler(self) -> dict:
-        n = int(self.headers.get("Content-Length") or 0)
+        n = self._tamanho()
         if n > LIMITE_CORPO:
             raise Erro("Requisição grande demais.")
         try:
@@ -2896,17 +3003,21 @@ class Manipulador(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             raise Erro("JSON inválido.")
 
-    def _ator(self):
+    def _ator(self, troca_ok: bool = False):
+        """Quem fez o pedido. Com o PIN inicial ainda não trocado, só /api/eu e a troca de PIN são aceitos."""
         token = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
-        a = S["_tokens"].get(token) if token else None
+        ct = chave_token(token) if token else None
+        a = S["_tokens"].get(ct) if ct else None
         if not a:
             return None
         ocioso = OCIOSO_PRESIDENTE if a["papel"] == "presidente" else OCIOSO_PARLAMENTAR
         if agora() - a.get("uso", 0) > ocioso or agora() - a.get("criado", 0) > VALIDADE_MAXIMA:
-            S["_tokens"].pop(token, None)
+            S["_tokens"].pop(ct, None)
             return None
         if agora() - a.get("uso", 0) > 300_000:
             a["uso"] = agora()
+        if a.get("deveTrocar") and not troca_ok:
+            raise TrocaPin()
         return a
 
     def _ip(self) -> str:
@@ -2941,6 +3052,14 @@ class Manipulador(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
+        try:
+            return self._do_get()
+        except TrocaPin:
+            return self._json(403, {"erro": "Troque o PIN inicial antes de continuar.", "codigo": "trocarPin"})
+        except Erro as e:
+            return self._json(400, {"erro": str(e)})
+
+    def _do_get(self):
         if self._redirecionar():
             return
         caminho = urlparse(self.path).path
@@ -2996,9 +3115,21 @@ class Manipulador(BaseHTTPRequestHandler):
             return self._imagem(caminho.rsplit("/", 1)[1])
         if caminho.startswith("/gravacao/"):
             return self._audio(caminho.rsplit("/", 1)[1])
+        if caminho == "/api/mesa":
+            with trava:
+                ator = self._ator()
+                if not ator or ator["papel"] != "presidente":
+                    return self._json(403, {"erro": "Só o painel do presidente."})
+                return self._json(200, {**S["mesa"], "pastaBackup": S["backup"].get("pasta", "")})
+        if caminho == "/api/pins-iniciais":
+            with trava:
+                ator = self._ator()
+                if not ator or ator["papel"] != "presidente":
+                    return self._json(403, {"erro": "Só o painel do presidente."})
+                return self._json(200, {"pins": dict(S["_pinsIniciais"])})
         if caminho == "/api/eu":
             with trava:
-                a = self._ator()
+                a = self._ator(troca_ok=True)
             return self._json(200, {"ator": {k: a.get(k) for k in ("papel", "pid", "deveTrocar")} if a else None})
         return self._estatico(caminho)
 
@@ -3022,8 +3153,24 @@ class Manipulador(BaseHTTPRequestHandler):
         self.send_header("Content-Type", tipos.get(alvo.suffix, "application/octet-stream"))
         self.send_header("Content-Length", str(len(dados)))
         self.send_header("Cache-Control", "no-cache")
+        if alvo.suffix == ".html":
+            self._cabecalhos_seguranca()
         self.end_headers()
         self.wfile.write(dados)
+
+    def _cabecalhos_seguranca(self):
+        """Nenhum outro site põe as telas num iframe (clique escondido em "encerrar votação") e só rodam scripts
+        daqui, do VLibras e do Jitsi da sessão remota."""
+        with trava:
+            jitsi = urlparse(str(S["remoto"].get("servidor") or ""))
+        origem_jitsi = f"{jitsi.scheme}://{jitsi.netloc}" if jitsi.scheme in ("http", "https") and \
+            re.fullmatch(r"[A-Za-z0-9.\-:\[\]]+", jitsi.netloc or "") else ""
+        self.send_header("Content-Security-Policy",
+                         "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; "
+                         f"script-src 'self' 'unsafe-inline' https://vlibras.gov.br https://*.vlibras.gov.br {origem_jitsi}".strip())
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "same-origin")
 
     def _imagem(self, chave):
         with trava:
@@ -3248,10 +3395,14 @@ class Manipulador(BaseHTTPRequestHandler):
         nome = re.sub(r"[^\w.\- ]+", "_", Path(nome).name).strip(" .")[:120]
         if not nome or Path(nome).suffix.lower() not in RADIO_FORMATOS:
             return self._json(400, {"erro": "Envie MP3, OGG, M4A, WAV ou FLAC."})
-        n = int(self.headers.get("Content-Length") or 0)
+        n = self._tamanho()
         if n <= 0 or n > 80 * 1024 * 1024:
             return self._json(413, {"erro": "Arquivo vazio ou maior que 80 MB."})
         RADIO_DIR.mkdir(parents=True, exist_ok=True)
+        usado = sum(f.stat().st_size for f in RADIO_DIR.iterdir() if f.is_file())
+        if usado + n > RADIO_MAX_GB * 1024 ** 3:
+            return self._json(507, {"erro": f"A programação da rádio já ocupa o espaço máximo ({RADIO_MAX_GB:g} GB). "
+                                             "Apague arquivos antigos antes de enviar outros."})
         tmp = RADIO_DIR / f".{nome}.enviando"
         restante = n
         with open(tmp, "wb") as f:
@@ -3275,7 +3426,7 @@ class Manipulador(BaseHTTPRequestHandler):
             ator = self._ator()
         if not ator or ator["papel"] != "presidente":
             return self._json(401, {"erro": "Entre no painel do presidente."})
-        n = int(self.headers.get("Content-Length") or 0)
+        n = self._tamanho()
         if n > 4 * 1024 * 1024:
             return self._json(413, {"erro": "Parte grande demais."})
         dados = self.rfile.read(n)
@@ -3567,6 +3718,7 @@ class Manipulador(BaseHTTPRequestHandler):
             if len(pergunta) < 4:
                 return self._json(400, {"erro": "Escreva sua pergunta."})
             historico = corpo.get("historico") if isinstance(corpo.get("historico"), list) else []
+            historico = [m for m in historico if isinstance(m, dict)]
             try:
                 return self._json(200, perguntar(pergunta, str(corpo.get("escopo") or "tudo"), historico[-6:], self._ip()))
             except PermissionError as e:
@@ -3758,7 +3910,7 @@ class Manipulador(BaseHTTPRequestHandler):
         with trava:
             g = _gravacao(gid)
         if passo == "parte":
-            n = int(self.headers.get("Content-Length") or 0)
+            n = self._tamanho()
             if n > LIMITE_PARTE:
                 raise Erro("Parte grande demais.")
             dados = self.rfile.read(n)
@@ -3828,7 +3980,8 @@ class Manipulador(BaseHTTPRequestHandler):
             if caminho == "/api/sair":
                 with trava:
                     token = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
-                    S["_tokens"].pop(token, None)
+                    if token:
+                        S["_tokens"].pop(chave_token(token), None)
                     salvar()
                 return self._json(200, {"ok": True})
             if caminho == "/api/acao":
@@ -3839,34 +3992,41 @@ class Manipulador(BaseHTTPRequestHandler):
             if novo is not None:
                 return novo
             return self._json(404, {"erro": "Não encontrado."})
+        except TrocaPin:
+            return self._json(403, {"erro": "Troque o PIN inicial antes de continuar.", "codigo": "trocarPin"})
         except Erro as e:
             return self._json(400, {"erro": str(e)})
 
     def _pin_guardado(self, papel: str, pid) -> str | None:
         if papel == "presidente":
-            return S.get("_pinPresidente") or PIN_PRESIDENTE
+            return S.get("_pinPresidente") or PIN_PRESIDENTE or S.get("_pinInicialPresidente")
         return S["_pins"].get(pid)
 
     def _entrar(self, corpo):
         papel, pin, pid = corpo.get("papel"), str(corpo.get("pin") or ""), corpo.get("pid")
         if papel not in ("presidente", "parlamentar"):
             return self._json(400, {"erro": "Acesso inválido."})
-        conta = f"{papel}:{pid or ''}"
-        espera = bloqueio.espera(conta, self._ip())
-        if espera:
-            return self._json(429, {"erro": f"Muitas tentativas erradas. Tente de novo em {max(1, espera // 60)} minuto(s)."})
+        if papel == "presidente":
+            pid = None
+        elif not isinstance(pid, str) or len(pid) > 32:
+            pid = None
         with trava:
             guardado = self._pin_guardado(papel, pid)
+        # a conta do bloqueio nunca vem livre do pedido: presidente é uma só; parlamentar só se o id existir
+        conta = "presidente" if papel == "presidente" else (f"parlamentar:{pid}" if guardado else "parlamentar:?")
+        ip = self._ip()
+        espera, marca = bloqueio.tentar(conta, ip)  # reserva a tentativa antes do PBKDF2 (sem corrida)
+        if espera:
+            return self._json(429, {"erro": f"Muitas tentativas erradas. Tente de novo em {max(1, espera // 60)} minuto(s)."})
         if not guardado or not seguranca.verificar_pin(pin, guardado):  # PBKDF2 fora da trava do plenário
-            bloqueio.falhou(conta, self._ip())
             time.sleep(0.4)
             return self._json(403, {"erro": "PIN incorreto."})
-        bloqueio.acertou(conta)
+        bloqueio.acertou(conta, ip, marca)
         with trava:
             ator = {"papel": papel, "pid": pid if papel == "parlamentar" else None, "criado": agora(), "uso": agora(),
-                    "deveTrocar": TROCA_PIN_OBRIGATORIA and seguranca.pin_fraco(pin)}
+                    "deveTrocar": TROCA_PIN_OBRIGATORIA and pin_exige_troca(papel, pin, pid)}
             token = secrets.token_urlsafe(24)
-            S["_tokens"][token] = ator
+            S["_tokens"][chave_token(token)] = ator
             registrar(ator["pid"] or "presidente", "entrar", {})
             salvar()
         return self._json(200, {"token": token, "ator": {k: ator[k] for k in ("papel", "pid", "deveTrocar")}})
@@ -3874,16 +4034,18 @@ class Manipulador(BaseHTTPRequestHandler):
     def _trocar_pin(self, corpo):
         with trava:
             token = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
-            ator = self._ator()
+            ator = self._ator(troca_ok=True)
             if not ator:
                 return self._json(401, {"erro": "Sessão expirada. Entre novamente."})
             guardado = self._pin_guardado(ator["papel"], ator["pid"])
-        conta = f"{ator['papel']}:{ator['pid'] or ''}"
-        if bloqueio.espera(conta, self._ip()):
+        conta = "presidente" if ator["papel"] == "presidente" else f"parlamentar:{ator['pid']}"
+        ip = self._ip()
+        espera, marca = bloqueio.tentar(conta, ip)
+        if espera:
             return self._json(429, {"erro": "Muitas tentativas erradas. Aguarde alguns minutos."})
         if not seguranca.verificar_pin(str(corpo.get("atual") or ""), guardado):
-            bloqueio.falhou(conta, self._ip())
             return self._json(403, {"erro": "PIN atual incorreto."})
+        bloqueio.acertou(conta, ip, marca)
         novo = str(corpo.get("novo") or "")
         erro = seguranca.validar_novo_pin(novo, 6 if ator["papel"] == "presidente" else 4)
         if erro:
@@ -3894,12 +4056,15 @@ class Manipulador(BaseHTTPRequestHandler):
         with trava:
             if ator["papel"] == "presidente":
                 S["_pinPresidente"] = h
+                S["_pinInicialPresidente"] = ""
             else:
                 S["_pins"][ator["pid"]] = h
+                S["_pinsIniciais"].pop(ator["pid"], None)
             # encerra os outros acessos desta conta; este continua valendo
+            ct = chave_token(token)
             S["_tokens"] = {t: a for t, a in S["_tokens"].items()
-                            if t == token or not (a["papel"] == ator["papel"] and a.get("pid") == ator["pid"])}
-            S["_tokens"][token]["deveTrocar"] = False
+                            if t == ct or not (a["papel"] == ator["papel"] and a.get("pid") == ator["pid"])}
+            S["_tokens"][ct]["deveTrocar"] = False
             registrar(ator["pid"] or "presidente", "trocarPin", {})
             salvar()
         return self._json(200, {"ok": True})
@@ -3910,40 +4075,74 @@ class Manipulador(BaseHTTPRequestHandler):
             with trava:
                 ator = self._ator()
                 guardado = self._pin_guardado("parlamentar", ator["pid"]) if ator and ator["papel"] == "parlamentar" else None
-            conta = f"parlamentar:{ator['pid'] if ator else ''}"
             if guardado:
-                if bloqueio.espera(conta, self._ip()):
+                conta, ip = f"parlamentar:{ator['pid']}", self._ip()
+                espera, marca = bloqueio.tentar(conta, ip)
+                if espera:
                     return self._json(429, {"erro": "Muitas tentativas erradas. Aguarde alguns minutos."})
                 if not seguranca.verificar_pin(str(args.pop("pin", "")), guardado):
-                    bloqueio.falhou(conta, self._ip())
                     return self._json(403, {"erro": "PIN incorreto: o voto não foi registrado.", "codigo": "pin"})
-                bloqueio.acertou(conta)
+                bloqueio.acertou(conta, ip, marca)
         args.pop("pin", None)
         with trava:
             ator = self._ator()
             if not ator:
                 return self._json(401, {"erro": "Sessão expirada. Entre novamente."})
-            if ator.get("deveTrocar"):
-                return self._json(403, {"erro": "Troque o PIN padrão antes de continuar.", "codigo": "trocarPin"})
             if nome not in ACOES or ator["papel"] not in ACOES[nome][0]:
                 return self._json(403, {"erro": "Ação não permitida."})
             antes = json.dumps(S)
+            # voto secreto: a auditoria guarda só que a pessoa votou, nunca o voto
+            secreta = nome in ("votar", "votarPor") and (S.get("votacao") or {}).get("tipo") == "secreta"
             try:
                 ACOES[nome][1](ator, **args)
             except Erro:
                 S.clear()
                 S.update(json.loads(antes))
                 raise
-            except TypeError:
+            except (TypeError, ValueError, KeyError, AttributeError, IndexError):
+                # qualquer parâmetro malformado: desfaz tudo (nada fica pela metade) e responde, sem derrubar o pedido
                 S.clear()
                 S.update(json.loads(antes))
                 raise Erro("Parâmetros inválidos.")
+            except Exception:
+                S.clear()
+                S.update(json.loads(antes))
+                print(f"Erro inesperado na ação {nome}:", flush=True)
+                traceback.print_exc()
+                raise Erro("Erro interno ao executar a ação. Nada foi alterado.")
+            if secreta:
+                args = {"votou": True, **({"pid": args.get("pid")} if nome == "votarPor" else {})}
             registrar(ator["pid"] or "presidente", nome, args)
             confirmar()
         return self._json(200, {"ok": True})
 
 
-class ServidorTLS(ThreadingHTTPServer):
+class ServidorLimitado(ThreadingHTTPServer):
+    """Uma thread por conexão, mas com teto (MAX_CONEXOES): acima dele a conexão nova é fechada na hora."""
+    daemon_threads = True
+
+    def __init__(self, *a, **k):
+        self._vagas = threading.BoundedSemaphore(MAX_CONEXOES)
+        super().__init__(*a, **k)
+
+    def process_request(self, request, client_address):
+        if not self._vagas.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._vagas.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._vagas.release()
+
+
+class ServidorTLS(ServidorLimitado):
     daemon_threads = True
 
     def __init__(self, endereco, manipulador, contexto: ssl.SSLContext):
@@ -4005,7 +4204,7 @@ def main():
         ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         ctx.load_cert_chain(str(par[0]), str(par[1]))
         try:
-            https = ServidorTLS(("0.0.0.0", PORTA_HTTPS), Manipulador, ctx)
+            https = ServidorTLS((HOST, PORTA_HTTPS), Manipulador, ctx)   # mesmo HOST do HTTP (atrás de proxy: 127.0.0.1)
         except OSError as e:
             print(f"HTTPS desativado: porta {PORTA_HTTPS} indisponível ({e.strerror}). Use PORTA_HTTPS=outra porta.")
             par = None
@@ -4018,10 +4217,16 @@ def main():
         print(f"HTTPS: https://localhost:{PORTA_HTTPS}" + "".join(f"  https://{i}:{PORTA_HTTPS}" for i in ips[:3]))
         print("Primeiro acesso de cada aparelho (instala o certificado e abre o LEGIS): "
               + "  ".join(f"http://{i}{'' if PORTA == 80 else f':{PORTA}'}/certificado" for i in ips[:3]))
-    servidor = ThreadingHTTPServer((HOST, PORTA), Manipulador)
+    servidor = ServidorLimitado((HOST, PORTA), Manipulador)
     servidor.daemon_threads = True
     servidor.redireciona = bool(par)
-    print(f"Parlatório Legis em http://localhost:{PORTA}  (PIN do presidente: variável PIN_PRESIDENTE)", flush=True)
+    print(f"Parlatório Legis em http://{'localhost' if HOST in ('0.0.0.0', '::') else HOST}:{PORTA}", flush=True)
+    with trava:
+        inicial = S.get("_pinInicialPresidente") if not S.get("_pinPresidente") and not PIN_PRESIDENTE else ""
+    if inicial:
+        print(f"PIN inicial do presidente: {inicial} (troque no primeiro acesso)", flush=True)
+    elif not S.get("_pinPresidente"):
+        print("PIN inicial do presidente: o da variável PIN_PRESIDENTE (troque no primeiro acesso)", flush=True)
     if not TROCA_PIN_OBRIGATORIA:
         print("ATENÇÃO: troca obrigatória de PIN desligada (TROCA_PIN=0) — use só em testes.", flush=True)
     print(f"Transcrição dos discursos: {transcritor.descricao()}", flush=True)

@@ -80,9 +80,10 @@ class PrimeiraConfiguracao(unittest.TestCase):
         with urllib.request.urlopen(f"{s.base}/imagem/{com_foto[0]['id']}?v={com_foto[0]['fotoV']}", timeout=5) as f:
             self.assertEqual(f.read(), FOTO)
 
-        # o login do vereador de exemplo deixa de valer; os novos entram com 0000 (troca obrigatória)
+        # o login do vereador de exemplo deixa de valer; os novos entram com PIN inicial próprio (troca obrigatória)
         self.assertEqual(s.acao(vereador, "presenca")["HTTP"], 401)
-        novo = s.req("/api/entrar", {"papel": "parlamentar", "pid": e["parls"][0]["id"], "pin": "0000"})
+        novo = s.req("/api/entrar", {"papel": "parlamentar", "pid": e["parls"][0]["id"],
+                                     "pin": s.pin_inicial(e["parls"][0]["id"])})
         self.assertTrue(novo["ator"]["deveTrocar"])
 
         # depois de configurada, não troca mais os vereadores por aqui

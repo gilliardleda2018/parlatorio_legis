@@ -17,8 +17,22 @@ if [ -n "${CIDADE_DIR:-}" ]; then   # dados da Câmara (vereadores, fotos, bras�
   mkdir -p "$R/usr/share/legis/cidade"
   cp "$CIDADE_DIR/dados.json" "$R/usr/share/legis/cidade/dados.json"
   cp "$CIDADE_DIR/config" "$R/DEBIAN/config"
-  sed -i "s|^Description: .*|X-Legis-Cidade: ${CIDADE_ROTULO}\n&|" "$R/DEBIAN/control"
-  sed -i "s|^ IA local (Ollama) e publicação na internet pelo Tailscale.| IA local (Ollama) e publicação na internet pelo Tailscale.\n .\n Pacote personalizado: ${CIDADE_ROTULO}, com os vereadores eleitos e o brasão.|" "$R/DEBIAN/control"
+  # sem sed: | / & \ no nome da Câmara não viram parte da expressão
+  python3 - "$R/DEBIAN/control" "${CIDADE_ROTULO:-}" <<'PY'
+import sys
+from pathlib import Path
+arq, rotulo = Path(sys.argv[1]), sys.argv[2]
+if not rotulo.strip() or not rotulo.isprintable():
+    sys.exit("Rótulo da Câmara inválido.")
+linhas = []
+for linha in arq.read_text(encoding="utf-8").splitlines():
+    if linha.startswith("Description: "):
+        linhas.append(f"X-Legis-Cidade: {rotulo}")
+    linhas.append(linha)
+    if linha == " IA local (Ollama) e publicação na internet pelo Tailscale.":
+        linhas += [" .", f" Pacote personalizado: {rotulo}, com os vereadores eleitos e o brasão."]
+arq.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+PY
 fi
 for d in server public scripts; do
   cp -r "$d" "$R/opt/legis/"

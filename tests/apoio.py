@@ -32,18 +32,27 @@ class Servidor:
                 env.pop(k, None)
         self.proc = subprocess.Popen([sys.executable, str(RAIZ / "server" / "servidor.py")], env=env, cwd=RAIZ,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        for _ in range(100):
+        limite = time.time() + float(os.environ.get("TESTE_ESPERA_SERVIDOR", "45"))  # máquinas lentas sobem devagar
+        while time.time() < limite:
+            if self.proc.poll() is not None:
+                break  # o servidor morreu: mostra o erro já
             try:
                 urllib.request.urlopen(self.base + "/", timeout=1)
                 break
             except OSError:
                 time.sleep(0.1)
         else:
+            self.proc.poll()
+        if self.proc.returncode is not None or time.time() >= limite:
+            self.proc.kill()
+            erro = self.proc.stderr.read().decode()[-2000:]  # lê antes de fechar (senão a mensagem real se perde)
             self.parar()
-            raise RuntimeError("servidor não subiu: " + self.proc.stderr.read().decode()[-2000:])
+            raise RuntimeError("servidor não subiu: " + erro)
         self.pins = {}
 
     def parar(self):
+        if self.proc.stderr.closed:
+            return
         self.proc.terminate()
         try:
             self.proc.wait(5)
@@ -90,7 +99,7 @@ class Servidor:
     def entrar(self, papel, pid=None):
         """Entra; se o PIN for o padrão, troca por um PIN forte (como o sistema exige)."""
         chave = (papel, pid)
-        pin = self.pins.get(chave, "1234" if papel == "presidente" else "0000")
+        pin = self.pins.get(chave) or ("1234" if papel == "presidente" else self.pin_inicial(pid))
         r = self.req("/api/entrar", {"papel": papel, "pid": pid, "pin": pin})
         if "token" not in r:
             raise AssertionError(f"login falhou: {r}")
@@ -100,6 +109,11 @@ class Servidor:
             assert t.get("ok"), t
             self.pins[chave] = novo
         return r["token"]
+
+    def pin_inicial(self, pid) -> str:
+        """PIN inicial (aleatório) do vereador, como o presidente vê no painel."""
+        r = self.req("/api/pins-iniciais", token=self.entrar("presidente"))
+        return r["pins"].get(pid, "0000")
 
     def acao(self, token, nome, /, **args):
         return self.req("/api/acao", {"nome": nome, "args": args}, token)

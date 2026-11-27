@@ -16,6 +16,7 @@ pelo Tailscale Funnel), pede a chave de acesso guardada em dados/painel/chave e 
 instalações (/i/… e /p/…) continuam liberadas só com o código de cada Câmara.
 """
 import base64
+import hashlib
 import json
 import mimetypes
 import os
@@ -57,6 +58,12 @@ def chave_acesso() -> str:
 UFS = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI",
        "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
 TIPOS_BRASAO = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+LINK_YOUTUBE = re.compile(r"https://[A-Za-z0-9./?=_@%&:+~#-]+", re.ASCII)   # nada de ; $( ` aspas ou espaço
+
+
+def nome_seguro(valor: str) -> bool:
+    """Município e Câmara vão para scripts que rodam como root: só letras (com acento), dígitos, espaço e .-'"""
+    return all(c.isalnum() or c in " .-'" for c in valor)
 
 
 def slug(t: str) -> str:
@@ -203,13 +210,17 @@ def salvar_camara(dados: dict) -> dict:
         raise ValueError("Escolha o estado.")
     if not municipio:
         raise ValueError("Escreva o município.")
+    if not nome_seguro(municipio):
+        raise ValueError("Município: use só letras, números, espaço e . - '")
     nome = slug(str(dados.get("nome") or "") or municipio)
     if not nome:
         raise ValueError("Nome curto inválido.")
     camara = " ".join(str(dados.get("camara") or "").split())[:120]
+    if not nome_seguro(camara):
+        raise ValueError("Nome da Câmara: use só letras, números, espaço e . - '")
     youtube = str(dados.get("youtube") or "").strip()
-    if youtube and not re.fullmatch(r"https://[^\s<>\"']{3,300}", youtube):
-        raise ValueError("O link do YouTube deve começar com https://")
+    if youtube and (len(youtube) > 300 or not LINK_YOUTUBE.fullmatch(youtube)):
+        raise ValueError("O link do YouTube deve começar com https:// e não pode ter espaços, aspas, ; $ ou `")
     pasta = CAMARAS / nome
     existente = ler_camara(nome)
     if existente and not dados.get("editar"):
@@ -301,7 +312,14 @@ class Painel(BaseHTTPRequestHandler):
             shutil.copyfileobj(f, self.wfile)
 
     def _host_local(self) -> bool:
-        """Endereçado a 127.0.0.1/localhost (barra outro site via DNS apontado para cá)."""
+        """Pedido feito neste computador: veio do loopback, endereçado a 127.0.0.1/localhost (barra outro site via
+        DNS apontado para cá) e sem cabeçalhos de proxy. Pelo Tailscale Funnel a conexão também chega do loopback
+        e o Host é o que o cliente mandar; o que denuncia o proxy são estes cabeçalhos, que ele sempre põe."""
+        if self.client_address[0] not in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+            return False
+        if any(self.headers.get(c) is not None for c in
+               ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Forwarded", "Tailscale-Funnel-Request")):
+            return False
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         return host in ("127.0.0.1", "localhost", "::1")
 
@@ -492,8 +510,19 @@ def distribuir(h, caminho: str, esquema: str):
         base = f"{esquema}://{h.headers.get('Host')}/p/{c['nome']}/{c['codigo']}"
         if not re.fullmatch(r"https?://[A-Za-z0-9.:\[\]-]+/p/[a-z0-9-]+/[A-Za-z0-9_-]+", base):
             return nada()
-        corpo = SCRIPT_REDE.replace("@BASE@", base).replace("@DEB@", deb).replace(
-            "@CAMARA@", (c.get("camara") or c["municipio"]).replace('"', "")).encode()
+        if not re.fullmatch(r"legis-[a-z0-9-]+_[A-Za-z0-9.+~-]+_all\.deb", deb):
+            return nada()
+        def sha256(arq: Path) -> str:
+            h = hashlib.sha256()
+            with open(arq, "rb") as f:
+                while bloco := f.read(1 << 20):
+                    h.update(bloco)
+            return h.hexdigest()
+        # nome da Câmara só com caracteres seguros (Câmaras antigas podem ter outros); o script roda como root
+        rotulo = "".join(ch for ch in (c.get("camara") or c["municipio"]) if ch.isalnum() or ch in " .-'")
+        corpo = SCRIPT_REDE.replace("@BASE@", base).replace("@DEB@", deb).replace("@CAMARA@", rotulo).replace(
+            "@SHA_DEB@", sha256(DIST_CIDADES / c["nome"] / deb)).replace(
+            "@SHA_INSTALADOR@", sha256(RAIZ / "packaging" / "instalar-legis.sh")).encode()
         h.send_response(200)
         h.send_header("Content-Type", "text/x-shellscript; charset=utf-8")
         h.send_header("Content-Length", str(len(corpo)))
@@ -522,10 +551,10 @@ baixar() { curl -fsSL -o "$2" "$1" 2>/dev/null || wget -qO "$2" "$1"; }
 T=$(mktemp -d)
 echo "== LEGIS de @CAMARA@: baixando o pacote do painel..."
 baixar "@BASE@/@DEB@" "$T/@DEB@"
-baixar "@BASE@/@DEB@.sha256" "$T/@DEB@.sha256"
-(cd "$T" && sha256sum -c "@DEB@.sha256" >/dev/null) || { echo "O pacote baixado não confere (SHA-256)."; exit 1; }
+echo "@SHA_DEB@  $T/@DEB@" | sha256sum -c - >/dev/null || { echo "O pacote baixado não confere (SHA-256)."; exit 1; }
 echo "   pacote conferido (SHA-256)"
 baixar "@BASE@/instalar-legis.sh" "$T/instalar-legis.sh"
+echo "@SHA_INSTALADOR@  $T/instalar-legis.sh" | sha256sum -c - >/dev/null || { echo "O instalador baixado não confere (SHA-256)."; exit 1; }
 DEB="$T/@DEB@" bash "$T/instalar-legis.sh"
 """
 

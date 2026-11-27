@@ -2,6 +2,7 @@
    Discursos.montar(elemento, { pid }) — sem pid busca em todos os parlamentares. */
 (() => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const urlSegura = u => { const t = String(u ?? '').trim(); return /^(https?:\/\/|\/(?![\/\\]))/i.test(t) ? t : ''; };
   const semAcento = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
   function realcar(texto, termos) {
@@ -42,7 +43,7 @@
             <span class="suave">${esc(d.sessao)}${d.fase ? ' · ' + esc(d.fase) : ''} · ${new Date(d.inicio).toLocaleDateString('pt-BR')}</span></div>
           <p class="disc-trecho">${realcar(d.trecho, termos)}</p>
           <div class="disc-acoes"><button class="botao pq fantasma" data-ler>Ler a íntegra (${d.palavras} palavras)</button>
-            <audio controls preload="none" src="${d.audio}"></audio>
+            <audio controls preload="none" src="${esc(urlSegura(d.audio))}"></audio>
             ${d.revisada ? '' : '<small class="suave">transcrição automática, pode conter erros — vale o áudio</small>'}</div>
         </article>`).join('');
     }
@@ -63,7 +64,7 @@
       const r = await fetch('/api/perguntar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pergunta: (pid ? 'Discursos deste parlamentar: ' : '') + campo.value, escopo: 'discursos' }) }).then(x => x.json()).catch(() => ({ erro: 'Sem conexão.' }));
       if (r.erro) { resp.innerHTML = `<p class="detalhe">${esc(r.erro)}</p>`; return; }
-      const fontes = (r.fontes || []).map((f, k) => `<div class="disc-cab" style="margin-top:6px">[${k + 1}] <a href="${esc(f.link || '#')}">${esc(f.titulo)}</a> — <span class="suave">${esc(f.texto.slice(0, 220))}…</span></div>`).join('');
+      const fontes = (r.fontes || []).map((f, k) => `<div class="disc-cab" style="margin-top:6px">[${k + 1}] <a href="${esc(urlSegura(f.link) || '#')}">${esc(f.titulo)}</a> — <span class="suave">${esc(f.texto.slice(0, 220))}…</span></div>`).join('');
       resp.innerHTML = `<div class="cartao neutro" style="margin:8px 0">${r.resposta ? `<p style="margin:0 0 6px">${esc(r.resposta)}</p>` : ''}${fontes}
         ${r.modo === 'ia' ? '<small class="suave">Resposta automática a partir dos discursos publicados; confira nas fontes.</small>' : ''}</div>`;
     });

@@ -9,15 +9,14 @@ on:
     paths-ignore: ["**.md", "docs/**", "LICENSE"]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 concurrency:
   group: pacotes
   cancel-in-progress: false
 
 jobs:
   versao:
+    permissions:
+      contents: write   # só este job publica releases
     if: ${{ !contains(github.event.head_commit.message, '[sem versão]') }}
     runs-on: ubuntu-latest
     steps:

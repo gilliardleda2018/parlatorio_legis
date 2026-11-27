@@ -56,9 +56,10 @@ for _ in $(seq 1 60); do [ -f "$TLS_DIR/servidor.crt" ] && break; sleep 2; done 
 
 mkdir -p "$JITSI_DIR"
 if [ ! -f "$JITSI_DIR/docker-compose.yml" ]; then
-  echo "Baixando a versão estável do docker-jitsi-meet..."
-  TAR=$(curl -fsSL https://api.github.com/repos/jitsi/docker-jitsi-meet/releases/latest | python3 -c "import json,sys; print(json.load(sys.stdin)['tarball_url'])")
-  curl -fsSL "$TAR" | tar -xz -C "$JITSI_DIR" --strip-components=1
+  # versão fixa (a release define também a versão das imagens); para atualizar, troque JITSI_VERSAO
+  JITSI_VERSAO="${JITSI_VERSAO:-stable-9955}"
+  echo "Baixando o docker-jitsi-meet $JITSI_VERSAO..."
+  curl -fsSL "https://github.com/jitsi/docker-jitsi-meet/archive/refs/tags/$JITSI_VERSAO.tar.gz" | tar -xz -C "$JITSI_DIR" --strip-components=1
 fi
 cd "$JITSI_DIR"
 if [ ! -f .env ]; then
