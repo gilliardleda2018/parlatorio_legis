@@ -33,6 +33,10 @@ on:
         description: "Link público da live no YouTube (opcional)"
         required: false
         type: string
+      modelo:
+        description: "Ou: caminho de um modelo do repositório (ex.: cidades/arame/camara.json). Se preenchido, vale o modelo"
+        required: false
+        type: string
 
 concurrency:
   group: pacotes
@@ -54,7 +58,12 @@ jobs:
           NOME: ${{ inputs.nome }}
           BRASAO_URL: ${{ inputs.brasao_url }}
           YOUTUBE: ${{ inputs.youtube_link }}
+          MODELO: ${{ inputs.modelo }}
         run: |
+          if [ -n "$MODELO" ]; then
+            [[ "$MODELO" =~ ^cidades/[a-z0-9-]+/camara\.json$ ]] || { echo "Modelo deve ser cidades/<nome>/camara.json"; exit 1; }
+            exec bash packaging/publicar-camara.sh --modelo "$MODELO"
+          fi
           ARGS=()
           [ -n "$CAMARA" ] && ARGS+=(--camara "$CAMARA")
           [ -n "$NOME" ] && ARGS+=(--nome "$NOME")

@@ -1,0 +1,11 @@
+{
+  "_comentario": "Câmara Municipal de Tuntum (MA): pacote já em uso. Congelada: novas versões do LEGIS não regeneram o pacote sozinhas. Para atualizar de propósito: bash packaging/publicar-camara.sh --modelo cidades/tuntum/camara.json --forcar",
+  "versaoModelo": 1,
+  "uf": "MA",
+  "municipio": "Tuntum",
+  "nome": "tuntum",
+  "camara": "Câmara Municipal de Tuntum",
+  "brasao": "brasao.png",
+  "congelada": true,
+  "youtube": {"link": "https://www.youtube.com/@camaratuntum/live"}
+}

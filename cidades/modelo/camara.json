@@ -1,0 +1,24 @@
+{
+  "_comentario": "Modelo do LEGIS para qualquer Câmara. Copie esta pasta para cidades/<nome-da-cidade>/, preencha e veja cidades/LEIA-ME.md. Só uf e municipio são obrigatórios; o resto tem padrão.",
+  "versaoModelo": 1,
+  "uf": "MA",
+  "municipio": "Nome do Município",
+  "nome": "",
+  "camara": "",
+  "brasao": "",
+  "congelada": false,
+  "visual": {"destaque": "#1f8a4c", "tema": "escuro"},
+  "contatos": {
+    "endereco": "", "telefone": "", "whatsapp": "", "email": "",
+    "site": "", "instagram": "", "facebook": "", "youtube": "", "linkedin": ""
+  },
+  "radio": {"ligada": true, "nome": "", "bitrate": 128},
+  "plenarioVirtual": {"ligado": true, "videoconferencia": "propria"},
+  "certificado": {"nomesExtras": []},
+  "youtube": {"link": ""},
+  "recursos": {"transcricao": "auto", "ia": "auto"},
+  "regimento": {
+    "tempos": {"alerta": 60, "aparte": 60, "ordem": 180},
+    "fases": {}
+  }
+}

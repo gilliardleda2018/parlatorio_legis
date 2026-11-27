@@ -1,7 +1,8 @@
 name: Versão
 
-# A cada atualização do código na main: testes, versão nova publicada (pacote geral) e os pacotes de todas
-# as Câmaras regenerados (releases camara-*). Mudanças só de documentação não geram versão; para pular uma
+# A cada atualização do código na main: testes, versão nova publicada (pacote geral) e os pacotes das
+# Câmaras regenerados: as de cidades/<nome>/camara.json e as releases camara-*. Câmaras congeladas
+# ("congelada": true, ex.: Tuntum) não são mexidas. Mudanças só de documentação não geram versão; para pular uma
 # versão, ponha [sem versão] na mensagem do commit.
 on:
   push:
@@ -34,10 +35,34 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # 1) cidades do repositório (cidades/<nome>/camara.json): criar uma pasta já publica a Câmara.
+          #    Congeladas (ex.: Tuntum) ficam de fora: só se atualizam de propósito, com --forcar.
+          FEITAS=" "
+          for M in cidades/*/camara.json; do
+            SLUG=$(basename "$(dirname "$M")")
+            [ "$SLUG" = modelo ] && continue
+            if python3 packaging/modelo.py congelada "$SLUG"; then echo "== $SLUG: congelada, não mexo"; FEITAS="$FEITAS$SLUG "; continue; fi
+            echo "== $SLUG (modelo do repositório)"
+            bash packaging/publicar-camara.sh --modelo "$M" || echo "::warning::Falhou ao publicar $SLUG"
+            FEITAS="$FEITAS$SLUG "
+          done
+          # 2) Câmaras criadas pelo formulário (releases camara-*), que não estão no repositório
           for TAG in $(gh release list --limit 200 --json tagName -q '.[].tagName' | grep '^camara-' || true); do
+            SLUG=${TAG#camara-}
+            case "$FEITAS" in *" $SLUG "*) continue ;; esac
             D=$(mktemp -d)
             gh release download "$TAG" -p camara.json -D "$D"
             gh release download "$TAG" -p brasao -D "$D" 2>/dev/null || true
+            if gh release download "$TAG" -p modelo.json -D "$D" 2>/dev/null; then
+              B=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['brasao'])" "$D/modelo.json")
+              [ -n "$B" ] && [ -f "$D/brasao" ] && mv "$D/brasao" "$D/$B"
+              if python3 -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('congelada') else 1)" "$D/modelo.json"; then
+                echo "== $TAG: congelada, não mexo"; continue
+              fi
+              echo "== $TAG (modelo da release)"
+              bash packaging/publicar-camara.sh --modelo "$D/modelo.json" || echo "::warning::Falhou ao regenerar $TAG"
+              continue
+            fi
             python3 packaging/camara-vars.py "$D/camara.json" > "$D/vars.sh"
             . "$D/vars.sh"
             ARGS=(--nome "$NOME")

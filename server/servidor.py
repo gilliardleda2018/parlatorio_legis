@@ -22,6 +22,7 @@ import os
 import queue
 import re
 import secrets
+import socket
 import ssl
 import shutil
 import subprocess
@@ -59,6 +60,7 @@ import analise
 import regimento
 import resumo as resumo_mod
 import integridade
+import modelo_cidade
 import tramitacao
 from texto import _sem_acento
 from mesa import CFG_PADRAO, DRIVERS as DRIVERS_MESA, PRESETS, Mesa
@@ -432,6 +434,42 @@ if os.environ.get("LEGIS_YOUTUBE_LINK") and not S["youtube"].get("link"):
 if RADIO_LOCAL and not S["transmissao"].get("configurada"):  # banco novo ou antigo: a rádio local já vem configurada
     S["transmissao"].update(configurada=True, local=True, publico="/radio.mp3", nome=f"{S['casa']['nome']} — Rádio")
     S["_transmissao"]["preset"] = "local"
+# modelo da cidade (cidades/<nome>/camara.json, embutido no pacote da Câmara): aplicado uma vez por banco
+MODELO = os.environ.get("LEGIS_MODELO", "").strip()
+
+
+def aplicar_modelo(forcar: bool = False) -> list[str] | None:
+    """Aplica o modelo de LEGIS_MODELO ao banco, se ainda não foi aplicado (ou se forcar). Chamar com a trava."""
+    if not MODELO or (S.get("_modelo") and not forcar):
+        return None
+    try:
+        m = modelo_cidade.ler(MODELO)
+    except (OSError, modelo_cidade.ModeloInvalido) as e:
+        print(f"Modelo da cidade ignorado ({MODELO}): {e}", flush=True)
+        return None
+    feito = modelo_cidade.aplicar(S, m, agora())
+    if m["brasao"]:   # brasão ao lado do modelo (instalação direta, sem o pacote da Câmara)
+        arq = Path(MODELO).parent / m["brasao"]
+        try:
+            b = arq.read_bytes()
+        except OSError:
+            b = b""
+        mime = "image/png" if b[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg" if b[:2] == b"\xff\xd8" else \
+            "image/webp" if b[8:12] == b"WEBP" else None
+        if mime and len(b) <= 1_500_000:
+            db.execute("insert or replace into imagens (chave, mime, dados) values (?, ?, ?)", ("logo", mime, b))
+            S["casa"]["logoV"] = agora()
+            feito.append("brasão")
+        elif b:
+            print(f"Brasão do modelo ignorado ({arq.name}): use PNG, JPEG ou WebP de até 1,5 MB.", flush=True)
+    registrar("instalacao", "modeloAplicar", {"nome": m["nome"], "impressao": S["_modelo"]["impressao"]})
+    salvar()
+    print(f"Modelo da cidade aplicado ({m['camara']}): " + "; ".join(feito), flush=True)
+    return feito
+
+
+with trava:
+    aplicar_modelo()
 if integridade.preparar_estado(S):  # chave secreta dos recibos de voto
     salvar()
 integridade.instalar_registro_ia(ia, db, trava)  # toda chamada de IA entra na tabela uso_ia
@@ -4831,7 +4869,48 @@ def vigiar_certificado(ctx, intervalo=300):
             print(f"Renovação do certificado falhou: {e}", flush=True)
 
 
+def kit_certificado(pasta: Path, nome: str, porta: int) -> list[Path]:
+    """Arquivos para instalar o certificado nos aparelhos sem internet (pendrive): Windows, iPhone/Mac e o .crt."""
+    crt, _ = tls.gerar(TLS_DIR)
+    pem = (TLS_DIR / "ca.crt").read_bytes()
+    url = certificado_mod.endereco_https(f"{nome}.local", porta)
+    pasta.mkdir(parents=True, exist_ok=True)
+    arquivos = {
+        "LEGIS-certificado.crt": pem,
+        "Windows - instalar certificado.cmd": certificado_mod.windows_cmd(pem, url),
+        "iPhone-iPad-Mac - instalar.mobileconfig": certificado_mod.mobileconfig(pem, S["casa"]["nome"]),
+        "LEIA-ME.txt": (f"Certificado do LEGIS de {S['casa']['nome']}\r\n\r\n"
+                        f"Com o aparelho na rede da Câmara, o mais fácil é abrir http://{nome}.local/certificado .\r\n"
+                        "Sem rede, use estes arquivos (copie para um pendrive):\r\n"
+                        "- Windows: dois cliques em 'Windows - instalar certificado.cmd' (não precisa de administrador).\r\n"
+                        "- iPhone, iPad e Mac: abra o .mobileconfig e confirme em Ajustes > Geral > VPN e Gerenciamento;\r\n"
+                        "  no iPhone, ative também em Ajustes > Geral > Sobre > Ajustes de Confiança de Certificados.\r\n"
+                        "- Android: Configurações > Segurança > Criptografia > Instalar certificado > Certificado de CA,\r\n"
+                        "  e escolha LEGIS-certificado.crt.\r\n"
+                        "- Linux: sudo cp LEGIS-certificado.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates\r\n"
+                        f"\r\nDepois abra {url}\r\n"
+                        "Este certificado é desta Câmara: foi criado na instalação deste servidor e só vale para a rede local.\r\n"
+                        ).encode("utf-8"),
+    }
+    saida = []
+    for nome_arq, dados in arquivos.items():
+        (pasta / nome_arq).write_bytes(dados)
+        saida.append(pasta / nome_arq)
+    return saida
+
+
 def main():
+    if "--reaplicar-modelo" in sys.argv:
+        with trava:
+            feito = aplicar_modelo(forcar=True)
+        print("Modelo reaplicado." if feito else "Sem modelo (LEGIS_MODELO) para aplicar.")
+        return
+    if "--kit-certificado" in sys.argv:
+        pasta = Path(sys.argv[sys.argv.index("--kit-certificado") + 1])
+        nome = os.environ.get("LEGIS_NOME") or socket.gethostname()
+        for arq in kit_certificado(pasta, nome, PORTA_HTTPS):
+            print(arq)
+        return
     if "--renovar-certificado" in sys.argv:
         crt, _ = tls.gerar(TLS_DIR, renovar=True)
         print(f"Certificado renovado: {crt}\n{tls.nomes_no_certificado(crt)}")

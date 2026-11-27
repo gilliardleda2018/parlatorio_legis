@@ -12,7 +12,7 @@ sudo bash instalar-legis.sh
 
 É automático: não pergunta nada. Instala o LEGIS com a rádio da Câmara já criada (sobe junto com o LEGIS), a videoconferência própria (Jitsi), a transcrição e as legendas, e a IA local se a máquina tiver 8 GB de RAM. A cidade é escolhida no primeiro acesso ao painel do presidente, e os vereadores vêm do TSE.
 
-Para escolher tudo na instalação, rode `sudo bash instalar-legis.sh --perguntar`. Também dá para passar as respostas, por exemplo `sudo UF=ma MUNICIPIO=Tuntum NOME=tuntum TS_AUTHKEY=tskey-auth-... bash instalar-legis.sh`:
+Para qualquer cidade a partir do modelo (veja `cidades/LEIA-ME.md` no repositório): `sudo bash instalar-legis.sh --modelo camara.json`. Para escolher tudo na instalação, rode `sudo bash instalar-legis.sh --perguntar`. Também dá para passar as respostas, por exemplo `sudo UF=ma MUNICIPIO=Tuntum NOME=tuntum TS_AUTHKEY=tskey-auth-... bash instalar-legis.sh`:
 
 | Opção | Para quê |
 |---|---|
@@ -29,10 +29,10 @@ Leva alguns minutos. Transcrição, IA e publicação na internet terminam em se
 ## Depois de instalar
 
 1. `sudo legis`: mostra o endereço e o **PIN inicial do presidente**.
-2. Em cada computador e celular da Câmara, abra `http://IP-DO-SERVIDOR/certificado` (o `legis resumo` mostra o link com o IP certo). A página reconhece o aparelho: no Windows baixa um instalador que confia no certificado e abre o LEGIS; no iPhone/Mac, um perfil; no Android e Linux, o arquivo com o caminho certo. Quando o aparelho passa a confiar, aparece o botão **Abrir o LEGIS** (`https://IP-DO-SERVIDOR`), sem aviso de conexão não segura.
+2. O certificado HTTPS já foi criado na instalação. Em cada computador e celular da Câmara, abra `http://IP-DO-SERVIDOR/certificado` (o `legis resumo` mostra o link com o IP certo). A página reconhece o aparelho: no Windows baixa um instalador que confia no certificado e abre o LEGIS; no iPhone/Mac, um perfil; no Android e Linux, o arquivo com o caminho certo. Quando o aparelho passa a confiar, aparece o botão **Abrir o LEGIS** (`https://IP-DO-SERVIDOR`), sem aviso de conexão não segura.
 3. Abra `https://NOME.local/presidente`, entre com o PIN inicial e crie um PIN próprio. Se a cidade não foi escolhida na instalação, aparece a caixa **De qual cidade é esta Câmara?**.
 4. Em **Configurações**: brasão, contatos, mesa de som, rádio e **YouTube ao vivo** (cole a chave de transmissão do YouTube Studio).
-5. Vereadores entram em `/parlamentar` com o PIN `0000` e trocam no primeiro acesso.
+5. Vereadores entram em `/parlamentar` com o PIN inicial de cada um (o presidente vê em **Plenário → PINs iniciais**) e trocam no primeiro acesso.
 
 ## Comandos
 
@@ -43,6 +43,8 @@ Leva alguns minutos. Transcrição, IA e publicação na internet terminam em se
 | `sudo legis logs` | registro do serviço |
 | `sudo legis reiniciar` | reinicia o LEGIS e a rádio |
 | `sudo dpkg-reconfigure legis` | refaz as perguntas (por exemplo, para publicar na internet depois) |
+| `sudo legis certificado /media/<pendrive>` | copia o kit do certificado para instalar nos aparelhos sem rede (Windows, iPhone/Mac, Android, Linux) |
+| `sudo legis modelo [--reaplicar]` | mostra o modelo da cidade em uso; `--reaplicar` aplica de novo as preferências dele |
 
 **Atualizar:** rode o `instalar-legis.sh` de uma versão nova, ou `sudo apt install ./legis_<nova>_all.deb`. Dados e configuração são mantidos. Os dados ficam em `/var/lib/legis`, com backup diário.
 

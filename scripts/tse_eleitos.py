@@ -44,11 +44,12 @@ def main():
 
     with servidor.trava:
         servidor.aplicar_cidade(dados)
+        servidor.aplicar_modelo(forcar=True)   # preferências do modelo da cidade (LEGIS_MODELO), depois dos dados do TSE
     for e in dados["eleitos"]:
         print(f"  {e['nome']:<28} {e['partido']:<6} nº {e['numero']:<6} {e['votos']:>5} votos  {'foto ✓' if e.get('foto') else 'sem foto'}")
     servidor.db.commit()
     servidor.salvar()
-    print(f"\nBanco criado em {banco}. PIN inicial de todos: 0000 (troque em Plenário → Editar).")
+    print(f"\nBanco criado em {banco}. Cada vereador tem um PIN inicial próprio: veja em Plenário → PINs iniciais.")
 
 
 if __name__ == "__main__":
