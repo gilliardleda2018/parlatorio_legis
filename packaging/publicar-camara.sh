@@ -114,7 +114,16 @@ print(json.dumps({"uf": uf.upper(), "municipio": municipio, "nome": nome, "camar
 PY
 [ -n "$BRASAO" ] && cp "$BRASAO" "$SAIDA/brasao"
 # o modelo completo também vai na release: a regeneração a cada versão usa o mesmo modelo
-[ -n "$MODELO" ] && python3 packaging/modelo.py normalizar "$MODELO" "$SAIDA/modelo.json"
+if [ -n "$MODELO" ]; then   # o brasão da release se chama "brasao": o modelo publicado aponta para ele
+  python3 packaging/modelo.py normalizar "$MODELO" "$SAIDA/modelo.json"
+  python3 - "$SAIDA/modelo.json" "$( [ -n "$BRASAO" ] && echo sim )" <<'PY'
+import json, sys
+arq, tem = sys.argv[1], sys.argv[2]
+m = json.load(open(arq, encoding="utf-8"))
+m["brasao"] = "brasao" if tem else ""
+open(arq, "w", encoding="utf-8").write(json.dumps(m, ensure_ascii=False, indent=2) + "\n")
+PY
+fi
 
 TAG="camara-$SLUG"
 NOTAS="$OBRA/notas.md"
