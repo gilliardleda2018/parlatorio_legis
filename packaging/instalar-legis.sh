@@ -263,14 +263,24 @@ legis legis/youtube_chave password $YOUTUBE_CHAVE
 legis legis/youtube_link string ${YOUTUBE_LINK:-}
 legis legis/tailscale_chave password $TS_AUTHKEY
 EOF
-EXTRAS=(avahi-daemon)
-sim "$TRANSCRICAO" && EXTRAS+=(python3-venv)
-if { sim "$IA" || sim "$JITSI" || [ -n "$TS_AUTHKEY" ]; } && ! command -v docker >/dev/null; then
-  EXTRAS+=(docker.io)   # IA, Jitsi e Tailscale rodam em contêiner; não mexe num Docker oficial já instalado
+# O pacote completo: Docker sempre (videoconferência, IA e internet rodam em contêiner), já ligado e respondendo
+# ANTES do LEGIS, porque o pacote começa a instalar esses extras assim que entra. Não mexe num Docker já instalado.
+if ! command -v docker >/dev/null; then
+  DOCKER=(docker.io)
   for p in docker-cli docker-compose; do   # no Debian 13 o comando docker fica em docker-cli
-    apt-cache show "$p" >/dev/null 2>&1 && EXTRAS+=("$p")
+    apt-cache show "$p" >/dev/null 2>&1 && DOCKER+=("$p")
   done
+  echo "Instalando o Docker (${DOCKER[*]})..."
+  apt-get install -y -q --no-install-recommends "${DOCKER[@]}" iptables 2>&1 | grep -vE "^(Selecting|Preparing|Unpacking|Setting up|Processing|\(Reading)" || true
+  command -v docker >/dev/null || { echo "Não consegui instalar o Docker (veja as mensagens acima)."; exit 1; }
 fi
+if [ -d /run/systemd/system ]; then
+  systemctl enable --now docker.socket docker.service >/dev/null 2>&1 || true
+  for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done
+  docker info >/dev/null 2>&1 && echo "  ${VERDE}✔${FIM} Docker ligado" \
+    || echo "  Aviso: o Docker não respondeu; videoconferência, IA e internet tentam de novo com  sudo legis extras"
+fi
+EXTRAS=(avahi-daemon python3-venv)
 echo "Instalando o LEGIS e ${EXTRAS[*]} (alguns minutos)..."
 apt-get install -y -q --no-install-recommends "$DEB" "${EXTRAS[@]}" 2>&1 | grep -vE "^(Selecting|Preparing|Unpacking|Setting up|Processing|\(Reading)" || true
 dpkg -s legis 2>/dev/null | grep -q '^Status: install ok installed' || { echo "A instalação do pacote falhou (veja as mensagens acima)."; exit 1; }
@@ -279,5 +289,5 @@ unset TS_AUTHKEY YOUTUBE_CHAVE
 echo
 echo "${VERDE}${NEGRITO}✔ LEGIS instalado em $(( ($(date +%s) - INICIO) / 60 )) min $(( ($(date +%s) - INICIO) % 60 )) s.${FIM}"
 echo "  Certificado dos aparelhos sem internet (pendrive): sudo legis certificado"
-[ -n "$MUNICIPIO" ] || echo "  No primeiro acesso ao painel do presidente, escolha a cidade: os vereadores vêm do TSE."
+[ -n "$MUNICIPIO" ] || [ -n "$CIDADE_PACOTE" ] || echo "  No primeiro acesso ao painel do presidente, escolha a cidade: os vereadores vêm do TSE."
 echo "  Transcrição, IA, videoconferência e internet continuam instalando em segundo plano: acompanhe com  sudo legis estado"

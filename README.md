@@ -530,3 +530,16 @@ Tudo o que muda de uma Câmara para outra fica num arquivo só: `cidades/<nome>/
   - transcrição, IA e videoconferência baixam em paralelo;
   - no fim, o instalador mostra quanto tempo levou.
 - O servidor aplica o modelo (`LEGIS_MODELO`) **uma vez por banco**, na primeira partida; depois vale o painel. Para aplicar de novo: `sudo legis modelo --reaplicar`.
+
+### Brasão automático
+
+Quando a Câmara não envia o brasão (pacote, modelo, instalação direta ou a caixa **De qual cidade é esta Câmara?** do painel), o LEGIS busca o brasão do município no **Wikidata** (propriedade P94, achada pelo código do IBGE) e baixa o arquivo do **Wikimedia Commons**: PNG, JPEG ou WebP de até 1,5 MB, e SVG pela miniatura PNG. Só entra sozinho o brasão de **domínio público ou CC0**. Com licença que exige crédito ao autor, ou sem brasão no Wikidata, a Câmara envia o dela em **Configurações**. O brasão enviado pela Câmara nunca é trocado pelo automático, e o endereço de onde ele veio fica guardado (`casa.brasaoFonte`). Nos testes, `LEGIS_WIKIDATA_URL` e `LEGIS_COMMONS_URL` apontam para servidores simulados.
+
+### Tudo de Tuntum em toda Câmara: portal legislativo e pacote completo
+
+Tuntum tem, além dos vereadores do TSE, os dados reais do portal da Câmara (plataforma legislativomunicipal.com). Lá estão as sessões com presença e pauta, as matérias com ementa, fase e situação, os ex-vereadores e suplentes, e o nome civil, o cargo na Mesa e a presença de cada vereador. Agora toda Câmara recebe o mesmo:
+
+- **O portal é descoberto sozinho** pelo nome do município (`https://www.cm<município>.legislativomunicipal.com`) ou vem do modelo (`portal.url`). Ele fica guardado na Câmara (`casa.portal`) e vai para o rodapé público.
+- **A instalação importa o portal** em segundo plano, logo depois de instalar (`/var/log/legis-extras.log`). Para atualizar depois: `sudo legis importar-portal`.
+- **O pacote é completo:** o Docker é instalado e ligado antes do LEGIS, e a videoconferência própria (Jitsi), a IA local, a transcrição e a internet (Tailscale) entram sem depender de nada instalado à mão.
+- Vereadores novos que vêm do portal recebem PIN inicial aleatório, como os do TSE. Nunca `0000`.

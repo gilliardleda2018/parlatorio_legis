@@ -6,6 +6,7 @@
 #   legis importar-tse UF "Município"   vereadores eleitos (só num banco vazio)
 #   legis reconfigurar perguntas da instalação de novo (dpkg-reconfigure legis)
 #   legis extras       instala transcrição, IA local e publicação na internet escolhidas
+#   legis importar-portal [url]  sessões, matérias e ex-vereadores do portal da Câmara (legislativomunicipal.com)
 #   legis certificado [pasta]   kit do certificado para os aparelhos (copia para a pasta, ex.: pendrive)
 #   legis modelo [--reaplicar]  modelo da cidade em uso; --reaplicar aplica de novo as preferências
 set -euo pipefail
@@ -83,6 +84,33 @@ estado() {
   echo
 }
 
+portal_do_banco() {   # endereço do portal legislativomunicipal.com guardado na Câmara (vazio se não houver)
+  [ -f "$DADOS/legis.db" ] || return 0
+  python3 - "$DADOS/legis.db" <<'PY' 2>/dev/null || true
+import json, re, sqlite3, sys
+linha = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True).execute("select json from estado where id = 1").fetchone()
+url = (json.loads(linha[0]).get("casa") or {}).get("portal", "") if linha else ""
+print(url if re.fullmatch(r"https://(www\.)?[a-z0-9-]{2,60}\.legislativomunicipal\.com", url or "") else "")
+PY
+}
+
+importar_portal() {   # sessões, matérias, ex-vereadores e presença do portal da Câmara (como em Tuntum)
+  local url="${1:-$(portal_do_banco)}"
+  [ -n "$url" ] || { echo "portal: esta Câmara não tem portal legislativomunicipal.com cadastrado."; return 1; }
+  [[ "$url" =~ ^https://(www\.)?[a-z0-9-]{2,60}\.legislativomunicipal\.com$ ]] || { echo "portal: endereço inválido: $url"; return 1; }
+  echo "portal: importando sessões, matérias e ex-vereadores de $url (alguns minutos; o LEGIS para enquanto isso)..."
+  [ -d /run/systemd/system ] && systemctl stop legis.service
+  local ok=0
+  if runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 BACKUP_HORA= \
+       python3 -u "$APP/scripts/importar_portal_camara.py" "$url" "$DADOS/legis.db"; then   # -u: o log mostra o andamento
+    touch "$DADOS/.portal-importado"; ok=1; echo "portal: importado"
+  else
+    echo "portal: a importação falhou (o portal está no ar?). Tente de novo com  sudo legis importar-portal"
+  fi
+  [ -d /run/systemd/system ] && systemctl start legis.service
+  [ "$ok" = 1 ]
+}
+
 extras() {
   root extras
   exec >>"$LOG" 2>&1
@@ -90,6 +118,16 @@ extras() {
   local TRANSCRICAO IA JITSI NOME
   TRANSCRICAO=$(le_conf TRANSCRICAO); IA=$(le_conf IA); JITSI=$(le_conf JITSI); NOME=$(le_conf NOME)
   local mudou=0 marcas; marcas=$(mktemp -d)
+  # primeiro os dados reais do portal da Câmara (uma vez só; depois, sudo legis importar-portal atualiza)
+  if [ ! -f "$DADOS/.portal-importado" ] && [ -n "$(portal_do_banco)" ]; then
+    importar_portal || true
+  fi
+  # videoconferência, IA e internet precisam do Docker respondendo: liga e espera (até 1 min) antes de começar
+  if command -v docker >/dev/null && ! docker info >/dev/null 2>&1; then
+    [ -d /run/systemd/system ] && systemctl enable --now docker.socket docker.service >/dev/null 2>&1 || true
+    for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done
+    docker info >/dev/null 2>&1 || echo "Docker não respondeu; videoconferência, IA e internet ficam para o próximo  sudo legis extras"
+  fi
   # Transcrição, IA e videoconferência baixam em paralelo (são os passos demorados: ~600 MB, ~2 GB e ~1 GB).
   # Cada um marca o que concluiu; o legis.env só é escrito depois do wait (o Jitsi também mexe nele).
   if [ "${TRANSCRICAO:-false}" = "true" ] && [ ! -x "$DADOS/whisper/bin/python" ]; then
@@ -181,6 +219,9 @@ case "${1:-estado}" in
   reiniciar) root reiniciar; reiniciar; [ -d /run/systemd/system ] && systemctl restart legis-radio.service 2>/dev/null; echo "reiniciado" ;;
   reconfigurar) root reconfigurar; exec dpkg-reconfigure legis ;;
   extras) extras ;;
+  importar-portal)   # sessões, matérias e ex-vereadores do portal legislativomunicipal.com (atualiza o que já existe)
+    root importar-portal
+    importar_portal "${2:-}" ;;
   certificado)   # kit do certificado para os aparelhos sem internet; com destino, copia (ex.: pendrive)
     root certificado
     KIT="$DADOS/certificado-aparelhos"
@@ -210,6 +251,6 @@ case "${1:-estado}" in
     [ -d /run/systemd/system ] && systemctl stop legis.service
     runuser -u legis -- env PARLATORIO_BANCO="$DADOS/legis.db" TRANSCRICAO=0 python3 "$APP/scripts/tse_eleitos.py" "$2" "$3" "$DADOS/legis.db"
     reiniciar ;;
-  ajuda|-h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ajuda|-h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "Comando desconhecido: $1 (legis ajuda)"; exit 1 ;;
 esac

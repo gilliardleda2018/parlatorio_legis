@@ -42,7 +42,7 @@ virtual e sessão remota. A instalação não pergunta nada.
 | `uf`, `municipio` | (obrigatórios) | Os vereadores eleitos (com foto) vêm do TSE e a população do IBGE |
 | `nome` | o município sem acento | Endereço `https://<nome>.local` na rede da Câmara (é também o nome da máquina) |
 | `camara` | Câmara Municipal de \<município\> | Nome nas telas, na ata e na rádio |
-| `brasao` | — | Arquivo ao lado do `camara.json` |
+| `brasao` | o do Wikidata | Arquivo ao lado do `camara.json`. Em branco, o LEGIS busca o brasão do município no Wikidata/Wikimedia Commons pelo código do IBGE (só domínio público ou CC0) |
 | `congelada` | `false` | `true`: as versões novas não regeneram o pacote. Para atualizar de propósito, use `--forcar` |
 | `visual.destaque`, `visual.tema` | `#1f8a4c`, `escuro` | Cor de destaque e tema das telas |
 | `contatos.*` | — | Rodapé público: endereço, telefone, WhatsApp, e-mail, site e redes |
@@ -50,6 +50,7 @@ virtual e sessão remota. A instalação não pergunta nada.
 | `plenarioVirtual.ligado` | `true` | Plenário virtual (votação online com prazo) e sessão remota já prontos |
 | `plenarioVirtual.videoconferencia` | `propria` | `propria` (Jitsi da Câmara, no próprio servidor), `publica` (meet.jit.si) ou `nenhuma` |
 | `certificado.nomesExtras` | `[]` | Domínios ou IPs a mais no certificado (ex.: `camara.barradocorda.ma.leg.br`) |
+| `portal.url` | descoberto pelo nome | Portal da Câmara na plataforma legislativomunicipal.com (ex.: `https://www.cmtuntum.legislativomunicipal.com`). Em branco, o LEGIS procura `cm<município>`. Na instalação, ele importa de lá as sessões, as matérias, os ex-vereadores, o nome civil e a presença, como em Tuntum |
 | `youtube.link` | — | Link público da live. A chave de transmissão **nunca** vai no modelo: entra na instalação (`YOUTUBE_CHAVE=…`) ou no painel |
 | `recursos.transcricao`, `recursos.ia` | `auto` | `auto` (decide pela memória da máquina), `sim` ou `nao` |
 | `regimento.tempos` | alerta 60, aparte 60, ordem 180 | Segundos do aviso de fim de fala, do aparte e da questão de ordem |

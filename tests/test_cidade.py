@@ -15,6 +15,15 @@ RESULTADO = {"dg": "06/10/2024", "carg": [{"nv": 3, "agr": [{"par": [
     {"sg": "BBB", "cand": [{"nmu": "JOAO DOS SANTOS", "n": 22222, "vap": "700", "sqcand": "3", "st": "Eleito por média"},
                            {"nmu": "ANA PEREIRA", "n": 22223, "vap": "650", "sqcand": "4", "st": "Eleito por QP"}]}]}]}]}
 IBGE = [{"resultados": [{"series": [{"serie": {"2022": "12345"}}]}]}]
+BRASAO = b"\x89PNG\r\n\x1a\n" + b"b" * 300   # começo de um PNG
+WIKIDATA = {"results": {"bindings": [{"b": {"value": "http://commons.wikimedia.org/wiki/Special:FilePath/Bras%C3%A3o%20Vila.png"}}]}}
+LICENCA = {"valor": "Public domain"}   # trocável nos testes
+
+
+def commons(base):
+    return {"query": {"pages": {"1": {"imageinfo": [{"url": base + "/img/brasao.png", "thumburl": base + "/img/brasao.png",
+                                                     "mime": "image/png",
+                                                     "extmetadata": {"LicenseShortName": {"value": LICENCA["valor"]}}}]}}}}
 ROTAS = {"/tse/619/config/mun-e000619-cm.json": json.dumps(CONFIG).encode(),
          "/tse/619/dados/ma/ma00001-c0013-e000619-u.json": json.dumps(RESULTADO).encode(),
          "/tse/619/fotos/ma/1.jpeg": FOTO, "/tse/619/fotos/ma/3.jpeg": FOTO}
@@ -23,7 +32,17 @@ ROTAS = {"/tse/619/config/mun-e000619-cm.json": json.dumps(CONFIG).encode(),
 class TseFalso(BaseHTTPRequestHandler):
     def do_GET(self):
         caminho = self.path.split("?")[0]
+        base = f"http://127.0.0.1:{self.server.server_address[1]}"
         corpo = json.dumps(IBGE).encode() if caminho.startswith("/ibge/v3/agregados/4709/") else ROTAS.get(caminho)
+        if caminho == "/wikidata":
+            corpo = json.dumps(WIKIDATA if "9900001" in self.path else {"results": {"bindings": []}}).encode()
+        elif caminho == "/commons":
+            corpo = json.dumps(commons(base)).encode()
+        elif caminho == "/img/brasao.png":
+            corpo = BRASAO
+        elif caminho == "/portal-vilaesperanca/vereadores":   # portal legislativomunicipal.com simulado
+            corpo = b'<a href="/vereadores/1">Maria</a> <a href="/vereadores/2">Joao</a>'
+
         if corpo is None:
             self.send_response(404)
             self.end_headers()
@@ -43,7 +62,9 @@ class PrimeiraConfiguracao(unittest.TestCase):
         cls.fake = ThreadingHTTPServer(("127.0.0.1", 0), TseFalso)
         threading.Thread(target=cls.fake.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{cls.fake.server_address[1]}"
-        cls.s = Servidor(LEGIS_TSE_URL=base + "/tse", LEGIS_IBGE_URL=base + "/ibge")
+        cls.s = Servidor(LEGIS_TSE_URL=base + "/tse", LEGIS_IBGE_URL=base + "/ibge",
+                         LEGIS_WIKIDATA_URL=base + "/wikidata", LEGIS_COMMONS_URL=base + "/commons",
+                         LEGIS_PORTAL_URL=base + "/portal-{nome}")
         cls.P = cls.s.entrar("presidente")
 
     @classmethod
@@ -69,6 +90,15 @@ class PrimeiraConfiguracao(unittest.TestCase):
                              "populacao": 12345})
         e = s.estado()
         self.assertTrue(e["camaraConfigurada"])
+        # brasão automático: Wikidata pelo código IBGE (9900001) e o arquivo no Commons, de domínio público
+        self.assertGreater(e["casa"]["logoV"], 0)
+        self.assertEqual(e["casa"]["brasaoFonte"], "https://commons.wikimedia.org/wiki/File:Bras%C3%A3o%20Vila.png")
+        with urllib.request.urlopen(f"{s.base}/imagem/logo?v={e['casa']['logoV']}", timeout=5) as f:
+            self.assertEqual(f.read(), BRASAO)
+        # portal legislativomunicipal.com descoberto pelo nome do município (a instalação importa de lá)
+        base = s.base.rsplit(":", 1)[0]
+        self.assertTrue(e["casa"]["portal"].endswith("/portal-vilaesperanca"), e["casa"].get("portal"))
+        self.assertEqual(e["rodape"]["camara"]["site"], e["casa"]["portal"])
         self.assertEqual(e["casa"]["municipio"], "Vila Esperança")
         self.assertEqual(e["casa"]["uf"], "MA")
         self.assertEqual([(p["nome"], p["partido"]) for p in e["parls"]],
@@ -89,6 +119,58 @@ class PrimeiraConfiguracao(unittest.TestCase):
         # depois de configurada, não troca mais os vereadores por aqui
         r = s.req("/api/cidade", {"uf": "MA", "municipio": "Vila Esperança"}, P)
         self.assertEqual(r["HTTP"], 409)
+
+
+class BrasaoAutomatico(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import importlib
+        import os
+        import sys
+        from pathlib import Path
+        cls.fake = ThreadingHTTPServer(("127.0.0.1", 0), TseFalso)
+        threading.Thread(target=cls.fake.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{cls.fake.server_address[1]}"
+        os.environ.update(LEGIS_WIKIDATA_URL=base + "/wikidata", LEGIS_COMMONS_URL=base + "/commons")
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
+        import cidade
+        cls.cidade = importlib.reload(cidade)
+
+    @classmethod
+    def tearDownClass(cls):
+        import os
+        for k in ("LEGIS_WIKIDATA_URL", "LEGIS_COMMONS_URL"):
+            os.environ.pop(k, None)
+        cls.fake.shutdown()
+        cls.fake.server_close()
+
+    def setUp(self):
+        self.addCleanup(LICENCA.update, valor="Public domain")
+        self.log = []
+
+    def test_dominio_publico_entra(self):
+        b = self.cidade.brasao("9900001", self.log.append)
+        self.assertEqual((b["mime"], b["dados"], b["licenca"]), ("image/png", BRASAO, "Public domain"))
+
+    def test_licenca_que_pede_credito_nao_entra(self):
+        LICENCA["valor"] = "CC BY-SA 4.0"
+        self.assertIsNone(self.cidade.brasao("9900001", self.log.append))
+        self.assertIn("pede crédito", " ".join(self.log))
+
+    def test_sem_brasao_no_wikidata_e_codigo_invalido(self):
+        self.assertIsNone(self.cidade.brasao("9900002", self.log.append))
+        self.assertIsNone(self.cidade.brasao("abc", self.log.append))
+        self.assertIsNone(self.cidade.brasao('1" } DROP', self.log.append))   # nada de injeção na consulta
+
+    def test_fora_do_ar_nao_derruba(self):
+        import os
+        os.environ["LEGIS_WIKIDATA_URL"] = "http://127.0.0.1:9/sparql"
+        try:
+            c = __import__("importlib").reload(self.cidade)
+            self.assertIsNone(c.brasao("9900001", self.log.append))
+        finally:
+            os.environ["LEGIS_WIKIDATA_URL"] = f"http://127.0.0.1:{self.fake.server_address[1]}/wikidata"
+            type(self).cidade = __import__("importlib").reload(self.cidade)
 
 
 if __name__ == "__main__":

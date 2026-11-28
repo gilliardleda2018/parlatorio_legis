@@ -26,6 +26,9 @@ class Servidor:
         self.porta = porta_livre()
         self.base = f"http://127.0.0.1:{self.porta}"
         env = {**{k: v for k, v in os.environ.items() if not k.startswith(("TRANSCRICAO", "RADIO_"))}, "PORTA": str(self.porta), "PARLATORIO_BANCO": f"{self.dir.name}/teste.db", "HTTPS": "0",
+               # nada de internet nos testes: brasão automático aponta para uma porta fechada (a não ser que o teste diga)
+               "LEGIS_WIKIDATA_URL": "http://127.0.0.1:9/sparql", "LEGIS_COMMONS_URL": "http://127.0.0.1:9/api.php",
+               "LEGIS_PORTAL_URL": "http://127.0.0.1:9/cm{nome}",
                "BACKUP_HORA": "", "BACKUP_DIR": f"{self.dir.name}/backups", "PIN_PRESIDENTE": "1234", **env_extra}
         for k in ("NEXTCLOUD_URL", "NEXTCLOUD_USUARIO", "NEXTCLOUD_SENHA", "JITSI_URL", "JITSI_SEGREDO"):
             if k not in env_extra:

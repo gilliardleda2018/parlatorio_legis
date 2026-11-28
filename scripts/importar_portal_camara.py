@@ -87,6 +87,39 @@ def frase(t: str) -> str:
     return t[:1].upper() + t[1:].lower() if t and t == t.upper() else t
 
 
+def _data(d: str) -> tuple[int, int, int]:
+    dia, mes, ano = d.split("/")
+    return int(ano), int(mes), int(dia)
+
+
+def _mandatos_novos(corpo: str, hoje: tuple) -> dict | None:
+    """Layout novo do portal (ex.: Barra do Corda): tabela "Informações dos mandatos" (cargo, vínculo, legislatura e
+    período) e "Filiação partidária" (período e sigla). Em exercício = um mandato cujo período cobre hoje: suplente
+    que já saiu tem data de fim, e o mesmo vereador aparece de novo em cada legislatura antiga."""
+    a = corpo.find("Informações dos mandatos")
+    if a < 0:
+        return None
+    b = corpo.find("Filiação partidária", a)
+    trecho = corpo[a:b if b > 0 else a + 4000]
+    linhas = re.findall(r"([A-ZÇÃÁÉÍÓÚÂÊÔ()º°ª \-]+?)\s+\d+ª \([^)]*\) Legislatura \((\d{4}) - (\d{4})\)\s+"
+                        r"(\d{2}/\d{2}/\d{4})(?:\s+à\s+(\d{2}/\d{2}/\d{4}))?", trecho)
+    atual = next((cargo for cargo, _, _, ini, fim in linhas
+                  if _data(ini) <= hoje and (not fim or _data(fim) >= hoje)), None)
+    cargo = ""
+    if atual:
+        for chave, nome in (("VICE", "Vice-Presidente"), ("PRESIDENTE", "Presidente"), ("SECRET", "Secretário")):
+            if chave in atual.upper():
+                cargo = nome
+                break
+    partido = ""
+    if b > 0:
+        filiacoes = re.findall(r"(\d{2}/\d{2}/\d{4}) à (\d{2}/\d{2}/\d{4})\s+(\S+(?: do B)?)", corpo[b:b + 1500])
+        vigente = [f for f in filiacoes if _data(f[0]) <= hoje <= _data(f[1])]
+        if vigente or filiacoes:
+            partido = (vigente or filiacoes)[-1][2]   # sigla como o partido escreve (ex.: "PT do B")
+    return {"emExercicio": atual is not None, "cargo": cargo, "partido": partido}
+
+
 def ler_vereador(base: str, vid: int) -> dict | None:
     t = baixar(f"{base}/vereadores/{vid}")
     corpo = texto(re.sub(r"<script.*?</script>|<style.*?</style>", " ", t, flags=re.S))
@@ -94,19 +127,29 @@ def ler_vereador(base: str, vid: int) -> dict | None:
     if not m:
         return None
     og = re.search(r'og:description" content="[^:]*:\s*([^"]+)"', t)
-    civil = html.unescape(og.group(1)).strip() if og else ""
+    civil = " ".join(html.unescape(og.group(1)).split()) if og else ""
     trecho = m.group(1)
-    k = trecho.find(civil) if civil else -1
-    curto = trecho[:k].strip() if k > 0 else trecho.split("  ")[0].strip()
-    resto = trecho[k + len(civil):].strip() if k >= 0 else trecho
+    # o nome civil pode vir em maiúsculas no og e misto na página: procura sem diferenciar caixa nem espaços
+    achado = re.search(r"\s+".join(map(re.escape, civil.split())), trecho, re.I) if civil else None
+    curto = trecho[:achado.start()].strip() if achado and achado.start() > 0 else trecho.split("  ")[0].strip()
+    if achado:
+        civil = achado.group(0)   # a grafia da página (Aurean de Lima Barbalho), não a do og (AUREAN DE LIMA BARBALHO)
+    resto = trecho[achado.end():].strip() if achado else trecho
+    curto = re.sub(r"\s*(Vereador\(A\)|Presidente|Vice-Presidente|\d[ºª] Secretário)\s*-?\s*$", "", curto).strip() or civil
+    # layout antigo (ex.: Tuntum): "Vereador(A) - Vereador Em Exercício Partido: PSB"
     cargo = re.search(r"(Presidente|Vice-Presidente|\d[ºª] Secretário|Vereador\(A\))\s*-\s*([^|]*?)$", resto)
-    partido = m.group(2) if m.group(2) and m.group(2) != "Produção" else ""
+    partido = m.group(2) if m.group(2) and m.group(2) not in ("Produção", "Comissões", "Mandatos", "Filiação") else ""
     em_exercicio = bool(cargo and cargo.group(2).strip())
+    cargo_atual = cargo.group(1).replace("Vereador(A)", "").strip() if cargo else ""
+    novo = _mandatos_novos(corpo, time.localtime()[:3])
+    if novo is not None:   # layout novo (ex.: Barra do Corda): a tabela de mandatos decide; o resto completa
+        em_exercicio = novo["emExercicio"]
+        cargo_atual = novo["cargo"] or (cargo_atual if em_exercicio else "")
+        partido = novo["partido"] or partido
     presenca = re.search(r"Presente em (\d+) sessões, representando ([\d,]+)%", corpo)
     materias = re.search(r"Quantidade de (\d+) matérias", corpo)
     return {"portalId": vid, "curto": curto, "civil": civil or curto, "partido": partido,
-            "cargo": cargo.group(1).replace("Vereador(A)", "").strip() if cargo else "",
-            "emExercicio": em_exercicio, "url": f"{base}/vereadores/{vid}",
+            "cargo": cargo_atual, "emExercicio": em_exercicio, "url": f"{base}/vereadores/{vid}",
             "presencas": int(presenca.group(1)) if presenca else None,
             "presencaPct": float(presenca.group(2).replace(",", ".")) if presenca else None,
             "materias": int(materias.group(1)) if materias else None}
@@ -231,10 +274,27 @@ def main():
     import servidor  # noqa: E402
     S = servidor.S
 
-    ligados = casar([v for v in vereadores if v["emExercicio"]], S["parls"])
+    # a mesma pessoa pode ter um cadastro por legislatura (ex.: Barra do Corda): vira uma pessoa só, em exercício se
+    # algum cadastro estiver; as matérias de todos os cadastros ficam com ela
+    grupos: dict[str, list[dict]] = {}
+    for v in vereadores:
+        grupos.setdefault(" ".join(sem_acento(v["civil"]).split()), []).append(v)
+    pessoas, outros_de = [], {}
+    for grupo in grupos.values():
+        principal = next((v for v in grupo if v["emExercicio"]), max(grupo, key=lambda v: v["portalId"]))
+        pessoas.append(principal)
+        for v in grupo:
+            if v is not principal:
+                outros_de[v["portalId"]] = principal["portalId"]
+                if not principal.get("partido") and v.get("partido") and not principal["emExercicio"]:
+                    principal["partido"] = v["partido"]
+    if outros_de:
+        print(f"Portal: {len(outros_de)} cadastro(s) repetido(s) da mesma pessoa (outras legislaturas) juntado(s)")
+
+    ligados = casar([v for v in pessoas if v["emExercicio"]], S["parls"])
     ex = {p["portalId"]: p for p in S.setdefault("exParls", [])}
     nome_de: dict[int, str] = {}
-    for v in vereadores:
+    for v in pessoas:
         info = {"nomeCivil": v["civil"], "cargoMesa": v["cargo"] if v["cargo"] not in ("", "Vereador") else "",
                 "portal": {k: v[k] for k in ("url", "presencas", "presencaPct", "materias")} | {"lidoEm": servidor.agora()}}
         pid = ligados.get(v["portalId"])
@@ -245,7 +305,7 @@ def main():
             p = {"id": servidor.uid(), "nome": v["curto"], "partido": v["partido"], "lider": False, "fotoV": 0, "canal": 0,
                  "bloco": "", **info}
             S["parls"].append(p)
-            S["_pins"][p["id"]] = servidor.seguranca.hash_pin("0000")
+            servidor.definir_pin_inicial(S, p["id"])   # PIN inicial próprio e aleatório (nunca 0000)
             print(f"  + novo em exercício: {v['curto']}")
         else:
             p = ex.get(v["portalId"]) or {"id": servidor.uid(), "fotoV": 0, "portalId": v["portalId"]}
@@ -253,7 +313,13 @@ def main():
             ex[v["portalId"]] = p
         p["portalId"] = v["portalId"]
         nome_de[v["portalId"]] = p["nome"]
+    for outro, principal in outros_de.items():
+        nome_de[outro] = nome_de[principal]
+        ex.pop(outro, None)   # importação antiga pode ter deixado o cadastro repetido como ex-vereador
     S["exParls"] = list(ex.values())
+    S["casa"]["portal"] = base   # a Câmara passa a saber de onde vêm os dados (legis importar-portal atualiza)
+    if not S["rodape"]["camara"].get("site"):
+        S["rodape"]["camara"]["site"] = base
 
     for p in servidor.proj_todos():
         if p.get("portalId") and ignorar(f"{p.get('tipoNome', '')}: x"):
@@ -295,6 +361,28 @@ def main():
     por_civil = {}
     for p in S["parls"] + S["exParls"]:
         por_civil[sem_acento(p.get("nomeCivil") or p["nome"])] = p
+    # Vereador em exercício que a Câmara não cadastrou no portal (ex.: Barra do Corda) aparece na chamada pelo nome
+    # civil: liga ao nome de urna do TSE pelos nomes em comum (um par por vez, do mais parecido ao menos), guarda o
+    # nome civil e passa a contar a presença dele
+    stop = {"de", "da", "do", "das", "dos", "e", "dr", "silva", "junior", "filho", "neto"}
+    tok = lambda n: {w for w in re.findall(r"[a-z]+", sem_acento(n)) if w not in stop and len(w) > 2}
+    faltam = {c["civil"] for se in sessoes for c in se["chamada"] if sem_acento(c["civil"]) not in por_civil}
+    livres = [p for p in S["parls"] if not p.get("portalId") and not p.get("nomeCivil")]
+    pares = sorted(((len(tok(civil) & tok(p["nome"])), civil, p["id"]) for civil in faltam for p in livres), reverse=True)
+    usados_c, usados_p = set(), set()
+    for n, civil, pid in pares:
+        if not n or civil in usados_c or pid in usados_p:
+            continue
+        empate = [x for x in pares if x[0] == n and (x[1] == civil) != (x[2] == pid) and (x[1] == civil or x[2] == pid)
+                  and x[1] not in usados_c and x[2] not in usados_p]
+        if empate:
+            continue   # dois candidatos igualmente parecidos: não adivinha
+        p = next(x for x in S["parls"] if x["id"] == pid)
+        p["nomeCivil"] = civil
+        por_civil[sem_acento(civil)] = p
+        usados_c.add(civil)
+        usados_p.add(pid)
+        print(f"  chamada: {civil} = {p['nome']} (nome de urna do TSE)")
     projetos = {p.get("portalId"): p for p in servidor.proj_todos() if p.get("portalId")}
     for se in sessoes:
         d, mes, ano = se["data"].split("/")
@@ -341,7 +429,7 @@ def main():
     S["projetosRev"] += 1
     servidor.salvar()
     print(f"\nMatérias: {novos} nova(s), {atualizados} atualizada(s). Vereadores ligados: {len(ligados)}; ex-membros/suplentes: {len(S['exParls'])}.")
-    sem_par = [v["curto"] for v in vereadores if v["emExercicio"] and v["portalId"] not in ligados]
+    sem_par = [v["curto"] for v in pessoas if v["emExercicio"] and v["portalId"] not in ligados]
     if sem_par:
         print("Atenção, entraram como novos (confira se não são duplicados):", ", ".join(sem_par))
 
