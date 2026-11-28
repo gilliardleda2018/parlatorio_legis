@@ -25,6 +25,9 @@ class Validacao(unittest.TestCase):
         self.assertEqual(m["radio"]["nome"], "Câmara Municipal de Barra do Corda — Rádio")
         self.assertTrue(m["plenarioVirtual"]["ligado"])
         self.assertFalse(m["congelada"])
+        m = modelo_cidade.validar({"uf": "MA", "municipio": "Tuntum",
+                                   "portal": {"url": "https://www.cmtuntum.legislativomunicipal.com/"}})
+        self.assertEqual(m["portal"]["url"], "https://www.cmtuntum.legislativomunicipal.com")
 
     def test_recusa_o_que_esta_errado(self):
         ruins = [
@@ -38,6 +41,8 @@ class Validacao(unittest.TestCase):
             {"uf": "MA", "municipio": "Tuntum", "certificado": {"nomesExtras": ["a b"]}},
             {"uf": "MA", "municipio": "Tuntum", "brasao": "../segredo.png"},
             {"uf": "MA", "municipio": "Tuntum", "plenarioVirtual": {"videoconferencia": "zoom"}},
+            {"uf": "MA", "municipio": "Tuntum", "portal": {"url": "https://evil.example.com"}},
+            {"uf": "MA", "municipio": "Tuntum", "portal": {"url": "http://www.cmtuntum.legislativomunicipal.com"}},
         ]
         for dado in ruins:
             with self.assertRaises(modelo_cidade.ModeloInvalido, msg=str(dado)):

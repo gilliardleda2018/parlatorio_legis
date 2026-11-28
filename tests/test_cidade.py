@@ -40,6 +40,9 @@ class TseFalso(BaseHTTPRequestHandler):
             corpo = json.dumps(commons(base)).encode()
         elif caminho == "/img/brasao.png":
             corpo = BRASAO
+        elif caminho == "/portal-vilaesperanca/vereadores":   # portal legislativomunicipal.com simulado
+            corpo = b'<a href="/vereadores/1">Maria</a> <a href="/vereadores/2">Joao</a>'
+
         if corpo is None:
             self.send_response(404)
             self.end_headers()
@@ -60,7 +63,8 @@ class PrimeiraConfiguracao(unittest.TestCase):
         threading.Thread(target=cls.fake.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{cls.fake.server_address[1]}"
         cls.s = Servidor(LEGIS_TSE_URL=base + "/tse", LEGIS_IBGE_URL=base + "/ibge",
-                         LEGIS_WIKIDATA_URL=base + "/wikidata", LEGIS_COMMONS_URL=base + "/commons")
+                         LEGIS_WIKIDATA_URL=base + "/wikidata", LEGIS_COMMONS_URL=base + "/commons",
+                         LEGIS_PORTAL_URL=base + "/portal-{nome}")
         cls.P = cls.s.entrar("presidente")
 
     @classmethod
@@ -91,6 +95,10 @@ class PrimeiraConfiguracao(unittest.TestCase):
         self.assertEqual(e["casa"]["brasaoFonte"], "https://commons.wikimedia.org/wiki/File:Bras%C3%A3o%20Vila.png")
         with urllib.request.urlopen(f"{s.base}/imagem/logo?v={e['casa']['logoV']}", timeout=5) as f:
             self.assertEqual(f.read(), BRASAO)
+        # portal legislativomunicipal.com descoberto pelo nome do município (a instalação importa de lá)
+        base = s.base.rsplit(":", 1)[0]
+        self.assertTrue(e["casa"]["portal"].endswith("/portal-vilaesperanca"), e["casa"].get("portal"))
+        self.assertEqual(e["rodape"]["camara"]["site"], e["casa"]["portal"])
         self.assertEqual(e["casa"]["municipio"], "Vila Esperança")
         self.assertEqual(e["casa"]["uf"], "MA")
         self.assertEqual([(p["nome"], p["partido"]) for p in e["parls"]],

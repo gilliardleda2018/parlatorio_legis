@@ -167,9 +167,14 @@ if [ -d /run/systemd/system ]; then
     systemctl restart legis-radio.service || true
   fi
   systemctl enable avahi-daemon >/dev/null 2>&1 || true
-  if [ "$TRANSCRICAO" = "true" ] || [ "$IA" = "true" ] || [ "$JITSI" = "true" ] || [ -f "$DADOS/.tailscale-chave" ]; then
+  PORTAL_PENDENTE=""   # Câmara com portal legislativomunicipal.com ainda não importado (sessões, matérias, ex-vereadores)
+  if [ ! -f "$DADOS/.portal-importado" ] && [ -f "$DADOS/legis.db" ] && \
+     python3 -c "import json,sqlite3,sys; l=sqlite3.connect(sys.argv[1]).execute('select json from estado where id=1').fetchone(); sys.exit(0 if l and (json.loads(l[0]).get('casa') or {}).get('portal') else 1)" "$DADOS/legis.db" 2>/dev/null; then
+    PORTAL_PENDENTE=1
+  fi
+  if [ "$TRANSCRICAO" = "true" ] || [ "$IA" = "true" ] || [ "$JITSI" = "true" ] || [ -f "$DADOS/.tailscale-chave" ] || [ -n "$PORTAL_PENDENTE" ]; then
     systemd-run --unit=legis-extras --collect --quiet /usr/sbin/legis extras || true
-    EXTRAS=" (transcrição, IA, videoconferência e internet terminam de instalar em segundo plano: sudo legis estado)"
+    EXTRAS=" (dados do portal da Câmara, transcrição, IA, videoconferência e internet terminam em segundo plano: sudo legis estado)"
   fi
 fi
 

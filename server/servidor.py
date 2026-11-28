@@ -3051,6 +3051,10 @@ def aplicar_cidade(dados: dict):
         db.execute("insert or replace into imagens (chave, mime, dados) values (?, ?, ?)", ("logo", logo["mime"], logo["dados"]))
         S["casa"]["logoV"] = agora()
         S["casa"]["brasaoFonte"] = logo.get("fonte", "")   # de onde veio o brasão automático (Wikimedia Commons)
+    if dados.get("portal"):   # portal legislativomunicipal.com: a instalação importa sessões e matérias de lá
+        S["casa"]["portal"] = dados["portal"]
+        if not S["rodape"]["camara"].get("site"):
+            S["rodape"]["camara"]["site"] = dados["portal"]
     for p in S["parls"]:
         db.execute("delete from imagens where chave = ?", (p["id"],))
     novo = estado_inicial()

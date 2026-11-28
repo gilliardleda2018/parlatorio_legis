@@ -41,6 +41,7 @@ PADRAO = {
     "plenarioVirtual": {"ligado": True, "videoconferencia": "propria"},  # propria | publica | nenhuma
     "certificado": {"nomesExtras": []},   # domínios ou IPs a mais no certificado HTTPS (ex.: camara.cidade.ma.leg.br)
     "youtube": {"link": ""},
+    "portal": {"url": ""},   # portal legislativomunicipal.com da Câmara (em branco: descoberto pelo nome do município)
     "recursos": {"transcricao": "auto", "ia": "auto"},              # auto | sim | nao
     "regimento": {
         "tempos": {"alerta": 60, "aparte": 60, "ordem": 180},       # segundos
@@ -153,6 +154,9 @@ def validar(dado: dict) -> dict:
         m["certificado"]["nomesExtras"].append(n)
 
     m["youtube"]["link"] = _url("youtube.link", m["youtube"]["link"])
+    m["portal"]["url"] = str(m["portal"]["url"] or "").strip().rstrip("/")
+    if m["portal"]["url"] and not re.fullmatch(r"https://(www\.)?[a-z0-9-]{2,60}\.legislativomunicipal\.com", m["portal"]["url"]):
+        raise ModeloInvalido("portal.url: só a plataforma legislativomunicipal.com (ex.: https://www.cmtuntum.legislativomunicipal.com).")
     for k in ("transcricao", "ia"):
         if m["recursos"][k] not in ("auto", "sim", "nao"):
             raise ModeloInvalido(f"recursos.{k}: auto, sim ou nao.")
@@ -217,6 +221,11 @@ def aplicar(S: dict, m: dict, agora_ms: int) -> list[str]:
     if m["youtube"]["link"]:
         S["youtube"]["link"] = m["youtube"]["link"]
         feito.append("link do YouTube")
+    if m["portal"]["url"]:
+        S["casa"]["portal"] = m["portal"]["url"]
+        if not S["rodape"]["camara"].get("site"):
+            S["rodape"]["camara"]["site"] = m["portal"]["url"]
+        feito.append("portal legislativo")
     S["cfg"].update(m["regimento"]["tempos"])
     for f in S["fases"]:
         f.update(m["regimento"]["fases"].get(f["id"], {}))

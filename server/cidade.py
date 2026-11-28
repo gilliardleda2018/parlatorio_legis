@@ -3,6 +3,8 @@
   * TSE, resultados das Eleições Municipais 2024 (1º turno): vereadores eleitos com
     nome de urna, partido pelo qual foram eleitos e foto da candidatura;
   * IBGE, Censo 2022: população residente;
+  * portal legislativo da Câmara na plataforma legislativomunicipal.com (o mesmo de Tuntum), quando existe:
+    sessões, matérias, ex-vereadores e presença são importados depois (scripts/importar_portal_camara.py);
   * Wikidata e Wikimedia Commons: o brasão do município (pelo código do IBGE), só quando a imagem é de
     domínio público ou CC0. Brasão enviado pela Câmara sempre vale mais que o automático.
 
@@ -24,6 +26,7 @@ TSE = os.environ.get("LEGIS_TSE_URL", "https://resultados.tse.jus.br/oficial/ele
 IBGE = os.environ.get("LEGIS_IBGE_URL", "https://servicodados.ibge.gov.br/api")
 WIKIDATA = os.environ.get("LEGIS_WIKIDATA_URL", "https://query.wikidata.org/sparql")
 COMMONS = os.environ.get("LEGIS_COMMONS_URL", "https://commons.wikimedia.org/w/api.php")
+PORTAL = os.environ.get("LEGIS_PORTAL_URL", "https://www.cm{nome}.legislativomunicipal.com")   # trocável nos testes
 LIMITE_BRASAO = 1_500_000
 # Só entra sozinho o brasão que pode ser usado sem crédito ao autor (o LEGIS mostra o brasão em telas e atas)
 LICENCAS_LIVRES = re.compile(r"public domain|domínio público|\bpd\b|cc0|cc-zero", re.I)
@@ -99,7 +102,26 @@ def brasao(ibge: str, log=print) -> dict | None:
         return None
 
 
-def buscar(uf: str, municipio: str, log=print, fotos: bool = True, com_brasao: bool = True) -> dict:
+def portal(municipio: str, log=print) -> str | None:
+    """Endereço do portal da Câmara na plataforma legislativomunicipal.com (cm<município>, sem acento nem espaço),
+    se ele existir e listar vereadores. É de lá que vêm sessões, matérias e ex-vereadores, como em Tuntum."""
+    nome = re.sub(r"[^a-z]", "", sem_acento(str(municipio or "")).lower())
+    if not nome:
+        return None
+    url = PORTAL.format(nome=nome)
+    try:
+        pagina = baixar(url + "/vereadores", 3_000_000).decode("utf-8", errors="replace")
+    except Exception:
+        log("Portal legislativo: a Câmara não está na plataforma legislativomunicipal.com (ou o portal está fora do ar).")
+        return None
+    if 'href="/vereadores/' not in pagina:
+        return None
+    log(f"Portal legislativo: {url} (sessões, matérias e ex-vereadores vêm de lá na instalação)")
+    return url
+
+
+def buscar(uf: str, municipio: str, log=print, fotos: bool = True, com_brasao: bool = True,
+           com_portal: bool = True) -> dict:
     """Busca o município no TSE (eleitos e fotos) e no IBGE (população). Levanta ValueError se não achar."""
     uf = str(uf or "").lower().strip()
     if uf not in UFS:
@@ -148,6 +170,10 @@ def buscar(uf: str, municipio: str, log=print, fotos: bool = True, com_brasao: b
 
     saida = {"uf": uf.upper(), "municipio": nome_proprio(mun["nm"]), "ibge": mun["cdi"], "tse": mun["cd"],
              "populacao": populacao, "eleitos": eleitos}
+    if com_portal:
+        url = portal(saida["municipio"], log)
+        if url:
+            saida["portal"] = url
     if com_brasao:
         logo = brasao(mun["cdi"], log)
         if logo:

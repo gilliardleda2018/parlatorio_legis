@@ -50,6 +50,7 @@ virtual e sessão remota. A instalação não pergunta nada.
 | `plenarioVirtual.ligado` | `true` | Plenário virtual (votação online com prazo) e sessão remota já prontos |
 | `plenarioVirtual.videoconferencia` | `propria` | `propria` (Jitsi da Câmara, no próprio servidor), `publica` (meet.jit.si) ou `nenhuma` |
 | `certificado.nomesExtras` | `[]` | Domínios ou IPs a mais no certificado (ex.: `camara.barradocorda.ma.leg.br`) |
+| `portal.url` | descoberto pelo nome | Portal da Câmara na plataforma legislativomunicipal.com (ex.: `https://www.cmtuntum.legislativomunicipal.com`). Em branco, o LEGIS procura `cm<município>`. Na instalação, ele importa de lá as sessões, as matérias, os ex-vereadores, o nome civil e a presença, como em Tuntum |
 | `youtube.link` | — | Link público da live. A chave de transmissão **nunca** vai no modelo: entra na instalação (`YOUTUBE_CHAVE=…`) ou no painel |
 | `recursos.transcricao`, `recursos.ia` | `auto` | `auto` (decide pela memória da máquina), `sim` ou `nao` |
 | `regimento.tempos` | alerta 60, aparte 60, ordem 180 | Segundos do aviso de fim de fala, do aparte e da questão de ordem |
