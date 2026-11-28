@@ -65,7 +65,7 @@ if camara.strip():
     camara = nome_valido("Nome da Câmara", camara, 120)
 if yt and not re.fullmatch(r"https://[A-Za-z0-9./?=_@%&:+~#-]+", yt, re.ASCII):
     sys.exit(f"Link do YouTube inválido (deve começar com https:// e não ter espaços nem ; $ ` aspas): {yt!r}")
-d = cidade.buscar(uf, municipio)
+d = cidade.buscar(uf, municipio, com_brasao=not brasao)   # sem brasão da Câmara: o do Wikidata, se for livre
 d["municipio"] = nome_valido("Município", d["municipio"], 80)
 semac = "".join(c for c in unicodedata.normalize("NFD", d["municipio"]) if unicodedata.category(c) != "Mn").lower()
 d["nome"] = re.sub(r"[^a-z0-9]+", "-", (nome or semac).lower()).strip("-")

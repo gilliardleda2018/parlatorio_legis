@@ -42,7 +42,7 @@ virtual e sessão remota. A instalação não pergunta nada.
 | `uf`, `municipio` | (obrigatórios) | Os vereadores eleitos (com foto) vêm do TSE e a população do IBGE |
 | `nome` | o município sem acento | Endereço `https://<nome>.local` na rede da Câmara (é também o nome da máquina) |
 | `camara` | Câmara Municipal de \<município\> | Nome nas telas, na ata e na rádio |
-| `brasao` | — | Arquivo ao lado do `camara.json` |
+| `brasao` | o do Wikidata | Arquivo ao lado do `camara.json`. Em branco, o LEGIS busca o brasão do município no Wikidata/Wikimedia Commons pelo código do IBGE (só domínio público ou CC0) |
 | `congelada` | `false` | `true`: as versões novas não regeneram o pacote. Para atualizar de propósito, use `--forcar` |
 | `visual.destaque`, `visual.tema` | `#1f8a4c`, `escuro` | Cor de destaque e tema das telas |
 | `contatos.*` | — | Rodapé público: endereço, telefone, WhatsApp, e-mail, site e redes |

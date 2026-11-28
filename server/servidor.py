@@ -3045,9 +3045,12 @@ def aplicar_cidade(dados: dict):
     S["casa"].update(nome=dados.get("camara") or f"Câmara Municipal de {dados['municipio']}", titulo="Sessão Ordinária",
                      municipio=dados["municipio"], uf=dados["uf"], ibge=dados["ibge"])
     logo = dados.get("logo")
-    if logo and logo.get("mime") in TIPOS_IMAGEM and logo.get("dados"):   # brasão que veio no pacote da Câmara
+    if logo and logo.get("fonte") and S["casa"].get("logoV"):
+        logo = None   # brasão automático (Wikidata) nunca troca o que a Câmara já enviou
+    if logo and logo.get("mime") in TIPOS_IMAGEM and logo.get("dados"):   # brasão do pacote da Câmara ou do Wikidata
         db.execute("insert or replace into imagens (chave, mime, dados) values (?, ?, ?)", ("logo", logo["mime"], logo["dados"]))
         S["casa"]["logoV"] = agora()
+        S["casa"]["brasaoFonte"] = logo.get("fonte", "")   # de onde veio o brasão automático (Wikimedia Commons)
     for p in S["parls"]:
         db.execute("delete from imagens where chave = ?", (p["id"],))
     novo = estado_inicial()

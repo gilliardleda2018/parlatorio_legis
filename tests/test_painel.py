@@ -31,7 +31,8 @@ class PainelDosPacotes(unittest.TestCase):
         cls.pasta = tempfile.TemporaryDirectory()
         cls.porta, cls.porta_rede = porta_livre(), porta_livre()
         env = {**os.environ, "PAINEL_CAMARAS": f"{cls.pasta.name}/camaras", "PAINEL_DIST": f"{cls.pasta.name}/dist",
-               "PAINEL_PORTA": str(cls.porta), "PAINEL_PORTA_REDE": str(cls.porta_rede), "LEGIS_TSE_URL": base + "/tse", "LEGIS_IBGE_URL": base + "/ibge"}
+               "PAINEL_PORTA": str(cls.porta), "PAINEL_PORTA_REDE": str(cls.porta_rede), "LEGIS_TSE_URL": base + "/tse", "LEGIS_IBGE_URL": base + "/ibge",
+               "LEGIS_WIKIDATA_URL": base + "/wikidata", "LEGIS_COMMONS_URL": base + "/commons"}
         cls.proc = subprocess.Popen([sys.executable, str(RAIZ / "packaging" / "painel.py"), "--sem-navegador"], env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cls.base = f"http://127.0.0.1:{cls.porta}"
