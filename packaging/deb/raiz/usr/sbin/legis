@@ -90,6 +90,12 @@ extras() {
   local TRANSCRICAO IA JITSI NOME
   TRANSCRICAO=$(le_conf TRANSCRICAO); IA=$(le_conf IA); JITSI=$(le_conf JITSI); NOME=$(le_conf NOME)
   local mudou=0 marcas; marcas=$(mktemp -d)
+  # videoconferência, IA e internet precisam do Docker respondendo: liga e espera (até 1 min) antes de começar
+  if command -v docker >/dev/null && ! docker info >/dev/null 2>&1; then
+    [ -d /run/systemd/system ] && systemctl enable --now docker.socket docker.service >/dev/null 2>&1 || true
+    for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done
+    docker info >/dev/null 2>&1 || echo "Docker não respondeu; videoconferência, IA e internet ficam para o próximo  sudo legis extras"
+  fi
   # Transcrição, IA e videoconferência baixam em paralelo (são os passos demorados: ~600 MB, ~2 GB e ~1 GB).
   # Cada um marca o que concluiu; o legis.env só é escrito depois do wait (o Jitsi também mexe nele).
   if [ "${TRANSCRICAO:-false}" = "true" ] && [ ! -x "$DADOS/whisper/bin/python" ]; then
